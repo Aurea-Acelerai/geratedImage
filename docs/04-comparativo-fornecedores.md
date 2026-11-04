@@ -106,6 +106,9 @@ Consolidados das fontes (OpenAI validação + Meta anti-lavado + Google consist�
 | 6 | Sem defeitos (anatomia, mãos, objetos, artefatos) | geral | 1 |
 | 7 | Resolução e proporção corretas | Meta/Google | 0,5 |
 | 8 | Invariantes preservados (edição) / personagem consistente (série) | OpenAI/Google | 0,5 |
-| 9 | Itens proibidos ausentes (logos inventados, watermark, texto indevido) | OpenAI/Meta | veto |
+| 9 | Vinculação de atributos (cor/objeto ligado ao elemento certo), contagem e negações respeitadas | PromptEnhancer (docs/05) | 1 |
+| 10 | Itens proibidos ausentes (logo inventado, watermark, texto indevido, pessoa real sem referência, dado inventado) | OpenAI/Meta | veto |
+
+*Rubrica v2: acrescentou o item 9 (docs/05, seção 6) e ampliou os vetos. Pesos usados no código: ver `test/run_comparison.py`.*
 
 Nota final = soma ponderada normalizada para 0–10. Aprovar com ≥ 8 e sem veto. Reprovou → feedback focado **em uma mudança por vez** (OpenAI) e regerar (máx. 2 ciclos).

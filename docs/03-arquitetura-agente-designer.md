@@ -1,59 +1,78 @@
-# 03 — Arquitetura proposta: agente designer com harness
+# 03 — Arquitetura proposta: agente designer com harness (v2)
+
+Revisada com as evidências do doc 05 (documentação oficial, relatos de produção, caso Moda).
 
 ```
 "Cria uma peça para o cliente 71"
         │
         ▼
 ┌───────────────────┐
-│ 1. Contexto       │  tool: get_client(71) → marca, paleta, tom, peças entregues
+│ 0. Triage         │  modelo rápido: use_case, role, tem texto exato? dados? edição de peça aprovada?
+└─────────┬─────────┘  → escolhe skills do tipo de peça
+          ▼
+┌───────────────────┐
+│ 1. Contexto       │  get_client + Brand Kit Agent (cores, fontes, logo, voz, estilo aprovado)
 └─────────┬─────────┘
           ▼
 ┌───────────────────┐
-│ 2. Briefing       │  LLM (texto): pedido + contexto → briefing de direção de arte
-│    (art director) │  → prompt final + size + n + transparent_background
+│ 2. Briefing       │  LLM diretor de arte: pedido + contexto → prompt no schema + parâmetros
+└─────────┬─────────┘  (normaliza se detalhado; expande só com contexto de marca)
+          ▼
+┌───────────────────┐
+│ 3. Geração        │  fila assíncrona; rascunho em flare/low, final em sunburst/medium+
+│    (assíncrona)   │  arte SEM texto; uma peça por chamada
 └─────────┬─────────┘
           ▼
 ┌───────────────────┐
-│ 3. Geração        │  tool: generate_image (gpt-image) / edit_image
+│ 4. Composição     │  código: texto exato, logo, preço, CTA (HTML/SVG), gráficos (render_chart),
+│    por código     │  edição por máscara + composição; underdrawing quando o texto é integrado
 └─────────┬─────────┘
           ▼
 ┌───────────────────┐
-│ 4. Revisão        │  LLM com visão: nota 0–10 contra briefing + marca + guardrails
-│    (critic)       │  < limiar → feedback → volta ao passo 2 (máx. 2 ciclos)
+│ 5. Revisão        │  VLM com rubrica v2; texto letra por letra; checagem de pixels fora da máscara
+│    (critic)       │  < 8 ou veto → uma correção → volta ao 2 (máx. 2 ciclos)
 └─────────┬─────────┘
           ▼
 ┌───────────────────┐
-│ 5. Entrega        │  salva no storage, registra no banco, responde curto
+│ 6. Entrega        │  storage versionado (-v2), registro no banco, revised_prompt, custo por imagem aceita
 └───────────────────┘
 ```
 
-## Ferramentas do agente
+## Ferramentas (12 a 15 ativas; o resto sob demanda)
 
 | Tool | Função |
 |---|---|
-| `get_client(id)` | Dados do cliente no banco (marca, paleta, logo, tom, histórico) |
-| `get_deliveries(id, periodo)` | Quantas peças foram entregues, o que ressaltou |
-| `generate_image(prompt, size, n, transparent_background)` | Geração |
-| `edit_image(image_id, prompt)` | Edição com alvo real |
-| `review_image(image, briefing)` | Critic com visão |
-| `save_asset(...)` | Storage + registro |
+| `get_client(id)`, `get_brand_kit(id)` | Dados e identidade do cliente |
+| `get_deliveries(id, periodo)` | Peças entregues e o que ressaltou |
+| `generate_image(prompt, size, quality, n, background)` | Geração (Image API) |
+| `edit_image(image, mask?, prompt)` | Edição |
+| `composite_with_mask(original, edited, mask)` | Mantém pixels aprovados idênticos |
+| `compose_text_overlay(image, spec)` | Texto, logo e CTA por código |
+| `render_chart(data, style)` | Gráficos e tabelas por código |
+| `search_reference_image(query)` | Entidade real em vez de gerar |
+| `review_image(image, briefing)` | Critic com rubrica |
+| `save_asset(...)` | Storage e registro |
 
-## Guardrails (herdados do harness do ChatGPT)
-
-1. Não gerar com texto longo, tabelas ou gráficos dentro da imagem; esses vão para HTML/código e exportam como imagem.
-2. Logos e marcas reais do cliente: usar o arquivo oficial, nunca pedir para o modelo "desenhar" o logo.
-3. Edição exige imagem-alvo existente.
+## Guardrails
+1. Texto exato, logo, preços, datas e dados reais **nunca** dependem do modelo de imagem.
+2. Gráficos, tabelas e infográficos de dados são renderizados por código a partir do banco.
+3. Edição de peça aprovada: máscara + composição, validada por diff fora da máscara.
 4. Pessoa real exige foto de referência fornecida.
-5. Argumentos da ferramenta nunca vão para o usuário.
-6. Máximo de 2 ciclos de revisão (controle de custo e latência).
+5. Elementos fixos da marca entram como referência ou composição (a OpenAI avisa que a consistência de marca pode falhar entre gerações).
+6. Argumentos de ferramenta nunca vão ao usuário; erro de moderação não é repetido sem mudar o pedido.
+7. Máximo de 2 ciclos de revisão; custo medido por imagem **aceita**.
 
 ## Duas formas de implementar
+- **Agente com tool-use** (recomendado a médio prazo): loop com as tools acima, triage barato e skills por tipo de peça.
+- **Workflow com passos fixos + critic**: previsível e barato; é o que o teste faz. Fase 1.
 
-- **Agente com tool-use** (recomendado): um loop com as tools acima; o próprio modelo decide quando revisar. Mais próximo do ChatGPT.
-- **Workflow com passos fixos + critic**: mais previsível e barato, menos flexível. Serve como fase 1 (é o que o teste faz).
+## Observabilidade e avaliação (desde o dia 1)
+- Trace de cada execução (prompt, `revised_prompt`, parâmetros, nota, tentativas, custo, latência).
+- Conjunto de avaliação fixo (`test/eval_set.json`), repetido ≥ 3 vezes por caso, com avaliação humana cega (`ratings.csv`).
+- O caso Moda reporta não ter avaliações formais; aqui elas entram antes de ir a produção.
 
 ## Dependências e pendências
-
-- Banco/API de clientes: o Kelvin está resolvendo a conexão dos agentes com o banco.
-- Documentação do "Ive" (agentes designer): incorporar na skill `designer-imagegen` quando chegar.
-- Definir o limiar de aprovação do critic com exemplos reais do CEO ("bom" vs "ruim").
+- Banco/API de clientes: conexão dos agentes (Kelvin).
+- Documentação do "Ive": incorporar às skills por tipo de peça.
+- Definir a nota mínima de aprovação com exemplos "bom/ruim" do CEO.
+- Verificação da organização na OpenAI e `safety_identifier` por cliente.

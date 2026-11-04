@@ -9,7 +9,8 @@ Objetivo: levar a geração de imagem dos nossos agentes designer à qualidade d
 | `docs/03-arquitetura-agente-designer.md` | Arquitetura proposta (tools, guardrails, fluxo) |
 | `docs/04-comparativo-fornecedores.md` | OpenAI, Meta, Google, xAI, Mistral, Anthropic: o que absorver e o que não copiar; rubrica de revisão |
 | `docs/05-evidencias-docs-artigos-comunidade.md` | **Documentação oficial, artigos, pesquisa e relatos de quem usa**, com nível de confiança e decisões |
-| `prompts/designer-imagegen.system.md` | **System prompt consolidado (v0.2) para revisão** |
+| `docs/06-rastreabilidade.md` | **Cada ponto analisado × onde foi aplicado (aplicado / parcial / fora / pendente)** |
+| `prompts/designer-imagegen.system.md` | **System prompt consolidado (v0.3) para revisão** |
 | `skills/designer-imagegen/SKILL.md`, `agents/designer.md` | Skill e agente |
 | `test/` | Teste A/B/C com 6 casos e planilha de avaliação humana cega |
 
