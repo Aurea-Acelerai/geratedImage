@@ -1,0 +1,81 @@
+/* Identidade Aceleraí: só sobrescritas de componente, usando APENAS tokens semânticos (definidos em tokens.css). */
+
+body { font-family: var(--font-body); color: var(--color-text-body); -webkit-font-smoothing: antialiased; }
+button, select, input, textarea { font-family: inherit; }
+textarea.box, pre, .mem pre { font-family: var(--font-mono); }
+
+/* marca na sidebar */
+.brand { display: flex; align-items: center; gap: 10px; margin: 0 0 14px; padding-bottom: 14px; border-bottom: 1px solid var(--color-border-subtle); }
+.brand img { height: 26px; width: auto; display: block; }
+.brand .role { font: 600 11px/1 var(--font-head); letter-spacing: .08em; text-transform: uppercase; color: var(--color-text-muted); border-left: 1px solid var(--color-border-default); padding-left: 10px; }
+
+h2, aside h2, .modal h3, .empty h2, header .title { font-family: var(--font-head); }
+.empty h2 { color: var(--color-text-primary); }
+
+/* transições discretas */
+.btn, select, input, textarea.box, .round, .box2, .asset, .chip { transition: border-color var(--motion-fast), background-color var(--motion-fast), box-shadow var(--motion-fast), opacity var(--motion-fast); }
+
+/* ===== Botão secundário: padrão, hover, foco-visível, ativo, desabilitado ===== */
+.btn { background: var(--color-surface-raised); border-color: var(--color-border-default); color: var(--color-text-body); border-radius: var(--radius-sm); }
+.btn:hover:not(:disabled):not([aria-disabled=true]) { background: var(--color-surface-overlay); border-color: var(--color-border-default); color: var(--color-text-primary); }
+.btn:active:not(:disabled):not([aria-disabled=true]) { background: var(--color-surface-base); transform: translateY(1px); }
+.btn:disabled, .btn[aria-disabled=true] { opacity: var(--opacity-disabled); cursor: not-allowed; }
+
+/* ===== Botão primário (pílula vermelha) ===== */
+.round, #keyBtn, #send {
+  background: var(--color-action-primary); color: var(--color-text-on-action); border: none;
+  box-shadow: 0 8px 20px var(--color-action-soft);
+}
+.round { border-radius: var(--radius-pill); width: 38px; height: 38px; }
+.round:hover:not(:disabled), #send:hover:not(:disabled), #keyBtn:hover:not(:disabled) { background: var(--color-action-primary-hover); border: none; }
+.round:active:not(:disabled), #send:active:not(:disabled), #keyBtn:active:not(:disabled) { background: var(--color-action-primary-active); transform: translateY(1px); }
+.round:disabled, #send:disabled, #keyBtn:disabled { opacity: var(--opacity-disabled); box-shadow: none; cursor: not-allowed; }
+#keyBtn { border-radius: var(--radius-pill); padding: 7px 16px; cursor: pointer; }
+
+/* ===== Foco: UM anel só, 2px --color-focus-ring, visível por teclado em todo controle ===== */
+:focus-visible { outline: 2px solid var(--color-focus-ring); outline-offset: 2px; }
+.round:focus-visible, .btn:focus-visible { outline-offset: 3px; }
+select:focus, input:focus, textarea.box:focus, .tiny:focus { border-color: var(--color-focus-ring); }
+.box2:focus-within { border-color: var(--color-focus-ring); box-shadow: 0 0 0 3px var(--color-action-soft); }
+#text:focus-visible { outline: none; }
+input[type=checkbox] { accent-color: var(--color-action-primary); }
+
+/* ===== Campos: hover e desabilitado ===== */
+select:hover:not(:disabled), input:hover:not(:disabled), textarea.box:hover:not(:disabled), .tiny:hover:not(:disabled) { border-color: var(--color-text-muted); }
+select:disabled, input:disabled, textarea:disabled, .tiny:disabled { opacity: var(--opacity-disabled); cursor: not-allowed; }
+select, textarea.box, .tiny, #keybox input[type=password] { background: var(--color-surface-sunken); border-color: var(--color-border-default); border-radius: var(--radius-sm); }
+::placeholder { color: var(--color-text-muted); opacity: 1; }
+
+/* ===== Superfícies ===== */
+.box2 { border-radius: var(--radius-xl); border-color: var(--color-border-default); background: var(--color-surface-raised); }
+.progress, pre { border-radius: var(--radius-md); }
+.asset { background: var(--color-surface-base); }
+.asset.sel { border-color: var(--color-action-primary); box-shadow: 0 0 0 2px var(--color-action-soft); }
+.tries figure.best img { border-color: var(--color-action-primary); }
+.box2.drag { border-color: var(--color-action-primary); box-shadow: 0 0 0 3px var(--color-action-soft); }
+.chip { background: var(--color-surface-overlay); border-color: var(--color-border-default); color: var(--color-text-body); }
+.chip button:hover { color: var(--color-text-link); }
+
+/* balão do usuário: navy */
+.bubble { background: var(--color-bubble-user); color: var(--color-text-on-bubble); border: 1px solid var(--color-border-bubble); border-radius: var(--radius-lg); }
+.msg.assistant .bubble { background: none; border: none; color: var(--color-text-body); }
+.msg.assistant .bubble.err { color: var(--color-status-danger); }
+
+/* badges e avisos (AA) */
+.badge { color: var(--color-text-body); border-color: var(--color-border-default); background: var(--color-surface-raised); }
+.badge.warn { color: var(--color-status-warning); border-color: var(--color-status-warning-border); }
+#banner { background: var(--color-status-warning-bg); color: var(--color-status-warning); }
+#keybox { background: var(--color-status-warning-bg); color: var(--color-text-body); }
+#keybox b { color: var(--color-status-warning); }
+.hint { color: var(--color-text-muted); }
+.failid { background: var(--color-status-danger-bg); }
+details summary:hover { color: var(--color-text-primary); }
+.asset .k, .asset select.k, .asset .x, .asset .al { background: var(--color-scrim-control); }
+a { color: var(--color-text-link); }
+
+/* ===== Movimento reduzido: sem transições nem animações ===== */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition-duration: .01ms !important; transition-delay: 0s !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; }
+  .progress .st.last::after { animation: none; opacity: 1; }
+  .btn:active, .round:active, #keyBtn:active { transform: none; }
+}

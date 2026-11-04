@@ -1,0 +1,64 @@
+/* Tokens de design da Aceleraí (tema escuro). Carregado ANTES do <style> do index.html.
+   Nível 1 = primitivos (únicos valores literais de cor/medida). Nível 2 = semânticos (o resto do CSS usa só estes). */
+:root {
+  color-scheme: dark;
+
+  /* ===== Nível 1: primitivos ===== */
+  --brand-red-300: #FF5C7E; --brand-red-600: #DA003A; --brand-red-700: #B80031; --brand-red-800: #92002A;
+  --brand-red-a16: rgba(218,0,58,.16);
+  --brand-navy-900: #191947; --brand-navy-a18: rgba(167,167,240,.18);
+  --neutral-0: #FFFFFF; --neutral-50: #F5F6FC; --neutral-100: #E6E7F0; --neutral-400: #9A9AAB;
+  --neutral-700: #2A2A30; --neutral-800: #1E1E22; --neutral-850: #141414; --neutral-900: #0B0B10;
+  --neutral-a08: rgba(255,255,255,.08); --neutral-a15: rgba(255,255,255,.15);
+  --black-a50: rgba(0,0,0,.5); --black-a65: rgba(0,0,0,.65); --black-a72: rgba(0,0,0,.72); --black-a85: rgba(0,0,0,.85);
+  --neutral-900-a82: rgba(11,11,16,.82);
+  --green-400: #34D399; --yellow-400: #FACC15; --yellow-a10: rgba(250,204,21,.10); --yellow-a50: rgba(250,204,21,.5);
+  --rose-400: #FB7185; --rose-a08: rgba(251,113,133,.08);
+  --radius-sm: 8px; --radius-md: 12px; --radius-lg: 16px; --radius-xl: 28px; --radius-pill: 9999px;
+  --size-side: 288px; --size-rail: 64px; --size-panel: 440px;
+  --motion-fast: .2s cubic-bezier(.2,0,0,1);
+  /* Fontes: Google Sans e Archivo NÃO são carregadas de propósito (sem @font-face nem CDN):
+     o chat é uma ferramenta local e usa a pilha de fallback do sistema. */
+  --font-body: "Google Sans", Roboto, Inter, "Segoe UI", system-ui, sans-serif;
+  --font-head: "Archivo", "Google Sans", Roboto, Inter, "Segoe UI", system-ui, sans-serif;
+  --font-mono: ui-monospace, Menlo, monospace;
+  --font-size-body: 14px;   /* corpo e controles */
+  --font-size-label: 12px;  /* rótulos, dicas, pílulas */
+
+  /* ===== Nível 2: semânticos ===== */
+  --color-bg-page: var(--neutral-900);
+  --color-surface-base: var(--neutral-850);
+  --color-surface-raised: var(--neutral-800);
+  --color-surface-overlay: var(--neutral-700);
+  --color-surface-sunken: var(--neutral-900);
+  --color-surface-media: var(--neutral-0);          /* fundo claro p/ pré-visualizar logos transparentes */
+  --color-scrim: var(--black-a85);
+  --color-scrim-soft: var(--black-a50);
+  --color-scrim-chip: var(--black-a65);
+  --color-scrim-chip-strong: var(--black-a72);
+  --color-scrim-control: var(--neutral-900-a82);
+  --shadow-popover: 0 12px 32px var(--black-a65);
+  --color-text-primary: var(--neutral-50);
+  --color-text-body: var(--neutral-100);
+  --color-text-muted: var(--neutral-400);
+  --color-text-on-action: var(--neutral-0);
+  --color-text-on-scrim: var(--neutral-0);
+  --color-text-on-bubble: var(--neutral-50);
+  --color-text-link: var(--brand-red-300);
+  --color-border-subtle: var(--neutral-a08);
+  --color-border-default: var(--neutral-a15);
+  --color-border-bubble: var(--brand-navy-a18);
+  --color-action-primary: var(--brand-red-600);
+  --color-action-primary-hover: var(--brand-red-700);
+  --color-action-primary-active: var(--brand-red-800);
+  --color-action-soft: var(--brand-red-a16);
+  --color-focus-ring: var(--brand-red-300);
+  --color-bubble-user: var(--brand-navy-900);
+  --color-status-success: var(--green-400);
+  --color-status-warning: var(--yellow-400);
+  --color-status-warning-bg: var(--yellow-a10);
+  --color-status-warning-border: var(--yellow-a50);
+  --color-status-danger: var(--rose-400);
+  --color-status-danger-bg: var(--rose-a08);
+  --opacity-disabled: .5;
+}
