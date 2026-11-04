@@ -142,23 +142,42 @@ class Runner:
             return Decision("escalate", f"sem progresso (nota {last.get('score')} após {cycles[-2].get('score')})")
         return Decision("repair", "reprovada; há reparo, orçamento e tentativa anterior a superar")
 
-    def run(self, brief, *, max_repairs, generate, review=None, revise=None, task_budget=None, reserve_calls=0, emit=None, limit_reason=None):
+    def run(self, brief, *, max_repairs, generate, review=None, revise=None, task_budget=None, reserve_calls=0, emit=None, limit_reason=None,
+            review_gate=None, repair_gate=None):
         """generate(cycle, brief) -> entry (dict com id/url/prompt…); review(entry, brief) -> (rv, score, ok) ou None;
         revise(brief, rv) -> novo brief (dict; 'question' interrompe). reserve_calls: chamadas guardadas para depois do laço.
-        limit_reason: texto da escalada quando o limite de reparos foi imposto por fora (ex.: orçamento), não pela configuração."""
-        cycles, best, trace, decision = [], None, [], None
+        limit_reason: texto da escalada quando o limite de reparos foi imposto por fora (ex.: orçamento), não pela configuração.
+        Prazo total (produção): review_gate(entry, segundos_da_geração) -> bool diz se ainda cabe revisar; um `review` que devolve
+        None (estourou o tempo) também vale como "sem revisão". repair_gate(segundos_da_volta) -> bool diz se cabe outra volta.
+        Sem revisão por falta de tempo a imagem é entregue sem nota (aceite) e o resultado traz cut=True; sem tempo para reparar,
+        a melhor tentativa fica (decisão "stop") e cut=True. Quem fornece os portões é quem conhece o relógio (o chat_server)."""
+        cycles, best, trace, decision, cut = [], None, [], None, False
         for cycle in range(max_repairs + 1):
             t0 = self.clock()
             entry = generate(cycle, brief)
-            rv = None
+            gen_seconds = self.clock() - t0
+            rv, reviewed = None, False
             if review:
-                rv, s, ok = review(entry, brief)
-                entry.update(score=s, approved=ok, veto=rv.get("veto", []), fix=rv.get("fix"), review=rv)
+                if review_gate is None or review_gate(entry, gen_seconds):
+                    res = review(entry, brief)
+                    if res is not None:
+                        rv, s, ok = res
+                        entry.update(score=s, approved=ok, veto=rv.get("veto", []), fix=rv.get("fix"), review=rv)
+                        reviewed = True
+                    else:
+                        cut = True
+                else:
+                    cut = True
             cycles.append(entry)
             if best is None or (entry.get("score") or 0) > (best["score"] or 0):
                 best = {"score": entry.get("score"), "entry": entry, "rv": rv, "ok": entry.get("approved")}
             left = None if task_budget is None or task_budget.remaining() is None else task_budget.remaining() - reserve_calls
             decision = self.decide(cycles, max_repairs, left, limit_reason)
+            if review and not reviewed:
+                decision = Decision("accept", "sem revisão por falta de tempo")
+            elif decision.action == "repair" and repair_gate is not None and not repair_gate(self.clock() - t0):
+                cut = True
+                decision = Decision("stop", "prazo: a próxima volta não cabe; mantive a melhor tentativa")
             trace.append({"cycle": cycle, "id": entry.get("id"), "score": entry.get("score"), "approved": entry.get("approved"),
                           "decision": decision.action, "reason": decision.reason, "seconds": round(self.clock() - t0, 2),
                           **{k: v for k, v in (entry.get("meta") or {}).items() if k in ("request_id", "attempts", "ms", "usage")}})
@@ -172,4 +191,4 @@ class Runner:
                 trace[-1].update(decision=decision.action, reason=decision.reason)
                 break
             brief = new
-        return {"cycles": cycles, "best": best, "decision": decision, "trace": trace}
+        return {"cycles": cycles, "best": best, "decision": decision, "trace": trace, "cut": cut}

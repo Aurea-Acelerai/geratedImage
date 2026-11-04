@@ -37,11 +37,11 @@ def ok(c, m):
 
 
 class Stack:
-    def __init__(self, **env):
+    def __init__(self, fake_delay=0, **env):
         self.fake, self.chat = free_port(), free_port()
         self.tmp = tempfile.TemporaryDirectory()
         e = {**os.environ, "CHAT_DATA_DIR": self.tmp.name, "OPENAI_API_KEY": "fake", "OPENAI_BASE_URL": f"http://127.0.0.1:{self.fake}/v1", **env}
-        self.procs = [subprocess.Popen([sys.executable, str(ROOT / "fake_openai.py"), "--port", str(self.fake)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL),
+        self.procs = [subprocess.Popen([sys.executable, str(ROOT / "fake_openai.py"), "--port", str(self.fake), "--delay", str(fake_delay)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL),
                       subprocess.Popen([sys.executable, str(ROOT / "chat_server.py"), "--port", str(self.chat)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, env=e)]
         for port, path in ((self.fake, "/__stats"), (self.chat, "/api/state")):
             for _ in range(60):
@@ -65,6 +65,10 @@ class Stack:
             if p["status"] != "running":
                 return p, steps
         sys.exit("timeout")
+
+    def events(self):
+        p = os.path.join(self.tmp.name, "logs", "events.jsonl")
+        return [json.loads(x) for x in open(p, encoding="utf-8").read().splitlines() if x.strip()] if os.path.exists(p) else []
 
     def stats(self):
         return call(self.fake, "/__stats")[1]
@@ -131,6 +135,61 @@ def main():
         ok(len(s["resolver_users"]) == 1 and s["chat_writer"] == 0 and s["generations"] == 0, "o resolvedor usou a única chamada; o briefing e a imagem não aconteceram")
     finally:
         e.close()
+    print("== F: com prazo ativo, orçamento de texto esgotado no critic ainda para a tarefa")
+    f = Stack(CHAT_DEADLINE_S="200", CHAT_MIN_GEN_S="1", TEXT_BUDGET_TASK="2")
+    try:
+        p, steps = f.run({"client": "71", "text": "paisagem de praia"})
+        s = f.stats()
+        ok(p["status"] == "error" and "texto da tarefa" in p["error"] and "esgotado" in p["error"],
+           f"o critic sem orçamento NÃO é tratado como 'estourou o tempo': a tarefa para ({p['error'][:80]})")
+        ok(s["generations"] + s["edits"] == 1 and s["chat_critic"] == 0, "a imagem foi gerada e o critic nem chegou à OpenAI")
+    finally:
+        f.close()
+    print("== G: com prazo ativo e orçamento suficiente, o critic roda normalmente")
+    g = Stack(CHAT_DEADLINE_S="200", CHAT_MIN_GEN_S="1")
+    try:
+        p, steps = g.run({"client": "71", "text": "paisagem de praia"})
+        m = p["message"]
+        ok(p["status"] == "done" and m["kind"] == "image" and m["score"] is not None and not any("Entreguei a melhor versão" in a for a in m["avisos"]),
+           "com prazo folgado: imagem revisada, sem aviso de corte")
+    finally:
+        g.close()
+    print("== H: sem tempo para o critic depois da imagem (prazo total)")
+    h = Stack(fake_delay=6, CHAT_DEADLINE_S="12", CHAT_DEADLINE_MARGIN="4", CHAT_MIN_GEN_S="1")
+    try:
+        p, steps = h.run({"client": "71", "text": "paisagem de praia", "improve": {"compare_raw": True}})
+        m, s = p["message"], h.stats()
+        ok(p["status"] == "done" and m["kind"] == "image" and m["generations"] == 1 and m["score"] is None, f"imagem entregue SEM nota ({m['generations']} geração)")
+        ok("Entreguei a melhor versão que deu tempo de fazer." in m["avisos"], "aviso amigável do prazo")
+        ok(not any("Escalado" in a for a in m["avisos"]), "corte por prazo NÃO é rotulado como escalonamento para revisão humana")
+        ok(s["chat_critic"] == 0, "o critic não foi chamado")
+        ok(any(e["kind"] == "prazo" and e.get("etapa") == "antes do critic" for e in h.events()), "registrado no log: prazo, etapa 'antes do critic'")
+        ok("raw" not in m and s["generations"] + s["edits"] == 1, "a comparação 'GPT puro' não roda depois de um corte (nem gasta a 2ª imagem)")
+    finally:
+        h.close()
+    print("== I: revisou, mas não cabe outra volta (prazo total)")
+    # janela do prazo D (g = geração ~2 s, p = trabalho antes dela ~0,2 s, r = revisão ~0,3 s, M = margem 4 s):
+    #   revisa se D >= 1,6g + p + M (~7,4 s);  NÃO repara se D < 2,15g + p + 2,15r + M (~9,2 s)  ->  D = 8,3 s fica no meio
+    i = Stack(fake_delay=2, CHAT_DEADLINE_S="8.3", CHAT_DEADLINE_MARGIN="4", CHAT_MIN_GEN_S="1")
+    try:
+        p, steps = i.run({"client": "71", "text": "paisagem de praia"})
+        m, s = p["message"], i.stats()
+        ok(p["status"] == "done" and m["generations"] == 1 and m["approved"] is False and m["score"] is not None, f"1 geração revisada e reprovada (nota {m['score']}), sem reparo")
+        ok(s["chat_critic"] == 1, "o critic foi chamado uma vez")
+        ok("Entreguei a melhor versão que deu tempo de fazer." in m["avisos"] and not any("Escalado" in a for a in m["avisos"]), "corte por prazo: só o aviso do prazo, sem 'escalado'")
+        ok(m["trace"][-1]["decision"] == "stop" and "prazo" in m["trace"][-1]["reason"], f"trace: decisão stop por prazo ({m['trace'][-1]['reason'][:50]})")
+        ok(any(e["kind"] == "prazo" and e.get("etapa") == "antes da correção" for e in i.events()), "registrado no log: prazo, etapa 'antes da correção'")
+    finally:
+        i.close()
+    print("== J: CHAT_MAX_CYCLES chega ao laço")
+    j = Stack(CHAT_MAX_CYCLES="0")
+    try:
+        p, steps = j.run({"client": "71", "text": "paisagem de praia"})
+        m = p["message"]
+        ok(m["generations"] == 1 and m["approved"] is False, "CHAT_MAX_CYCLES=0: uma geração, mesmo com o critic reprovando")
+        ok(any("Escalado para revisão humana" in a and "limite de 0 reparo" in a for a in m["avisos"]), "...e escalona com o motivo certo")
+    finally:
+        j.close()
     print("\nTUDO OK")
 
 

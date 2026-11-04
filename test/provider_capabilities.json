@@ -9,16 +9,70 @@
   ],
   "models": {
     "gpt-image-2.5-sunburst": {
-      "sizes": {"auto": true, "multiple_of": 16, "max_edge": 3840, "min_pixels": 655360, "max_pixels": 8294400, "max_aspect": 3},
-      "quality": ["auto", "low", "medium", "high", "xhigh", "max"],
+      "sizes": {
+        "auto": true,
+        "multiple_of": 16,
+        "max_edge": 3840,
+        "min_pixels": 655360,
+        "max_pixels": 8294400,
+        "max_aspect": 3
+      },
+      "quality": [
+        "auto",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
       "max_input_bytes": 52428800,
-      "input_fidelity": "unverified"
+      "input_fidelity": "unverified",
+      "output_formats": [
+        "png",
+        "jpeg",
+        "webp"
+      ],
+      "output_compression": {
+        "min": 0,
+        "max": 100,
+        "only_for": [
+          "jpeg",
+          "webp"
+        ]
+      }
     },
     "gpt-image-2.5-flare": {
-      "sizes": {"auto": true, "multiple_of": 16, "max_edge": 3840, "min_pixels": 655360, "max_pixels": 8294400, "max_aspect": 3},
-      "quality": ["auto", "low", "medium", "high", "xhigh", "max"],
+      "sizes": {
+        "auto": true,
+        "multiple_of": 16,
+        "max_edge": 3840,
+        "min_pixels": 655360,
+        "max_pixels": 8294400,
+        "max_aspect": 3
+      },
+      "quality": [
+        "auto",
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ],
       "max_input_bytes": 52428800,
-      "input_fidelity": "unverified"
+      "input_fidelity": "unverified",
+      "output_formats": [
+        "png",
+        "jpeg",
+        "webp"
+      ],
+      "output_compression": {
+        "min": 0,
+        "max": 100,
+        "only_for": [
+          "jpeg",
+          "webp"
+        ]
+      }
     }
   }
 }

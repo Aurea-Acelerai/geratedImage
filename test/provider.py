@@ -294,7 +294,7 @@ class OpenAIImages(OpenAIClient):
             out.update(c)
         return out
 
-    def validate_request(self, op, model, size, quality=None, inputs=(), mask=None, n=1):
+    def validate_request(self, op, model, size, quality=None, inputs=(), mask=None, n=1, output_format=None, output_compression=None):
         """Levanta ProviderError(validation) com TODOS os problemas; devolve a lista de avisos (não bloqueiam)."""
         problems, warnings = [], []
         cap = self.get_capabilities(model)
@@ -358,24 +358,44 @@ class OpenAIImages(OpenAIClient):
                     problems.append(f"máscara {minfo[0]}x{minfo[1]} diferente da imagem {first[1][0]}x{first[1][1]}")
             if limit and len(mask) > limit:
                 problems.append("máscara acima do limite de tamanho")
+        formats = cap.get("output_formats") or ["png", "jpeg", "webp"]
+        if output_format is not None and output_format not in formats:
+            problems.append(f"output_format {output_format!r} fora de {formats}")
+        if output_compression is not None:
+            rng = cap.get("output_compression") or {"min": 0, "max": 100, "only_for": ["jpeg", "webp"]}
+            if not isinstance(output_compression, int) or isinstance(output_compression, bool) or not rng["min"] <= output_compression <= rng["max"]:
+                problems.append(f"output_compression deve ser inteiro de {rng['min']} a {rng['max']}")
+            elif (output_format or "png") not in rng["only_for"]:
+                problems.append(f"output_compression só vale para {'/'.join(rng['only_for'])}, não para {(output_format or 'png')}")
+        if output_format not in (None, "png") and mask:
+            problems.append("máscara exige o mesmo formato da imagem: edição com máscara fica em PNG")
         if problems:
             raise ProviderError("validation", "Requisição inválida, nada foi enviado: " + "; ".join(problems))
         return warnings
 
     # ---------- operações ----------
-    def generate(self, prompt, model, size, quality=None, n=1, cancel=None, extra_budgets=()):
-        warnings = self.validate_request("generate", model, size, quality, n=n)
+    def generate(self, prompt, model, size, quality=None, n=1, cancel=None, extra_budgets=(), timeout=None, output_format=None, output_compression=None):
+        warnings = self.validate_request("generate", model, size, quality, n=n, output_format=output_format, output_compression=output_compression)
         body = {"model": model, "prompt": prompt, "size": size, "n": n}
         if quality:
             body["quality"] = quality
+        if output_format:
+            body["output_format"] = output_format
+        if output_compression is not None:
+            body["output_compression"] = output_compression
         return self._call("generate", "/images/generations", json.dumps(body).encode(), "application/json", model, size, quality,
-                          lambda raw, rid, cid, att, ms: self._parse(raw, "generate", model, size, warnings, rid, cid, att, ms), cancel, extra_budgets, len(prompt))
+                          lambda raw, rid, cid, att, ms: self._parse(raw, "generate", model, size, warnings, rid, cid, att, ms), cancel, extra_budgets, len(prompt), timeout)
 
-    def edit(self, prompt, model, size, quality=None, inputs=(), mask=None, fidelity=None, n=1, cancel=None, extra_budgets=()):
-        warnings = self.validate_request("edit", model, size, quality, inputs=inputs, mask=mask, n=n)
+    def edit(self, prompt, model, size, quality=None, inputs=(), mask=None, fidelity=None, n=1, cancel=None, extra_budgets=(), timeout=None,
+             output_format=None, output_compression=None):
+        warnings = self.validate_request("edit", model, size, quality, inputs=inputs, mask=mask, n=n, output_format=output_format, output_compression=output_compression)
         fields = {"model": model, "prompt": prompt, "size": size, "n": n}
         if quality:
             fields["quality"] = quality
+        if output_format:
+            fields["output_format"] = output_format
+        if output_compression is not None:
+            fields["output_compression"] = output_compression
         if fidelity:
             fields["input_fidelity"] = fidelity
         exts = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}
@@ -384,7 +404,7 @@ class OpenAIImages(OpenAIClient):
             files.append(("mask", "mask.png", "image/png", mask))
         body, ctype = _multipart(fields, files)
         return self._call("edit", "/images/edits", body, ctype, model, size, quality,
-                          lambda raw, rid, cid, att, ms: self._parse(raw, "edit", model, size, warnings, rid, cid, att, ms), cancel, extra_budgets, len(prompt))
+                          lambda raw, rid, cid, att, ms: self._parse(raw, "edit", model, size, warnings, rid, cid, att, ms), cancel, extra_budgets, len(prompt), timeout)
 
     def _parse(self, raw, op, model, size, warnings, rid, client_id, attempts, ms):
         ctx = dict(request_id=rid, attempts=attempts)

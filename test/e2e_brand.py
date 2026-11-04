@@ -5,7 +5,12 @@ import http.client, os, pathlib, re, shutil, socket, subprocess, sys, tempfile, 
 ROOT = pathlib.Path(__file__).resolve().parent
 with socket.socket() as s:
     s.bind(("127.0.0.1", 0)); PORT = s.getsockname()[1]
+def seed71(data_dir):  # cliente '71' FICTÍCIO criado aqui: o teste nunca lê test/client_71.json nem test/clients do repositório
+    d = pathlib.Path(data_dir) / "clients" / "71"; d.mkdir(parents=True, exist_ok=True)
+    (d / "client.json").write_text('{"id": 71, "name": "Marca Ficticia 71 (teste)", "sector": "praia ficticia", "palette": ["#0B3C5D"], "cpf": "000.111.222-33"}')
+
 tmp = tempfile.TemporaryDirectory()
+seed71(tmp.name)
 proc = subprocess.Popen([sys.executable, str(ROOT / "chat_server.py"), "--port", str(PORT)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                         env={**os.environ, "CHAT_DATA_DIR": tmp.name, "OPENAI_API_KEY": "fake"})
 
@@ -18,7 +23,7 @@ def get(path, method="GET"):
 
 
 # sentinela FORA de chat/brand: um .png válido que só seria servido se a proteção de caminho falhasse
-sent_dir = pathlib.Path(tempfile.mkdtemp(dir=ROOT, prefix="_sentinela_")); (sent_dir / "x.png").write_bytes(b"\x89PNG\r\n\x1a\nSENTINELA")
+sent_dir = pathlib.Path(tempfile.mkdtemp(prefix="_sentinela_")); (sent_dir / "x.png").write_bytes(b"\x89PNG\r\n\x1a\nSENTINELA")
 link = ROOT / "chat" / "brand" / "_link_fora.png"  # link simbólico dentro da pasta apontando para fora: só o resolve()/is_relative_to barra
 link.symlink_to(sent_dir / "x.png")
 ok = lambda c, m: print(("OK   " if c else "FALHA"), m) or (c or sys.exit(1))

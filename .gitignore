@@ -18,3 +18,4 @@ agents/obsidian-origin/*
 !agents/obsidian-origin/MANIFEST.json
 !agents/obsidian-origin/SYNC_LOG.jsonl
 test/bench_out/
+test/projects.json

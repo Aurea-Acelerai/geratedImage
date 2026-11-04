@@ -496,9 +496,69 @@ def test_get_models():
             os.environ["OPENAI_API_KEY"] = old
 
 
+def test_output_options_and_timeout():
+    p, t, _ = make(good())
+    img, mask = {"bytes": png(), "mime": "image/png"}, png(color_type=6)
+    for fmt in ("png", "jpeg", "webp"):
+        p.validate_request("generate", MODEL, "1024x1024", "high", output_format=fmt)
+    p.validate_request("generate", MODEL, "1024x1024", "high", output_format="webp", output_compression=85)
+    p.validate_request("generate", MODEL, "1024x1024", "high", output_format="jpeg", output_compression=0)
+    ok(True, "png, jpeg e webp passam; compressão 0 a 100 passa com jpeg/webp")
+    for kw, frag in ((dict(output_format="gif"), "fora de"), (dict(output_compression=85), "só vale para"), (dict(output_format="png", output_compression=85), "só vale para"),
+                     (dict(output_format="webp", output_compression=101), "0 a 100"), (dict(output_format="webp", output_compression=-1), "0 a 100"),
+                     (dict(output_format="webp", output_compression="85"), "inteiro"), (dict(output_format="webp", output_compression=True), "inteiro"),
+                     (dict(output_format="webp", output_compression=85.5), "inteiro")):
+        e = raises(lambda: p.validate_request("generate", MODEL, "1024x1024", "high", **kw), "validation")
+        ok(e is not None and frag in str(e), f"formato/compressão inválidos recusados antes de enviar: {kw}")
+    e = raises(lambda: p.validate_request("edit", MODEL, "1024x1024", inputs=[img], mask=mask, output_format="webp"), "validation")
+    ok(e is not None and "PNG" in str(e), "edição com máscara não aceita formato de saída diferente de PNG")
+    p.validate_request("edit", MODEL, "1024x1024", inputs=[img], output_format="webp", output_compression=85)
+    ok(raises(lambda: pv.OpenAIImages("http://x/v1", "k", transport=Script(good())).generate("x", "modelo-novo", "1024x1024", output_format="gif"), "validation") is not None,
+       "modelo fora da tabela também recusa formato inexistente")
+    t.calls.clear()
+    p.generate("x", MODEL, "1024x1024", "high", output_format="webp", output_compression=85)
+    b = json.loads(t.calls[0]["body"])
+    ok(b["output_format"] == "webp" and b["output_compression"] == 85, "generate envia output_format e output_compression")
+    p.generate("x", MODEL, "1024x1024", "high")
+    b = json.loads(t.calls[1]["body"])
+    ok("output_format" not in b and "output_compression" not in b, "sem opção de saída, nada é enviado (PNG é o padrão da API)")
+    p.edit("x", MODEL, "1024x1024", "high", inputs=[img], output_format="jpeg", output_compression=70)
+    body = t.calls[2]["body"]
+    ok(b'name="output_format"\r\n\r\njpeg' in body and b'name="output_compression"\r\n\r\n70' in body, "edit envia as opções de saída no multipart")
+    ok(t.calls[0]["timeout"] == 300 and t.calls[1]["timeout"] == 300, "timeout padrão do cliente quando não se pede outro")
+    p.generate("x", MODEL, "1024x1024", timeout=7)
+    p.edit("x", MODEL, "1024x1024", inputs=[img], timeout=9)
+    ok(t.calls[3]["timeout"] == 7 and t.calls[4]["timeout"] == 9, "timeout por chamada chega ao transporte em generate e em edit (prazo total do pipeline)")
+    p2, t2, _ = make(pv.TransportError("timeout", "t"))
+    e = raises(lambda: p2.generate("x", MODEL, "1024x1024", timeout=4), "timeout")
+    ok(e is not None and "4s" in str(e), "a mensagem de timeout cita o prazo pedido, não o padrão")
+    r = make(good())[0].generate("x", MODEL, "1024x1024")
+    ok(r["ext"] == "png", "a extensão do resultado vem dos bytes recebidos (png)")
+    webp = (200, {}, json.dumps({"data": [{"b64_json": base64.b64encode(b"RIFF\x10\x00\x00\x00WEBPVP8 ").decode()}]}).encode())
+    r = make(webp)[0].generate("x", MODEL, "1024x1024", output_format="webp")
+    ok(r["ext"] == "webp" and r["mime"] == "image/webp" and r["dims"] is None, "webp devolvido: extensão e mime vêm dos bytes; dimensões não lidas (só PNG)")
+    jpg = (200, {}, json.dumps({"data": [{"b64_json": base64.b64encode(b"\xff\xd8\xff\xe0abc").decode()}]}).encode())
+    ok(make(jpg)[0].generate("x", MODEL, "1024x1024")["ext"] == "jpg", "jpeg devolvido: extensão jpg")
+    import chat_server as cs
+    t3 = Script(webp)
+    cs._IMAGES = pv.OpenAIImages("http://x/v1", "k", transport=t3, sleep=lambda s: None)
+    try:
+        b64, ext = cs.make_image("x", "1536x1024", "high", [], MODEL, timeout=11)
+        sent = json.loads(t3.calls[0]["body"])
+        ok(ext == "webp" and sent["output_format"] == "webp" and sent["output_compression"] == 85 and t3.calls[0]["timeout"] == 11,
+           "make_image: pede webp acima de ~3 MB estimados, repassa o timeout e a extensão vem dos bytes")
+        b64, ext = cs.make_image("x", "1024x1024", "low", [], MODEL)
+        ok("output_format" not in json.loads(t3.calls[1]["body"]) and t3.calls[1]["timeout"] == 300, "make_image: tamanho pequeno não pede formato e usa o timeout padrão")
+        t3.calls.clear()
+        cs.make_image("x", "1536x1024", "high", [{"bytes": png(), "mime": "image/png", "kind": "alvo", "name": "a.png"}], MODEL, mask=png(color_type=6), timeout=5)
+        ok(b"output_format" not in t3.calls[0]["body"] and t3.calls[0]["timeout"] == 5, "make_image: edição com máscara fica PNG mesmo em tamanho grande")
+    finally:
+        cs._IMAGES = None
+
+
 def main():
     for fn in (test_validation, test_invalid_never_sent, test_success_and_response_checks, test_edit_request, test_retry, test_budget,
-               test_cancel_key_trace_concurrency, test_http_against_fake, test_make_image_wiring, test_text_adapter, test_get_models):
+               test_cancel_key_trace_concurrency, test_http_against_fake, test_make_image_wiring, test_text_adapter, test_get_models, test_output_options_and_timeout):
         print(f"== {fn.__name__}")
         fn()
     print(f"\nTUDO OK ({N['ok']} verificações)")

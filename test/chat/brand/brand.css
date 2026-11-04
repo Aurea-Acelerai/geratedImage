@@ -26,7 +26,7 @@ h2, aside h2, .modal h3, .empty h2, header .title { font-family: var(--font-head
   background: var(--color-action-primary); color: var(--color-text-on-action); border: none;
   box-shadow: 0 8px 20px var(--color-action-soft);
 }
-.round { border-radius: var(--radius-pill); width: 38px; height: 38px; }
+.round { border-radius: var(--radius-pill); width: 32px; height: 32px; }
 .round:hover:not(:disabled), #send:hover:not(:disabled), #keyBtn:hover:not(:disabled) { background: var(--color-action-primary-hover); border: none; }
 .round:active:not(:disabled), #send:active:not(:disabled), #keyBtn:active:not(:disabled) { background: var(--color-action-primary-active); transform: translateY(1px); }
 .round:disabled, #send:disabled, #keyBtn:disabled { opacity: var(--opacity-disabled); box-shadow: none; cursor: not-allowed; }

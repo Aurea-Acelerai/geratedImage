@@ -37,7 +37,7 @@
   #banner { display: none; margin: 0; padding: 10px 20px; background: var(--color-status-warning-bg); color: var(--color-status-warning); border-bottom: 1px solid var(--color-border-default); font-size: var(--font-size-body); }
   #banner.on { display: block; }
   #log { flex: 1; overflow-y: auto; padding: 24px 20px; }
-  .wrap { max-width: 780px; margin: 0 auto; }
+  .wrap { max-width: 768px; margin: 0 auto; }
   .msg { margin-bottom: 22px; display: flex; flex-direction: column; }
   .msg.user { align-items: flex-end; }
   .bubble { background: var(--color-bubble-user); border-radius: 18px; padding: 9px 15px; max-width: 85%; white-space: pre-wrap; }
@@ -86,23 +86,13 @@
   details { margin-top: 8px; font-size: var(--font-size-body); }
   details summary { cursor: pointer; color: var(--color-text-muted); }
   pre { white-space: pre-wrap; background: var(--color-surface-base); border: 1px solid var(--color-border-default); border-radius: 8px; padding: 10px; font: var(--font-size-label)/1.45 var(--font-mono); }
-  .progress { border: 1px solid var(--color-border-default); border-radius: 12px; padding: 12px 14px; background: var(--color-surface-base); font-size: var(--font-size-body); }
-  .progress .st { color: var(--color-text-muted); margin: 2px 0; }
-  .progress .st.last { color: var(--color-text-primary); }
-  .progress .st.last::after { content: " …"; animation: blink 1s steps(3) infinite; }
-  .progress.done .st.last::after { content: ""; animation: none; }
-  .progress .t { color: var(--color-text-muted); font-variant-numeric: tabular-nums; margin-right: 6px; }
-  .progress img { width: 120px; border-radius: 8px; border: 1px solid var(--color-border-default); margin: 4px 0; display: block; cursor: zoom-in; }
-  @keyframes blink { 0% { opacity: .2 } 50% { opacity: 1 } 100% { opacity: .2 } }
   .empty { text-align: center; color: var(--color-text-muted); margin-top: 10vh; }
   .empty h2 { color: var(--color-text-primary); font-size: 22px; }
   .sugg { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin-top: 14px; }
   #composer { padding: 0 20px 20px; }
-  .box2 { max-width: 780px; margin: 0 auto; border: 1px solid var(--color-border-default); border-radius: 22px; background: var(--color-surface-base); padding: 10px 12px; }
+  .box2 { max-width: 768px; margin: 0 auto; border: 1px solid var(--color-border-default); border-radius: var(--radius-xl); background: var(--color-surface-base); padding: 10px 12px; }
   .box2.drag { border-color: var(--color-action-primary); }
-  #text { width: 100%; border: none; outline: none; background: none; resize: none; max-height: 200px; padding: 4px 6px; }
-  .bar { display: flex; align-items: center; gap: 8px; margin-top: 4px; flex-wrap: wrap; }
-  .round { width: 34px; height: 34px; border-radius: 50%; border: none; background: var(--color-action-primary, #DA003A); color: var(--color-text-on-action); cursor: pointer; font-size: 17px; }
+  .round { border-radius: 50%; border: none; background: var(--color-action-primary, #DA003A); color: var(--color-text-on-action); cursor: pointer; font-size: 17px; }
   .round:disabled { opacity: .4; cursor: default; }
   .tiny { font-size: var(--font-size-body); background: var(--color-surface-sunken); border: 1px solid var(--color-border-default); border-radius: 8px; padding: 3px 6px; }
   .err { color: var(--color-status-danger); }
@@ -184,8 +174,6 @@
   .pop.menu .ask { padding: 8px 10px; color: var(--color-text-body); }
   .pop.menu .ask-row { display: flex; gap: 6px; padding: 0 4px 4px; }
   .pop.menu .ask-row button { text-align: center; border: 1px solid var(--color-border-default); }
-  .pop.adv { position: absolute; right: 12px; bottom: 52px; width: min(380px, calc(100% - 24px)); padding: 12px 14px; }
-  .pop.adv h3 { margin: 0 0 4px; font-size: var(--font-size-body); }
   .modal-back { position: fixed; inset: 0; z-index: 40; display: flex; justify-content: flex-end; background: var(--color-scrim); }
   .modal-back[hidden] { display: none; }
   .modal { width: min(var(--size-panel), 100vw); height: 100%; display: flex; flex-direction: column; background: var(--color-surface-base); border-left: 1px solid var(--color-border-default); }
@@ -195,27 +183,9 @@
 
   /* ===== Compositor: pílulas ===== */
   .box2 { position: relative; }
-  @media (min-width: 1100px) { .box2 { max-width: 960px; } }
-  .bar { flex-wrap: nowrap; }
-  .pills { display: flex; flex: 1; min-width: 0; flex-wrap: nowrap; gap: 6px; overflow-x: auto; scrollbar-width: none; padding: 2px 28px 2px 0; -webkit-mask-image: linear-gradient(to right, black calc(100% - 28px), transparent); mask-image: linear-gradient(to right, black calc(100% - 28px), transparent); }
-  .pills::-webkit-scrollbar { display: none; }
   #status:empty { display: none; }
   #status { margin: 4px 6px 0; }
-  .pill { position: relative; flex: none; display: inline-flex; align-items: center; gap: 6px; padding: 4px 26px 4px 12px; border: 1px solid var(--color-border-default); border-radius: var(--radius-pill); background: var(--color-surface-sunken); color: var(--color-text-body); font-size: var(--font-size-label); cursor: pointer; transition: border-color var(--motion-fast), background-color var(--motion-fast); }
-  .pill:hover { border-color: var(--color-text-muted); background: var(--color-surface-overlay); }
-  .pill::after { content: ""; position: absolute; right: 11px; top: 50%; width: 6px; height: 6px; margin-top: -5px; border-right: 1.6px solid currentColor; border-bottom: 1.6px solid currentColor; transform: rotate(45deg); color: var(--color-text-muted); pointer-events: none; }
-  .pill .pl { color: var(--color-text-muted); }
-  .pill-fixed { margin-left: 2px; }
-  .pill-btn { font: inherit; font-size: var(--font-size-label); }
-  .pill-btn b { color: var(--color-text-primary); font-weight: 600; }
-  .pop.out { position: absolute; bottom: 52px; width: min(280px, calc(100% - 24px)); padding: 12px 14px; }
-  .pop.out h3 { margin: 0 0 4px; font-size: var(--font-size-body); }
   .out-row { display: grid; gap: 4px; margin-top: 10px; color: var(--color-text-muted); font-size: var(--font-size-label); }
-  .pill select { width: auto; padding: 0; border: 0; background: none; color: var(--color-text-primary); font: inherit; font-weight: 600; cursor: pointer; -webkit-appearance: none; appearance: none; field-sizing: content; }
-  .pill select:hover:not(:disabled), .pill select:focus, .pill select:focus-visible { border: 0; box-shadow: none; outline: none; }
-  .pill:has(select:focus-visible) { outline: 2px solid var(--color-focus-ring); outline-offset: 2px; }
-  .pill:has(select:disabled) { opacity: var(--opacity-disabled); cursor: not-allowed; }
-  .pill option { background: var(--color-surface-raised); color: var(--color-text-primary); }
 
   /* ===== Imagem indisponível (404): placeholder discreto, sem ícone quebrado ===== */
   .imgfail { display: flex; align-items: center; justify-content: center; text-align: center; min-height: 64px; padding: 6px; background: var(--color-surface-sunken); border: 1px dashed var(--color-border-default); border-radius: var(--radius-sm); color: var(--color-text-muted); font-size: var(--font-size-label); overflow: hidden; }
@@ -226,11 +196,7 @@
   .chip .imgfail { width: 28px; height: 28px; min-height: 0; padding: 0; font-size: 0; }
   .chip .imgfail::before { content: "!"; font-size: var(--font-size-label); }
   .web .r .imgfail { width: 100%; aspect-ratio: 1; }
-  @media (max-width: 800px) { .att-t { display: none; } }
   @media (max-width: 420px) {
-    .pill-fixed .pl { display: none; }
-    .pill-fixed { padding-left: 10px; padding-right: 22px; }
-    .pill-fixed::after { right: 8px; }
     .badge:not(.warn) { display: none; }
     .badge.warn { max-width: 80px; }
     .top-logo { height: 18px; }
@@ -258,7 +224,7 @@
   .proj-convs[hidden] { display: none; }
   .drop-over { outline: 2px dashed var(--color-focus-ring); outline-offset: -2px; background: var(--color-action-soft); }
   .conv[draggable=true] { cursor: grab; }
-  .ctx-row { max-width: 960px; margin: 0 auto 6px; display: flex; }
+  .ctx-row { max-width: 768px; margin: 0 auto 6px; display: flex; }
   .ctx-chip { display: inline-flex; align-items: center; border: 1px solid var(--color-border-default); border-radius: var(--radius-pill); background: var(--color-surface-raised); font-size: var(--font-size-label); max-width: 100%; }
   .ctx-open, .ctx-x, .ctx-none { background: none; border: 0; color: var(--color-text-body); font: inherit; font-size: var(--font-size-label); cursor: pointer; }
   .ctx-open { padding: 4px 4px 4px 12px; border-radius: var(--radius-pill) 0 0 var(--radius-pill); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -277,6 +243,101 @@
   .cb-opt .src, .cb-note { color: var(--color-text-muted); font-size: var(--font-size-label); }
   .cb-note { padding: 8px 10px; list-style: none; }
   .out-row input.tiny { width: 100%; }
+
+  /* ===== Padrão ChatGPT (estudo em docs/referencia-ux-chatgpt.md), só com os nossos tokens ===== */
+  aside { width: var(--size-side); border-right: 1px solid var(--color-border-subtle); }
+  .conv, .proj-row { min-height: 36px; border-radius: var(--radius-item); }
+  .conv-main, .proj-main { padding: 8px 10px; border-radius: var(--radius-item); font-size: var(--font-size-body); line-height: 20px; }
+  .conv:hover, .proj-row:hover { background: var(--color-surface-raised); }
+  .empty { margin-top: 18vh; }
+  .empty h2 { font-size: 24px; line-height: 28px; font-weight: 400; margin: 0 0 20px; }
+  .sugg-pill { display: block; max-width: 100%; padding: 9px 16px; border-radius: var(--radius-pill); background: none; border-color: var(--color-border-default); font-weight: 600; color: var(--color-text-body); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .sugg-pill:hover { background: var(--color-surface-raised); }
+
+  /* ===== Resultado limpo ===== */
+  .imgcard.res { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; }
+  .res-cap { margin: 0; color: var(--color-text-body); }
+  .res-note { margin: 0; color: var(--color-text-muted); font-size: var(--font-size-label); }
+  .imgwrap { position: relative; display: inline-block; max-width: min(100%, 540px); line-height: 0; }
+  .imgwrap img.main { max-width: 100%; border-radius: var(--radius-lg); border: 0; display: block; }
+  .imgwrap .imgfail { min-width: 240px; min-height: 240px; border-radius: var(--radius-lg); }
+  .ovl { position: absolute; bottom: 12px; display: inline-flex; align-items: center; justify-content: center; border: 0; background: var(--color-scrim-chip-strong); color: var(--color-text-on-scrim); cursor: pointer; font: inherit; font-size: var(--font-size-body); line-height: 1; text-decoration: none; }
+  .ovl:hover { background: var(--color-scrim); }
+  .ovl.edit { left: 12px; padding: 9px 14px; border-radius: var(--radius-pill); font-weight: 600; }
+  .ovl.dl { right: 12px; width: 36px; height: 36px; border-radius: 50%; }
+  .gen-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 12px; width: 100%; }
+  .gen-grid figure { margin: 0; }
+  .gen-grid figcaption { margin-top: 6px; color: var(--color-text-muted); font-size: var(--font-size-label); }
+  .gen-grid .imgwrap { max-width: 100%; }
+  .acts { display: flex; gap: 2px; margin-left: -8px; }
+  .act { width: 32px; height: 32px; display: inline-flex; align-items: center; justify-content: center; background: none; border: 0; border-radius: var(--radius-sm); color: var(--color-text-muted); cursor: pointer; }
+  .act:hover { background: var(--color-surface-raised); color: var(--color-text-primary); }
+  .act:active { background: var(--color-surface-overlay); }
+  .act[aria-pressed=true] { color: var(--color-text-link); }
+  .act svg { width: 18px; height: 18px; }
+  .pop.menu a { display: block; padding: 8px 10px; border-radius: var(--radius-sm); color: var(--color-text-body); text-decoration: none; cursor: pointer; }
+  .pop.menu a:hover { background: var(--color-surface-overlay); color: var(--color-text-primary); }
+
+  /* ===== Pensando ===== */
+  .think { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; color: var(--color-text-muted); font-size: var(--font-size-body); margin-bottom: 8px; }
+  .think-h { display: inline-flex; align-items: center; gap: 4px; padding: 2px 4px; margin-left: -4px; background: none; border: 0; border-radius: var(--radius-sm); color: var(--color-text-muted); font: inherit; cursor: pointer; }
+  .think-h:hover { color: var(--color-text-primary); }
+  .think-h .chev { width: 16px; height: 16px; transition: transform var(--motion-fast); }
+  .think-h[aria-expanded=true] .chev { transform: rotate(180deg); }
+  .think-cur { color: var(--color-text-muted); }
+  .think-l { flex-basis: 100%; list-style: none; margin: 4px 0 0; padding: 0 0 0 12px; border-left: 1px solid var(--color-border-default); }
+  .think-l[hidden] { display: none; }
+  .think-l li { padding: 2px 0; }
+  .think-l li.cur { color: var(--color-text-body); }
+  .think-t.shimmer { animation: shimmer 1.6s ease-in-out infinite; }
+  @keyframes shimmer { 0% { opacity: .55 } 50% { opacity: 1 } 100% { opacity: .55 } }
+
+  /* ===== Barra de entrada de uma linha (modo | texto | modelo+esforço | voz | enviar) ===== */
+  .box2 { position: relative; padding: 8px; }
+  .box2 .ctx-row { margin: 0 0 6px; padding: 0 4px; max-width: none; }
+  .box2 .chips { padding: 0 4px; }
+  .inbar { position: relative; display: flex; align-items: flex-end; gap: 6px; }
+  .inbar > * { flex: none; }
+  .inbar-r { display: flex; align-items: center; gap: 6px; margin-left: auto; min-width: 0; }
+  .inbar-r > * { flex: none; }
+  .inb { width: 32px; height: 32px; }
+  #text { flex: 1 1 auto; min-width: 0; width: auto; border: 0; outline: 0; background: none; resize: none; padding: 4px 6px; max-height: 144px; line-height: 24px; font-size: var(--font-size-body); overflow-y: hidden; }
+  .mode-chip { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 10px 0 8px; border-radius: var(--radius-pill); color: var(--color-text-muted); cursor: pointer; }
+  .mode-chip:hover { background: var(--color-surface-overlay); color: var(--color-text-primary); }
+  .mode-chip:has(select:focus-visible) { outline: 2px solid var(--color-focus-ring); outline-offset: 2px; }
+  .mode-chip svg { width: 18px; height: 18px; }
+  .mode-chip select { width: auto; padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; -webkit-appearance: none; appearance: none; field-sizing: content; }
+  .mode-chip select:hover, .mode-chip select:focus, .mode-chip select:focus-visible { border: 0; box-shadow: none; outline: none; }
+  .mode-chip option, .model-pop option, .pop.model option { background: var(--color-surface-raised); color: var(--color-text-primary); }
+  .model-btn { display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 8px; background: none; border: 0; border-radius: var(--radius-pill); font: inherit; cursor: pointer; max-width: 100%; }
+  .model-btn:hover, .model-btn[aria-expanded=true] { background: var(--color-surface-overlay); }
+  .model-btn .mdl { color: var(--color-text-primary); font-weight: 500; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .model-btn .eff { color: var(--color-text-muted); white-space: nowrap; }
+  .model-btn .chev { width: 14px; height: 14px; color: var(--color-text-muted); }
+  #micBtn.rec { background: var(--color-action-primary); color: var(--color-text-on-action); animation: rec 1.4s ease-in-out infinite; }
+  @keyframes rec { 0%, 100% { box-shadow: 0 0 0 0 var(--color-action-soft); } 50% { box-shadow: 0 0 0 6px var(--color-action-soft); } }
+  .pop.model { position: absolute; right: 0; bottom: calc(100% + 10px); width: min(380px, 100%); max-height: calc(100vh - 150px); overflow: hidden; display: flex; flex-direction: column; padding: 0; }
+  .pop.model[hidden] { display: none; }
+  .pm-head { margin: 0; padding: 12px 14px 8px; font-size: var(--font-size-body); border-bottom: 1px solid var(--color-border-subtle); }
+  .pm-body { overflow-y: auto; overflow-x: hidden; min-height: 0; padding: 8px 14px 12px; }
+  .eff-grp { border: 0; margin: 0 0 4px; padding: 0; min-width: 0; }
+  .eff-grp legend { padding: 0; margin-bottom: 4px; font: 600 var(--font-size-label)/1.2 var(--font-body); letter-spacing: .06em; text-transform: uppercase; color: var(--color-text-muted); }
+  .eff-opt { display: flex; gap: 10px; align-items: flex-start; padding: 8px; border-radius: var(--radius-sm); cursor: pointer; }
+  .eff-opt:hover { background: var(--color-surface-overlay); }
+  .eff-opt input { margin-top: 3px; accent-color: var(--color-action-primary); }
+  .eff-opt b { display: block; color: var(--color-text-primary); }
+  .eff-opt small { display: block; color: var(--color-text-muted); font-size: var(--font-size-label); }
+  .two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 10px; }
+  .pop.model .out-row { min-width: 0; }
+  .pop.model select:not(.vh) { width: 100%; }
+  .pop.model .vh { top: 0; left: 0; }
+  .adv-d { margin-top: 10px; }
+  @media (max-width: 560px) {
+    .inbar { flex-wrap: wrap; }
+    #text { order: -1; flex: 1 1 100%; }
+  }
+
+  @media (max-width: 420px) { .model-btn .mdl { max-width: 96px; } }
 </style>
 <link rel="stylesheet" href="/brand/brand.css">
 </head>
@@ -299,7 +360,7 @@
   <header>
     <button class="icon-btn menu-btn" id="menuBtn" type="button" aria-expanded="false" aria-controls="side" aria-label="Abrir conversas" title="Abrir conversas"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg></button>
     <img class="top-logo" src="/brand/logo-acelerai-white-sm.png" alt="Aceleraí">
-    <span class="title" id="clientName">Chat</span>
+    <span class="title" id="clientName">Nova conversa</span>
     <span class="conv-title" id="convTitle"></span>
     <span style="flex:1"></span>
     <span class="badge" id="modeBadge"></span>
@@ -314,40 +375,50 @@
     <div class="err" id="keyErr"></div>
   </div>
   <div id="banner"></div>
+  <div id="liveMsg" class="vh" role="status" aria-live="polite"></div>
   <div id="log"><div class="wrap" id="wrap"></div></div>
   <div id="composer">
-    <div class="ctx-row" id="ctxRow"></div>
     <div class="box2" id="box2">
+      <div class="ctx-row" id="ctxRow"></div>
       <div class="chips" id="chips"></div>
-      <textarea id="text" rows="1" placeholder="Descreva a imagem que você quer" aria-label="Descreva a imagem que você quer"></textarea>
-      <div class="bar">
-        <button class="btn" id="attach" title="Anexar imagem" aria-label="Anexar imagem" type="button">＋<span class="att-t"> Anexar</span></button>
-        <div class="pills" role="group" aria-label="Opções de geração">
-          <label class="pill" id="pillMode"><select id="mode" aria-label="Modo" autocomplete="off"><option value="livre" selected>Livre</option><option value="marca">Com a marca</option></select></label>
-          <label class="pill" title="Modelo de imagem"><select id="imageModel" aria-label="Modelo de imagem" autocomplete="off"></select></label>
-          <label class="pill" title="Modelo de texto (LLM)"><select id="textModel" aria-label="Modelo de texto (LLM)" autocomplete="off"></select></label>
-          <button class="pill pill-btn" id="outBtn" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="outPop" aria-label="Saída: qualidade e tamanho" title="Saída: qualidade e tamanho da imagem"><span class="pl">Saída</span><b id="outVal"></b></button>
-        </div>
-        <label class="pill pill-fixed" title="Baixo: só o GPT com o seu pedido. Médio: designer + skills. Alto: designer + skills + critic (até 2 correções)."><span class="pl">Esforço</span><select id="effort" aria-label="Nível de esforço da IA" autocomplete="off"><option value="baixo">Baixo</option><option value="medio">Médio</option><option value="alto" selected>Alto</option><option value="custom" hidden>Personalizado</option></select></label>
-        <button class="icon-btn" id="advBtn" type="button" aria-expanded="false" aria-controls="advPop" aria-label="Avançado" title="Avançado: melhorias individuais"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h2M10 17h10"/><circle cx="16" cy="7" r="2"/><circle cx="8" cy="17" r="2"/></svg></button>
+      <div class="inbar" id="inbar">
+        <button class="icon-btn inb" id="attach" type="button" aria-label="Anexar imagem" title="Anexar imagem"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg></button>
+        <label class="mode-chip" id="pillMode"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 12V6.5a1.5 1.5 0 0 1 3 0V11m0-1V4.5a1.5 1.5 0 0 1 3 0V11m0-3.5a1.5 1.5 0 0 1 3 0V14a6 6 0 0 1-6 6h-.5a5.5 5.5 0 0 1-4.4-2.2L4.5 15a1.5 1.5 0 0 1 2.3-1.9L8 14.5"/></svg><select id="mode" aria-label="Modo" autocomplete="off"><option value="livre" selected>Livre</option><option value="marca">Com a marca</option></select></label>
+        <textarea id="text" rows="1" placeholder="Descreva a imagem que você quer" aria-label="Descreva a imagem que você quer"></textarea>
+        <div class="inbar-r">
+        <button class="model-btn" id="modelBtn" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="modelPop" aria-label="Modelo e opções de geração" title="Modelo e opções de geração"><span class="mdl" id="mdlName"></span><span class="eff" id="mdlEff"></span><svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg></button>
+        <button class="icon-btn inb" id="micBtn" type="button" aria-pressed="false" aria-label="Ditar por voz" title="Ditar (o navegador processa o áudio)" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg></button>
         <button class="round" id="send" title="Enviar" aria-label="Enviar" type="button">↑</button>
+        </div>
+        <div class="pop model" id="modelPop" role="dialog" aria-label="Modelo e opções de geração" hidden>
+          <h3 class="pm-head">Opções de geração</h3>
+          <div class="pm-body">
+          <fieldset class="eff-grp"><legend>Esforço</legend>
+            <label class="eff-opt"><input type="radio" name="effortR" value="baixo"><span><b>Baixo</b><small>Rápido, segue o seu pedido</small></span></label>
+            <label class="eff-opt"><input type="radio" name="effortR" value="medio"><span><b>Médio</b><small>Equilibrado: o designer ajuda a montar a imagem</small></span></label>
+            <label class="eff-opt"><input type="radio" name="effortR" value="alto"><span><b>Alto</b><small>Mais cuidado e revisão</small></span></label>
+            <p class="hint" id="effCustom" hidden>Personalizado: você ajustou as opções avançadas abaixo.</p>
+          </fieldset>
+          <label class="out-row"><span>Modelo de imagem</span><select id="imageModel" aria-label="Modelo de imagem" autocomplete="off"></select></label>
+          <label class="out-row"><span>Modelo de texto (LLM)</span><select id="textModel" aria-label="Modelo de texto (LLM)" autocomplete="off"></select></label>
+          <div class="two">
+            <label class="out-row"><span>Qualidade</span><select id="quality" aria-label="Qualidade" autocomplete="off"><option>low</option><option selected>medium</option><option>high</option></select></label>
+            <label class="out-row"><span>Tamanho</span><select id="size" aria-label="Tamanho" autocomplete="off"></select></label>
+          </div>
+          <details class="adv-d"><summary>Avançado</summary>
+            <label class="chk"><input type="checkbox" id="impDesigner" checked autocomplete="off"><span>Melhorar o pedido automaticamente</span></label>
+            <label class="chk"><input type="checkbox" id="impSkills" checked autocomplete="off"><span>Aplicar boas práticas de design</span></label>
+            <label class="chk"><input type="checkbox" id="doReview" checked autocomplete="off"><span>Revisar e corrigir o resultado</span></label>
+            <label class="chk"><input type="checkbox" id="impRaw" autocomplete="off"><span>Gerar também uma versão sem melhorias (1 imagem a mais)</span></label>
+            <p class="hint">Desligue tudo para usar só o seu pedido, sem melhorias. Combinações que não batem com Baixo, Médio ou Alto aparecem como Personalizado.</p>
+            <p class="hint" id="modeHint"></p>
+            <p class="hint" id="cfg"></p>
+          </details>
+          <select id="effort" class="vh" aria-hidden="true" tabindex="-1"><option value="baixo">Baixo</option><option value="medio">Médio</option><option value="alto" selected>Alto</option><option value="custom">Personalizado</option></select>
+          </div>
+        </div>
       </div>
       <div class="hint" id="status" role="status"></div>
-      <div class="pop out" id="outPop" role="group" aria-label="Saída" hidden>
-        <h3>Saída</h3>
-        <label class="out-row"><span>Qualidade</span><select id="quality" aria-label="Qualidade" autocomplete="off"><option>low</option><option selected>medium</option><option>high</option></select></label>
-        <label class="out-row"><span>Tamanho</span><select id="size" aria-label="Tamanho" autocomplete="off"></select></label>
-      </div>
-      <div class="pop adv" id="advPop" role="group" aria-label="Avançado" hidden>
-        <h3>Avançado</h3>
-        <label class="chk"><input type="checkbox" id="impDesigner" checked autocomplete="off"><span>Designer reescreve o pedido (briefing de direção de arte)</span></label>
-        <label class="chk"><input type="checkbox" id="impSkills" checked autocomplete="off"><span>Skills de design (composição, luz, textura, formato…)</span></label>
-        <label class="chk"><input type="checkbox" id="doReview" checked autocomplete="off"><span>Critic revisa e corrige (até 2 vezes)</span></label>
-        <label class="chk"><input type="checkbox" id="impRaw" autocomplete="off"><span>Comparar com o GPT puro (gera 1 imagem a mais)</span></label>
-        <p class="hint">Desligue tudo para ver o que o GPT faz sozinho com o seu texto. Combinações que não batem com Baixo, Médio ou Alto aparecem como Personalizado.</p>
-        <p class="hint" id="modeHint"></p>
-        <p class="hint" id="cfg"></p>
-      </div>
     </div>
   </div>
 </main>
@@ -364,11 +435,11 @@
         <select id="client" class="vh" tabindex="-1" aria-hidden="true"></select>
       </section>
       <div id="ctxBody">
-      <details><summary>Dados do cliente (JSON)</summary>
+      <details id="ctxJson"><summary>Dados do cliente (JSON)</summary>
         <textarea id="clientJson" class="box" spellcheck="false" aria-label="Dados do cliente (JSON)"></textarea>
         <div class="row"><button class="btn" id="saveClient">Salvar dados</button></div>
       </details>
-      <h3>Biblioteca do cliente</h3>
+      <h3 id="libTitle">Anexos desta conversa</h3>
       <div class="row">
         <select id="kind" class="tiny" autocomplete="off" aria-label="Tipo da imagem a enviar"></select>
         <button class="btn" id="addAsset">Enviar imagem</button>
@@ -390,6 +461,13 @@
     </div>
   </div>
 </div>
+<div id="techDlg" class="modal-back" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="techTitle">
+    <div class="modal-head"><h2 id="techTitle">Detalhes técnicos</h2><button class="icon-btn" id="techClose" type="button" aria-label="Fechar detalhes técnicos" title="Fechar"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+    <div class="modal-body" id="techBody"></div>
+  </div>
+</div>
+<div id="imgMenu" class="pop menu" role="menu" aria-label="Mais ações da imagem" hidden></div>
 <div id="lightbox"><img alt=""></div>
 <script>
 const $ = (id) => document.getElementById(id);
@@ -401,10 +479,14 @@ const store = {
   del(k) { try { localStorage.removeItem(k); } catch { /* ignora */ } },
 };
 function newConv(client) { const id = Math.random().toString(16).slice(2, 12); store.set('conv:' + client, id); return id; }
-const saveSel = () => store.set('sel:' + S.clientId, [...S.selected]);
+const GERAL = '_geral';  // escopo neutro: biblioteca/anexos de conversa sem cliente
+const libOwner = () => (!S.pendingClient && S.convClient && S.convClient.id) || GERAL;  // cliente escolhido antes do 1º envio: a biblioteca continua a neutra até o servidor copiar os anexos  // o dono da biblioteca é SEMPRE o cliente da conversa (ou _geral); o cliente legado nunca decide
+const saveSel = () => store.set('sel:conv:' + S.conv, [...S.selected]);  // a seleção de anexos é POR CONVERSA e só do que o usuário marcou
+const restoreSel = () => { S.selected = new Set((store.get('sel:conv:' + S.conv) || []).filter((id) => S.assets.some((a) => a.id === id))); };
 async function syncFiles(add = [], drop = []) {
   saveSel();  // o servidor é a fonte da verdade dos arquivos da conversa; a tela também os envia em cada mensagem
-  try { await api('/api/conv/files', { client: S.clientId, conv: S.conv, add, drop }); } catch { /* o envio da mensagem leva os anexos */ }
+  if (!(S.convs || []).some(isActive)) return;  // conversa ainda não existe no servidor: o 1º envio leva os anexos (asset_ids)
+  try { await api('/api/conv/files', { ...convRef(), add, drop }); } catch { /* o envio da mensagem leva os anexos */ }
 }
 const logKey = () => 'chat:' + S.clientId, jobKey = () => 'job:' + S.clientId;
 const saveLog = () => { store.set(logKey(), S.history); store.set(logKey() + ':' + S.conv, S.history); };  // cópia por conversa: trocar de conversa no histórico não perde as imagens
@@ -415,13 +497,24 @@ function reportUi(kind, msg) {
 window.addEventListener('error', (e) => reportUi('js-error', `${e.message} @ ${(e.filename || '').split('/').pop()}:${e.lineno}`));
 window.addEventListener('unhandledrejection', (e) => reportUi('js-rejection', (e.reason && e.reason.message) || e.reason));
 
+const HTTP_MSG = { 413: 'Arquivo grande demais para enviar.', 429: 'Muitas solicitações. Aguarde um instante e tente de novo.', 504: 'A geração demorou demais. Tente de novo.', 408: 'A geração demorou demais. Tente de novo.' };
 async function api(path, body) {
   let r;
   try {
     r = await fetch(path, body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-  } catch (err) { if (path !== '/api/clientlog') reportUi('api-fail', `${path}: ${err.message}`); throw err; }
-  const j = await r.json().catch(() => ({ error: 'resposta inválida do servidor' }));
-  if (!r.ok) throw new Error(j.error || r.statusText);
+  } catch (err) {
+    if (path !== '/api/clientlog') reportUi('api-fail', `${path}: ${err.message}`);
+    const e = new Error('Sem conexão com o servidor. Tente de novo.'); e.detail = String(err.message || err); throw e;
+  }
+  const raw = await r.text().catch(() => ''); let j = null;
+  try { j = JSON.parse(raw); } catch { /* corpo não-JSON (text/plain 413, HTML 502/504 da Vercel...) */ }
+  if (j === null || typeof j !== 'object') {
+    if (r.ok) throw Object.assign(new Error('Resposta inválida do servidor.'), { detail: raw.slice(0, 500) });
+    // nunca mostra o texto cru (FUNCTION_PAYLOAD_TOO_LARGE, HTML): traduz pelo status e guarda o original para "Ver detalhes técnicos"
+    const e = new Error(HTTP_MSG[r.status] || (r.status >= 500 ? 'Algo deu errado. Tente de novo.' : 'Não consegui concluir o pedido.'));
+    e.detail = `HTTP ${r.status} ${r.statusText || ''} ${path}: ${raw.replace(/\s+/g, ' ').slice(0, 500)}`.trim(); e.status = r.status; throw e;
+  }
+  if (!r.ok) { const e = new Error(j.error || r.statusText); e.detail = j.error_detail; e.status = r.status; throw e; }
   return j;
 }
 
@@ -430,13 +523,13 @@ async function init() {
   $('kind').innerHTML = S.state.kinds.map((k) => `<option>${esc(k)}</option>`).join('');
   $('webkind').innerHTML = S.state.kinds.map((k) => `<option>${esc(k)}</option>`).join('');
   $('keybox').className = (!S.state.mock && !S.state.has_key) ? 'on' : '';
-  $('size').innerHTML = S.state.sizes.map((s) => `<option value="${esc(s)}" ${s === 'auto' ? 'selected' : ''}>${s === 'auto' ? 'auto (acompanha a imagem alvo)' : esc(s)}</option>`).join('');
+  $('size').innerHTML = S.state.sizes.map((s) => `<option value="${esc(s)}" ${s === 'auto' ? 'selected' : ''} ${s === 'auto' ? 'title="Acompanha a imagem alvo"' : ''}>${s === 'auto' ? 'Automático' : esc(s)}</option>`).join('');
   $('client').innerHTML = S.state.clients.map((c) => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('');
   $('imageModel').innerHTML = `<option>${esc(S.state.image_model)}</option>`;
   $('textModel').innerHTML = `<option>${esc(S.state.text_model)}</option>`;
   $('modeBadge').textContent = S.state.mock ? 'MOCK (imagens falsas)' : S.state.has_key ? 'API OpenAI' : S.state.has_claude ? 'sem chave: só briefing (Claude)' : 'sem chave';
   if (!S.state.mock && !S.state.has_key) $('modeBadge').classList.add('warn');
-  $('cfg').textContent = `nota mínima ${S.state.pass_score} · até ${S.state.max_cycles} correções`;
+  $('cfg').textContent = `Até ${S.state.max_cycles} correções automáticas.`;
   applyComposer();
   await loadClient($('client').value || '71');
   checkModels();
@@ -458,18 +551,19 @@ async function checkModels() {
 async function loadClient(id, opts = {}) {
   // opts.keepConv: só troca o cliente de contexto (dados, biblioteca); a conversa e o histórico atuais continuam
   const r = await api('/api/client', { id });
-  S.clientId = r.id; S.client = r.client; S.assets = r.assets;
-  S.selected = new Set((store.get('sel:' + r.id) || []).filter((id) => r.assets.some((a) => a.id === id)));
+  S.clientId = r.id; S.client = r.client; S.assets = opts.keepConv ? r.assets : []; S.libOwner = opts.keepConv ? r.id : null;  // fora do keepConv a biblioteca só entra depois que a conversa disser quem é o cliente
+  if (!opts.keepConv) S.selected = new Set(); else S.selected = new Set([...S.selected].filter((id) => S.assets.some((a) => a.id === id)));
   if (![...$('client').options].some((o) => o.value === r.id)) $('client').insertAdjacentHTML('beforeend', `<option value="${esc(r.id)}">${esc(r.client.name || r.id)}</option>`);
   $('client').value = r.id;
-  $('clientName').textContent = r.client.name || r.id;
+  drawHeader();
   $('clientJson').value = JSON.stringify(r.client, null, 2);
   if (opts.keepConv) { drawAssets(); drawChips(); return; }
   S.editOf = null; S.live = null; S.lastBody = null; S.convClient = null; S.scope = null;
   S.conv = store.get('conv:' + r.id) || newConv(r.id);
   S.history = store.get(logKey()) || [];
-  S.convs = null; S.convErr = null; S.renaming = null; $('convQ').value = ''; drawConvs(); refreshSide();
-  drawAssets(); drawChips(); drawLog(); loadMem();
+  S.convs = null; S.convErr = null; S.renaming = null; $('convQ').value = ''; drawConvs();
+  drawAssets(); drawChips(); drawLog();
+  Promise.all([loadConvs(), loadProjects()]).then(loadMem);  // a lista traz o scope da conversa; só depois lemos o cliente dela
   const pending = store.get(jobKey());
   if (pending && pending.id) resumeJob(pending);
 }
@@ -478,7 +572,7 @@ function drawAssets() {
   $('assets').innerHTML = S.assets.map((a) => `
     <div class="asset ${S.selected.has(a.id) ? 'sel' : ''}" data-id="${esc(a.id)}" title="${esc(a.name)}">
       <img src="${esc(a.url)}" alt="${esc(a.name)}"><select class="k" data-kind="${esc(a.id)}" title="Tipo da imagem: a IA trata cada tipo de um jeito">${(S.state.kinds || []).map((k) => `<option ${k === a.kind ? 'selected' : ''}>${esc(k)}</option>`).join('')}</select><span class="al" data-alias="${esc(a.id)}" title="Nome desta imagem: se você citar esse nome na conversa, ela é anexada sozinha">✎ ${esc(a.alias || 'nome')}</span><span class="x" data-del="${esc(a.id)}">×</span>
-    </div>`).join('') || '<div class="hint" style="grid-column:1/-1">Nenhuma imagem ainda. Envie a logo e peças do cliente.</div>';
+    </div>`).join('') || (S.libErr ? `<div class="hint err" role="alert" style="grid-column:1/-1">${esc(S.libErr)}</div>` : `<div class="hint" style="grid-column:1/-1">${libOwner() === GERAL ? 'Nenhum anexo ainda nesta conversa.' : 'Nenhuma imagem ainda. Envie a logo e peças do cliente.'}</div>`);
 }
 
 function drawChips() {
@@ -488,7 +582,7 @@ function drawChips() {
     const a = S.assets.find((x) => x.id === id);
     if (a) chips.push(`<span class="chip"><img src="${esc(a.url)}" alt="">${esc(a.kind)}: ${esc(a.name)}<button data-unsel="${esc(id)}">×</button></span>`);
   }
-  $('chips').innerHTML = (S.selected.size ? '<div class="pin" style="width:100%">📌 Imagens fixadas nesta conversa: valem em todas as mensagens até você remover (×).</div>' : '') + chips.join('');
+  $('chips').innerHTML = (S.selected.size ? '<div class="pin" style="width:100%">📌 Anexadas à próxima mensagem (×).</div>' : '') + chips.join('');
 }
 
 function thumbs(list) {
@@ -499,57 +593,135 @@ function msgHtml(m) {
   if (m.role === 'user') {
     return `<div class="msg user"><div class="bubble">${esc(m.text)}</div>${thumbs(m.attached)}</div>`;
   }
-  if (m.kind === 'image') {
+  if (m.kind === 'image') return resultHtml(m);
+  const sug = (m.suggest || []).filter((s) => S.assets.some((a) => a.id === s.id)).map((s) => `<button class="btn" data-pin="${esc(s.id)}">📌 Usar ${esc(s.name)} (${esc(s.kind)}) e continuar</button>`).join(' ');
+  const web = (m.suggest_web || []).map((s) => `<button class="btn" data-web="${esc(s.q)}|${esc(s.kind)}">🔎 Buscar «${esc(s.q)}» na web</button>`).join(' ');
+  return `<div class="msg assistant"><div class="bubble ${m.error ? 'err' : ''}">${esc(m.text)}</div>${sug || web ? `<div class="meta">${sug} ${web}</div>` : ''}${m.error && (S.lastBody || m.errorDetail) ? `<div class="meta">${S.lastBody ? '<button class="btn" data-retry="1">↻ Tentar de novo</button>' : ''}${m.errorDetail ? `<button class="btn" data-errtech="${esc(m.job || '')}">Ver detalhes técnicos</button>` : ''}</div>` : ''}</div>`;
+}
+
+
+/* ===== Resultado limpo (estilo ChatGPT): a imagem, ações em ícones e nada de metadados; o resto vai para "Ver detalhes técnicos" ===== */
+const ICON = {
+  copy: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V6a2 2 0 0 1 2-2h8"/></svg>',
+  up: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 11v9H4v-9zM7 11l4-7a2 2 0 0 1 2 2v3h5.5a2 2 0 0 1 2 2.3l-1 6A2 2 0 0 1 17.5 19H7"/></svg>',
+  down: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 13V4H4v9zM7 13l4 7a2 2 0 0 0 2-2v-3h5.5a2 2 0 0 0 2-2.3l-1-6A2 2 0 0 0 17.5 5H7"/></svg>',
+  share: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15V4M8 8l4-4 4 4M5 13v5a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-5"/></svg>',
+  regen: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.5-5.8M20 4v5h-5"/></svg>',
+  dl: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M8 11l4 4 4-4M5 20h14"/></svg>',
+  chev: '<svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>',
+};
+/* Avisos técnicos do servidor -> frase simples | null (interno: só nos detalhes). Desconhecido e não claramente interno => aviso genérico (nunca engolido). */
+const NOTICE_MAP = [
+  [/NÃO manteve a identidade|identidade_divergente/i, 'Não consegui manter a identidade da referência com fidelidade total.'],
+  [/Entreguei a melhor versão/i, 'Entreguei a melhor versão que deu tempo de fazer.'],
+  [/Modo marca sem cliente identificado/i, 'Nenhum cliente identificado: usei só o seu pedido.'],
+  [/pessoa física: o nome dele não foi usado/i, 'Este cliente é pessoa física: descreva a marca no pedido para eu usá-la.'],
+  [/cadastro civil e pode ser de pessoa física/i, 'Confira se o nome do cliente serve como marca antes de usar.'],
+  [/ainda não tem identidade de marca/i, 'Este cliente ainda não tem identidade de marca cadastrada.'],
+  [/imagem que estava na conversa foi apagada/i, 'Uma imagem usada antes nesta conversa não está mais disponível.'],
+  [/Não encontrei a imagem anterior/i, 'Não encontrei a imagem anterior; criei uma nova a partir do pedido.'],
+  [/limitar a edição a uma região/i, 'Alterei a imagem inteira em vez de só a parte pedida.'],
+  [/não trouxe fontes citáveis/i, 'Não encontrei fontes confiáveis para ofertas, então não usei preços nem condições.'],
+  [/Não consegui um logo oficial/i, 'Não consegui o logo oficial da marca; envie o arquivo para eu usá-lo fiel.'],
+  [/pesquisa na web não funcionou/i, 'A pesquisa na web falhou; segui só com o seu pedido.'],
+  [/input_fidelity|\bgpt-[\w.-]+|\bclaude-[\w.-]+|\bHTTP\s?[45]\d\d|\bstatus (code )?[45]\d\d\b|Exception|\bError\b|\w+Error\b/i, null],  // claramente interno (parâmetro, id de modelo, código HTTP, erro de código); na dúvida mostramos o "Atenção"
+];
+function friendlyNotice(m) {
+  const list = [...(m.falha_identidade ? ['NÃO manteve a identidade'] : []), ...(m.avisos || [])];
+  const phrases = []; let unknown = false;
+  for (const a of list) {
+    const hit = NOTICE_MAP.find(([re]) => re.test(String(a)));
+    if (!hit) unknown = true;                               // desconhecido: nunca engolido
+    else if (hit[1] && !phrases.includes(hit[1])) phrases.push(hit[1]);  // interno (null): só nos detalhes
+  }
+  if (unknown) phrases.push('Atenção: veja os detalhes técnicos.');
+  return phrases.join(' ');
+}
+const caption = (m) => String(m.caption || m.legenda || m.resumo || m.summary || '').trim();
+const absUrl = (u) => new URL(u, location.href).href;
+
+function techHtml(m) {
     const ok = m.approved, sc = m.score;
     const scoreHtml = sc == null ? '<span class="hint">sem revisão</span>'
-      : `<span class="score ${ok ? 'ok' : 'bad'}">${ok ? '✓ aprovada' : '✕ reprovada'} · nota ${sc}</span>`;
+      : `<span class="score ${ok ? 'ok' : 'bad'}">${ok ? '✓ aprovada' : '✕ reprovada'} · nota ${esc(sc)}</span>`;
     const veto = (m.veto || []).length ? `<span class="veto">vetos: ${m.veto.map(esc).join(', ')}</span>` : '';
     const issues = ((m.review && m.review.issues) || []).map((x) => typeof x === 'string' ? x : `[${x.severity || ''}] ${x.criterion}: ${x.evidence}`).join('\n');
     const scores = m.review ? Object.entries(m.review.scores || {}).map(([k, v]) => `${k}: ${v}`).join('  ·  ') : '';
     const cyc = (m.cycles || []).map((c) => `tentativa ${c.cycle + 1}: ${c.score ?? '—'}${c.approved ? ' ✓' : ''}${(c.veto || []).length ? ' veto ' + c.veto.join(',') : ''}${c.fix ? '\n   correção pedida: ' + c.fix : ''}`).join('\n');
-    const tries = (m.cycles || []).length > 1 ? `<div class="tries">${m.cycles.map((c) => `<figure class="${c.id === m.id ? 'best' : ''}"><img data-zoom="${esc(c.url)}" src="${esc(c.url)}" alt="">tentativa ${c.cycle + 1}${c.score != null ? ' · ' + c.score : ''}</figure>`).join('')}</div>` : '';
+    const tries = (m.cycles || []).length > 1 ? `<div class="tries">${m.cycles.map((c) => `<figure class="${c.id === m.id ? 'best' : ''}"><img data-zoom="${esc(c.url)}" src="${esc(c.url)}" alt="">tentativa ${esc(c.cycle + 1)}${c.score != null ? ' · ' + esc(c.score) : ''}</figure>`).join('')}</div>` : '';
     const imp = m.improve || {};
     const did = [`modo ${m.mode === 'marca' ? 'com marca' : 'livre'}`, imp.designer === false ? 'sem designer (texto direto)' : 'designer', ...(imp.designer !== false && imp.skills === false ? ['sem skills'] : (m.skills || []).length ? [`skills (${m.skills.length})`] : []), imp.review === false ? 'sem critic' : `critic (base${(m.packs || []).map((p) => ' + ' + p).join('')})`].join(' · ');
     const what = `<div class="what"><b>Seu pedido:</b> ${esc(m.request || '')}${m.resolved && m.resolved !== m.request ? `<br><b>Como a IA entendeu (com a memória):</b> ${esc(m.resolved)}` : ''}${m.intent && m.intent !== 'new' ? `<br><b>Intenção:</b> ${m.intent === 'edit' ? 'edição da imagem anterior' : 'variação'}` : ''}${(m.avisos || []).map((a) => `<br><b style="color:var(--color-status-warning)">Aviso:</b> ${esc(a)}`).join('')}<br><b>O que a aplicação fez:</b> ${esc(did)}${imp.designer === false ? '' : `<br><b>Enviado ao modelo de imagem:</b> ${esc((m.prompt || '').replace(/\s+/g, ' ').slice(0, 320))}${(m.prompt || '').length > 320 ? '…' : ''}`}</div>`;
-    const rawScore = m.raw && m.raw.score != null ? ` · nota ${m.raw.score}` : '';
-    const hero = m.raw
-      ? `<div class="cmp"><figure><img data-zoom="${esc(m.url)}" src="${esc(m.url)}" alt="com a aplicação"><b>Com a aplicação</b>${sc != null ? ' · nota ' + sc : ''}</figure>
-         <figure><img data-zoom="${esc(m.raw.url)}" src="${esc(m.raw.url)}" alt="GPT puro"><b>GPT puro</b> (só o seu texto)${rawScore}${(m.raw.veto || []).length ? ' · vetos: ' + m.raw.veto.map(esc).join(', ') : ''}</figure></div>`
-      : `<img class="main" data-zoom="${esc(m.url)}" src="${esc(m.url)}" alt="imagem gerada">`;
-    return `<div class="msg assistant"><div class="imgcard">
-      ${m.falha_identidade ? '<div class="failid"><b>Não consegui manter a identidade da referência.</b> Esta imagem <b>não é</b> a pessoa, o produto ou o logo pedido: não use como se fosse. A API pode ter alterado ou recusado o rosto; tente outra foto ou outro ângulo.</div>' : ''}
-      ${hero}
-      <div class="meta">${scoreHtml}${veto}<span class="hint">${m.generations} geração(ões) · ${m.seconds}s · ${esc(m.size)}</span></div>
-      ${what}
+    const rawScore = m.raw && m.raw.score != null ? ` · nota ${esc(m.raw.score)}` : '';
+    const rawNote = m.raw ? `<div class="what"><b>Versão B:</b> GPT puro (só o seu texto)${rawScore}${(m.raw.veto || []).length ? ' · vetos: ' + m.raw.veto.map(esc).join(', ') : ''}</div>` : '';
+    return `${m.falha_identidade ? '<div class="failid"><b>Não consegui manter a identidade da referência.</b> Esta imagem <b>não é</b> a pessoa, o produto ou o logo pedido: não use como se fosse. A API pode ter alterado ou recusado o rosto; tente outra foto ou outro ângulo.</div>' : ''}
+      <div class="meta">${scoreHtml}${veto}<span class="hint">${esc(m.generations)} geração(ões) · ${esc(m.seconds)}s · ${esc(m.size)}</span></div>
+      ${what}${rawNote}
       ${tries}
-      <div class="meta"><button class="btn" data-edit="${esc(m.id)}">✎ Editar esta imagem</button>
-        <a class="btn" href="${esc(m.url)}" download="${esc(m.id)}">Baixar</a></div>
-      <details><summary>Briefing, revisão e tentativas</summary>
+      <details open><summary>Briefing, revisão e tentativas</summary>
         ${(m.skills || []).length ? `<pre>skills aplicadas: ${m.skills.map(esc).join(', ')}</pre>` : ''}
         <pre>${esc(m.prompt)}</pre>
         ${scores ? `<pre>${esc(scores)}${issues ? '\n\n' + esc(issues) : ''}</pre>` : ''}
         ${cyc ? `<pre>${esc(cyc)}</pre>` : ''}
         ${(m.inputs || []).length ? `<pre>entradas: ${m.inputs.map((x) => esc(x.kind + ' ' + x.name)).join(', ')}</pre>` : ''}
-      </details></div></div>`;
-  }
-  const sug = (m.suggest || []).filter((s) => S.assets.some((a) => a.id === s.id)).map((s) => `<button class="btn" data-pin="${esc(s.id)}">📌 Usar ${esc(s.name)} (${esc(s.kind)}) e continuar</button>`).join(' ');
-  const web = (m.suggest_web || []).map((s) => `<button class="btn" data-web="${esc(s.q)}|${esc(s.kind)}">🔎 Buscar «${esc(s.q)}» na web</button>`).join(' ');
-  return `<div class="msg assistant"><div class="bubble ${m.error ? 'err' : ''}">${esc(m.text)}</div>${sug || web ? `<div class="meta">${sug} ${web}</div>` : ''}${m.error && S.lastBody ? '<div class="meta"><button class="btn" data-retry="1">↻ Tentar de novo</button></div>' : ''}</div>`;
+      </details>`;
 }
 
+const fbKey = (m) => 'fb:' + S.clientId + ':' + m.id;
+function thinkMsgHtml(m) {
+  if (!m.think) return '';
+  const open = S.thinkOpen.has(m.job);
+  return `<div class="think done"><button class="think-h" type="button" data-think="${esc(m.job)}" aria-expanded="${open}" aria-controls="tk-${esc(m.job)}"><span class="think-t">Pensou por ${m.think.secs} s</span>${ICON.chev}</button><ul class="think-l" id="tk-${esc(m.job)}" ${open ? '' : 'hidden'}>${(m.think.steps || []).map((x) => `<li>${esc(x)}</li>`).join('')}</ul></div>`;
+}
+function resultHtml(m) {
+  const fb = store.get(fbKey(m)), id = esc(m.id), cap = caption(m), note = friendlyNotice(m);
+  const A = `<div class="imgwrap"><img class="main" data-zoom="${esc(m.url)}" src="${esc(m.url)}" alt="imagem gerada"><button class="ovl edit" type="button" data-edit="${id}">✎ Editar</button><a class="ovl dl" href="${esc(m.url)}" download="${id}" aria-label="Baixar imagem" title="Baixar">${ICON.dl}</a></div>`;
+  const hero = m.raw
+    ? `<div class="gen-grid"><figure>${A}<figcaption>Versão A</figcaption></figure><figure><div class="imgwrap"><img class="main" data-zoom="${esc(m.raw.url)}" src="${esc(m.raw.url)}" alt="Versão B"><a class="ovl dl" href="${esc(m.raw.url)}" download="${id}-b" aria-label="Baixar versão B" title="Baixar">${ICON.dl}</a></div><figcaption>Versão B</figcaption></figure></div>`
+    : A;
+  const btn = (act, label, icon, extra = '') => `<button class="act" type="button" data-act="${act}" data-mid="${id}" aria-label="${label}" title="${label}" ${extra}>${icon}</button>`;
+  return `<div class="msg assistant">${thinkMsgHtml(m)}<div class="imgcard res">
+    ${cap ? `<p class="res-cap">${esc(cap)}</p>` : ''}
+    ${note ? `<p class="res-note" role="note">${esc(note)}</p>` : ''}
+    ${hero}
+    <div class="acts" role="toolbar" aria-label="Ações da imagem">${btn('copy', 'Copiar imagem', ICON.copy)}${btn('up', 'Gostei', ICON.up, `aria-pressed="${fb === 'up'}"`)}${btn('down', 'Não gostei', ICON.down, `aria-pressed="${fb === 'down'}"`)}${btn('share', 'Compartilhar', ICON.share)}${btn('regen', 'Gerar de novo', ICON.regen)}${btn('more', 'Mais ações', SVG.dots, 'aria-haspopup="menu"')}</div>
+  </div></div>`;
+}
+
+/* "Pensando": eventos técnicos do servidor viram poucos passos simples em português (sem modelo, regra, nota ou parâmetro) */
+const STEP_RULES = [
+  [/^critic \(/i, null],  // linha informativa de abertura: não é um passo
+  [/cliente identificado|fonte de clientes/i, 'Identificando o cliente'],
+  [/pesquisando na web|pesquisa pronta|logo da marca|achei um logo/i, 'Pesquisando referências'],
+  [/gpt puro/i, 'Criando outra versão'],
+  [/critic|nota \d|corrigindo|revisando/i, 'Ajustando os detalhes'],
+  [/tentativa (\d+)/i, (m) => (Number(m[1]) > 1 ? 'Ajustando os detalhes' : 'Criando a imagem')],
+  [/imagem .*pronta|original recolado|extens[ãa]o de fundo|edição localizada|alvo da edição/i, 'Criando a imagem'],
+  [/designer|briefing|mem[óo]ria|skills|modo |imagens de entrada|anexei|enviando o pedido/i, 'Entendendo o pedido'],
+];
+function friendlyStep(text) {
+  for (const [re, out] of STEP_RULES) { const m = String(text).match(re); if (m) return typeof out === 'function' ? out(m) : out; }
+  return null;  // evento desconhecido: mantém o passo anterior (nunca mostra o texto técnico)
+}
+function addFriendly(L, text) {
+  const lb = friendlyStep(text); if (!lb) return;
+  const last = L.friendly[L.friendly.length - 1];
+  if (!last || last.label !== lb) { L.friendly.push({ label: lb }); $('liveMsg').textContent = lb; }
+}
 function liveHtml() {
   const L = S.live; if (!L) return '';
-  const steps = L.steps.map((s, i) => `<div class="st ${i === L.steps.length - 1 && !L.done ? 'last' : ''}"><span class="t">${s.t}s</span>${esc(s.text)}${s.image_url ? `<img data-zoom="${esc(s.image_url)}" src="${esc(s.image_url)}" alt="">` : ''}</div>`).join('');
-  return `<div class="msg assistant" id="live"><div class="progress ${L.done ? 'done' : ''}">${steps || '<div class="st last">Enviando o pedido</div>'}</div></div>`;
+  const fr = L.friendly && L.friendly.length ? L.friendly : [{ label: 'Entendendo o pedido' }];
+  const cur = fr[fr.length - 1].label;
+  if ($('liveMsg').textContent !== cur) $('liveMsg').textContent = cur;  // região viva: só anuncia quando o passo muda
+  return `<div class="msg assistant" id="live"><div class="think"><button class="think-h" type="button" data-think="live" aria-expanded="${S.thinkOpen.has('live')}" aria-controls="tk-live"><span class="think-t shimmer">Pensando</span>${ICON.chev}</button><span class="think-cur">${esc(cur)}</span><ul class="think-l" id="tk-live" ${S.thinkOpen.has('live') ? '' : 'hidden'}>${fr.map((x, i) => `<li class="${i === fr.length - 1 ? 'cur' : ''}">${esc(x.label)}</li>`).join('')}</ul></div></div>`;
 }
 
 function drawLog() {
   const w = $('wrap');
   if (!S.history.length && !S.live) {
-    w.innerHTML = `<div class="empty"><h2>O que vamos criar para ${esc(S.client.name || S.clientId)}?</h2>
-      <div>Descreva qualquer imagem (foto, ilustração, 3D, produto, retrato, banner), anexe referências se quiser e itere como no ChatGPT.</div>
+    w.innerHTML = `<div class="empty"><h2>O que vamos criar?</h2>
       <div class="sugg">${['Um gato astronauta flutuando dentro de uma estação espacial, ilustração digital', 'Foto de produto: garrafa de vidro âmbar sobre mármore preto, luz de estúdio', 'Retrato em preto e branco de uma senhora idosa rindo, luz de janela', 'Banner de promoção de Natal com frete grátis para supermercado']
-        .map((s) => `<button class="btn" data-sugg="${esc(s)}">${esc(s)}</button>`).join('')}</div></div>`;
+        .map((t) => `<button class="btn sugg-pill" data-sugg="${esc(t)}">${esc(t)}</button>`).join('')}</div></div>`;
   } else {
     w.innerHTML = S.history.map(msgHtml).join('') + liveHtml();
   }
@@ -558,14 +730,40 @@ function drawLog() {
   w.querySelectorAll('img').forEach((im) => { if (!im.complete) im.addEventListener('load', () => { l.scrollTop = l.scrollHeight; }, { once: true }); });
 }
 
+/* Imagens grandes são reduzidas no navegador antes do upload (a Vercel recusa corpo > ~4,5 MB): máx. 2048 px no lado maior;
+   PNG com transparência continua PNG (só reduz as dimensões); foto sem transparência vira WebP/JPEG 0,85; SVG não reduz. */
+const UP_MAX_B64 = 3.6 * 1024 * 1024, UP_MAX_BYTES = 2.5 * 1024 * 1024, UP_MAX_SIDE = 2048;
+const b64len = (bytes) => Math.ceil(bytes / 3) * 4;
+const toBlob = (cv, type, q) => new Promise((res) => cv.toBlob(res, type, q));
+async function prepareImage(f) {
+  if (f.type === 'image/svg+xml') { if (b64len(f.size) > UP_MAX_B64) throw new Error('big'); return f; }
+  let bmp; try { bmp = await createImageBitmap(f); } catch { if (b64len(f.size) > UP_MAX_B64) throw new Error('big'); return f; }  // sem como medir: envia se couber
+  const big = f.size > UP_MAX_BYTES || Math.max(bmp.width, bmp.height) > UP_MAX_SIDE;
+  if (!big) { bmp.close && bmp.close(); return f; }
+  say('Otimizando imagem…');
+  let scale = Math.min(1, UP_MAX_SIDE / Math.max(bmp.width, bmp.height)), out = null, alpha = null;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const w = Math.max(1, Math.round(bmp.width * scale)), h = Math.max(1, Math.round(bmp.height * scale));
+    const cv = document.createElement('canvas'); cv.width = w; cv.height = h; const cx = cv.getContext('2d'); cx.drawImage(bmp, 0, 0, w, h);
+    if (alpha === null) { const d = cx.getImageData(0, 0, w, h).data; alpha = false; for (let i = 3; i < d.length; i += 4) { if (d[i] < 255) { alpha = true; break; } } }
+    let blob = alpha ? await toBlob(cv, 'image/png') : (await toBlob(cv, 'image/webp', attempt ? 0.7 : 0.85));
+    if (!alpha && (!blob || blob.type !== 'image/webp')) blob = await toBlob(cv, 'image/jpeg', attempt ? 0.7 : 0.85);
+    if (!blob) break;
+    out = blob; if (b64len(blob.size) <= UP_MAX_B64) { bmp.close && bmp.close(); return new File([blob], f.name, { type: blob.type }); }
+    scale *= 0.75;  // ainda grande: reduz mais as dimensões
+  }
+  bmp.close && bmp.close(); throw new Error('big');
+}
 async function uploadFiles(files, kind) {
-  for (const f of files) {
-    if (!f.type.startsWith('image/')) continue;
+  for (const f0 of files) {
+    if (!f0.type.startsWith('image/')) continue;
+    let f; try { f = await prepareImage(f0); } catch { say(`“${f0.name || 'imagem'}”: essa imagem é grande demais. Reduza ou envie outra.`); continue; }
     const b64 = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result.split(',')[1]); r.onerror = rej; r.readAsDataURL(f); });
     try {
-      const { asset } = await api('/api/asset', { client: S.clientId, kind, name: f.name || 'colado.png', mime: f.type, b64 });
+      const { asset } = await api('/api/asset', { client: libOwner(), ...(libOwner() === GERAL ? { conv: S.conv } : {}), kind, name: f0.name || 'colado.png', mime: f.type, b64 });
       S.assets.push(asset); S.selected.add(asset.id); syncFiles([asset.id]);
-    } catch (e) { $('status').textContent = 'Erro ao enviar: ' + e.message; }
+      if ($('status').textContent === 'Otimizando imagem…') say('');
+    } catch (e) { say('Não consegui enviar a imagem: ' + e.message); }
   }
   drawAssets(); drawChips();
 }
@@ -583,7 +781,7 @@ async function webSearch() {
 }
 async function addWeb(body) {
   try {
-    const { asset } = await api('/api/webadd', { client: S.clientId, kind: $('webkind').value, ...body });
+    const { asset } = await api('/api/webadd', { client: libOwner(), ...(libOwner() === GERAL ? { conv: S.conv } : {}), kind: $('webkind').value, ...body });
     S.assets.push(asset); S.selected.add(asset.id); syncFiles([asset.id]); drawAssets(); drawChips();
     $('webnote').textContent = `Adicionada e fixada: ${asset.name} (${asset.kind}). Confira se é a marca ou pessoa certa.`;
   } catch (e) { $('webnote').textContent = 'Erro: ' + e.message; }
@@ -618,7 +816,7 @@ async function newClient() {
 }
 function setModeHint() {
   $('modeHint').textContent = $('mode').value === 'livre'
-    ? 'O seu pedido manda. Nada do cliente (setor, paleta, estilo) entra no briefing.'
+    ? 'O seu pedido manda. Nada do cliente (setor, paleta, estilo) entra na imagem.'
     : 'Aplica paleta, estilo e tom do cliente só onde o pedido não disser. O pedido continua mandando.';
   $('pillMode').title = $('modeHint').textContent;
 }
@@ -626,8 +824,9 @@ async function loadMem() {
   try {
     const cv = S.conv, c = await api('/api/conv', convRef());
     if (cv !== S.conv) return;  // o usuário já trocou de conversa: descarta a resposta atrasada
-    await applyConvClient(c.client !== undefined ? c.client : { id: S.clientId, name: (S.client && S.client.name) || S.clientId, source: 'local' });  // servidor antigo (sem o campo): modo legado
-    if ((c.files || []).length || (c.turns || []).length) { S.selected = new Set((c.files || []).filter((id) => S.assets.some((a) => a.id === id))); saveSel(); drawAssets(); drawChips(); }
+    if (S.pendingClient && !(c.turns || []).length) { await applyConvClient(S.pendingClient.id ? S.pendingClient : null); } else await applyConvClient(c.client !== undefined ? c.client : { id: S.clientId, name: (S.client && S.client.name) || S.clientId, source: 'local' });  // servidor antigo (sem o campo): modo legado
+    if (!S.selected.size) restoreSel();  // nunca seleciona a biblioteca do cliente por conta própria; só restaura o que o usuário marcou nesta conversa
+    drawAssets(); drawChips();
     const pins = [...S.selected].map((id) => S.assets.find((a) => a.id === id)).filter(Boolean);
     const parts = [];
     if (pins.length) parts.push(`<div class="it"><b>Imagens fixadas:</b> ${pins.map((a) => esc(a.name + ' (' + a.kind + ')')).join(', ')}</div>`);
@@ -644,36 +843,50 @@ function setBusy(b) {
 
 async function poll(jobId, since) {
   // acompanha a tarefa até terminar; sobrevive a falhas curtas de rede
-  let fails = 0;
+  let fails = 0, lastProg = Date.now();
   for (;;) {
     await new Promise((r) => setTimeout(r, 1200));
     let j;
     try { j = await api('/api/job', { id: jobId, since }); fails = 0; }
     catch (e) {
       if (/não encontrada/.test(e.message)) return { error: 'O servidor foi reiniciado e a tarefa se perdeu. Envie de novo.' };
-      if (++fails > 15) return { error: 'Perdi a conexão com o servidor: ' + e.message };
+      if (++fails > 15) return { error: 'Perdi a conexão com o servidor. Tente de novo.', detail: e.detail || e.message };
       continue;
     }
+    if (j.steps.length) lastProg = Date.now();
+    if (j.status === 'running' && Date.now() - lastProg > 6 * 60 * 1000) return { error: 'A geração demorou demais. Tente de novo.', detail: `sem progresso por mais de 6 min (job ${jobId})` };
     since = j.next; S.live.steps.push(...j.steps); S.live.elapsed = j.elapsed;
-    $('status').textContent = Math.round(j.elapsed) + 's';
+    j.steps.forEach((x) => addFriendly(S.live, x.text));
     drawLog();
     if (j.status === 'done') return { message: j.message };
-    if (j.status === 'error') return { error: j.error };
+    if (j.status === 'error') return { error: j.error, detail: j.error_detail };
   }
 }
 
+const EXC_RE = /Traceback|\b\w*(Error|Exception)\b|invalid literal|\bat 0x[0-9a-f]+|^\s*File \"/i;
+function friendlyError(error, detail) {  // na conversa só texto curto e neutro; o técnico vai para "Ver detalhes técnicos" (C2: nada se perde)
+  const e = String(error || '').trim();
+  if (detail) return { text: e && !EXC_RE.test(e) ? e : 'Não consegui concluir a imagem.', detail: String(detail) };
+  if (!e || EXC_RE.test(e)) return { text: 'Não consegui concluir a imagem.', detail: e || 'sem detalhe do servidor' };
+  return { text: e, detail: '' };
+}
 async function finish(jobId, res) {
   S.live.done = true;
-  if (res.message) { if (!S.history.some((m) => m.job === jobId)) S.history.push({ ...res.message, job: jobId }); S.editOf = null;
-    if (res.message.files) { S.selected = new Set(res.message.files.filter((id) => S.assets.some((a) => a.id === id))); saveSel(); } }
-  else S.history.push({ role: 'assistant', kind: 'text', error: true, text: 'Erro: ' + res.error, job: jobId });
+  const secs = Math.max(1, Math.round(S.live.elapsed != null ? S.live.elapsed : (Date.now() - (S.live.t0 || Date.now())) / 1000));
+  const think = { secs, steps: [...(S.live.friendly || []).map((x) => x.label), 'Finalizando'] };
+  S.thinkOpen.delete('live');
+  if (res.message) { if (!S.history.some((m) => m.job === jobId)) S.history.push({ ...res.message, job: jobId, think }); S.editOf = null; S.pendingClient = null;
+    S.selected = new Set(); saveSel(); }  // depois de enviar, a seleção zera: o servidor guarda a memória da conversa
+  else { const er = friendlyError(res.error, res.detail); S.history.push({ role: 'assistant', kind: 'text', error: true, text: er.text, errorDetail: er.detail, job: jobId }); }
   S.live = null; store.del(jobKey()); setBusy(false); $('status').textContent = '';
-  saveLog(); drawLog(); drawAssets(); drawChips(); loadMem(); if (S.pendingProject) applyPending(); else refreshSide(); $('text').focus();
+  saveLog(); drawLog(); drawAssets(); drawChips(); (async () => { await Promise.all([loadConvs(), loadProjects()]); await loadMem(); if (S.pendingProject) applyPending(); })();  // a lista traz o scope real da conversa (o cliente pode ter sido detectado agora)
+  $('text').focus();
 }
 
 async function resumeJob(p) {
   if (S.busy) return;
-  setBusy(true); S.live = { steps: [], done: false }; drawLog();
+  setBusy(true); S.live = { steps: [], done: false, friendly: [], t0: Date.now() }; drawLog();
+  if (p.t0 && Date.now() - p.t0 > 6 * 60 * 1000) { await finish(p.id, { error: 'A geração demorou demais. Tente de novo.', detail: `tarefa antiga (${Math.round((Date.now() - p.t0) / 60000)} min) sem resposta` }); return; }  // não gira para sempre depois de recarregar
   await finish(p.id, await poll(p.id, 0));
 }
 
@@ -684,28 +897,34 @@ async function send(textOverride, bodyOverride) {
   const attached = [...S.selected].map((id) => S.assets.find((a) => a.id === id)).filter(Boolean).map((a) => ({ kind: a.kind, name: a.name, url: a.url }));
   if (S.editOf) attached.unshift({ kind: 'imagem anterior', name: 'edição', url: (S.history.find((m) => m.id === S.editOf) || {}).url || '' });
   const history = S.history.map((m) => ({ role: m.role, text: m.text || (m.kind === 'image' ? '[imagem gerada]' : '') }));
-  const body = bodyOverride || { client: S.clientId, conv: S.conv, text, asset_ids: [...S.selected], edit_of: S.editOf, history,
+  const curItem = (S.convs || []).find(isActive), bodyScope = (curItem && curItem.scope) || S.scope;  // o cliente legado nunca viaja: só o escopo da própria conversa
+  const body = bodyOverride || { conv: S.conv, ...(bodyScope ? { scope: bodyScope } : {}), text, asset_ids: [...S.selected], edit_of: S.editOf, history,
     size: $('size').value, quality: $('quality').value, review: $('doReview').checked, mode: $('mode').value,
     improve: { designer: $('impDesigner').checked, skills: $('impSkills').checked, compare_raw: $('impRaw').checked },
     image_model: $('imageModel').value, text_model: $('textModel').value, auto_client: !S.convClient };
+  if (!bodyOverride && S.pendingClient) {  // cliente escolhido/removido antes do 1º envio: o servidor ainda não gravou (pending), então vai no body
+    body.auto_client = false;
+    if (S.pendingClient.id) { body.client = S.pendingClient.id; body.scope = GERAL; } else delete body.client;  // contrato: scope _geral + client; o servidor copia os anexos de _geral para o cliente
+  }
+  if (body.scope) S.scope = body.scope;
   S.lastBody = body;
   if (!bodyOverride) { S.history.push({ role: 'user', text, attached }); saveLog(); }  // salva já: atualizar a página no meio não perde o pedido
-  S.live = { steps: [], done: false }; drawLog(); $('text').value = ''; autosize();
+  S.live = { steps: [], done: false, friendly: [], t0: Date.now() }; drawLog(); $('text').value = ''; autosize();
   let jobId;
   try { jobId = (await api('/api/chat', body)).job; }
-  catch (e) { S.live = { steps: [], done: true }; return finish('x' + Date.now(), { error: e.message }); }
-  store.set(jobKey(), { id: jobId });
+  catch (e) { S.live = { steps: [], done: true }; return finish('x' + Date.now(), { error: e.message, detail: e.detail }); }
+  store.set(jobKey(), { id: jobId, t0: Date.now() });
   await finish(jobId, await poll(jobId, 0));
 }
 
-function autosize() { const t = $('text'); t.style.height = 'auto'; t.style.height = Math.min(t.scrollHeight, 200) + 'px'; }
+function autosize() { const t = $('text'); t.style.height = 'auto'; t.style.height = Math.min(t.scrollHeight, 144) + 'px'; t.style.overflowY = t.scrollHeight > 144 ? 'auto' : 'hidden'; }
 function zoom(url) { const lb = $('lightbox'); lb.querySelector('img').src = url; lb.classList.add('on'); }
 
 document.addEventListener('click', async (e) => {
   const t = e.target;
   if (t.closest('#lightbox')) { $('lightbox').classList.remove('on'); return; }
   if (t.dataset.zoom) { zoom(t.dataset.zoom); return; }
-  if (t.dataset.del) { e.stopPropagation(); await api('/api/asset/delete', { client: S.clientId, id: t.dataset.del });
+  if (t.dataset.del) { e.stopPropagation(); await api('/api/asset/delete', { client: libOwner(), ...(libOwner() === GERAL ? { conv: S.conv } : {}), id: t.dataset.del });
     S.assets = S.assets.filter((a) => a.id !== t.dataset.del); S.selected.delete(t.dataset.del); syncFiles([], [t.dataset.del]); drawAssets(); drawChips(); return; }
   const card = t.closest('.asset');
   if (t.tagName === 'SELECT') return;
@@ -713,7 +932,7 @@ document.addEventListener('click', async (e) => {
   if (t.dataset.pin) { S.selected.add(t.dataset.pin); syncFiles([t.dataset.pin]); drawAssets(); drawChips(); send('pode usar a imagem fixada'); return; }
   if (t.dataset.unsel) { S.selected.delete(t.dataset.unsel); syncFiles([], [t.dataset.unsel]); drawAssets(); drawChips(); }
   if (t.dataset.web) { const [q, k] = t.dataset.web.split('|'); $('webq').value = q; $('webkind').value = k; webSearch(); return; }
-  if (t.dataset.alias) { const a = S.assets.find((x) => x.id === t.dataset.alias); const v = prompt('Nome desta imagem (ex.: Rodrigo Faro). Se você citar esse nome na conversa, ela é anexada sozinha:', a ? (a.alias || '') : ''); if (v !== null) { try { await api('/api/asset/alias', { client: S.clientId, id: t.dataset.alias, alias: v }); if (a) a.alias = v.trim(); drawAssets(); } catch (err) { $('status').textContent = 'Erro: ' + err.message; } } return; }
+  if (t.dataset.alias) { const a = S.assets.find((x) => x.id === t.dataset.alias); const v = prompt('Nome desta imagem (ex.: Rodrigo Faro). Se você citar esse nome na conversa, ela é anexada sozinha:', a ? (a.alias || '') : ''); if (v !== null) { try { await api('/api/asset/alias', { client: libOwner(), ...(libOwner() === GERAL ? { conv: S.conv } : {}), id: t.dataset.alias, alias: v }); if (a) a.alias = v.trim(); drawAssets(); } catch (err) { $('status').textContent = 'Erro: ' + err.message; } } return; }
   if (t.dataset.webadd !== undefined) { webAdd(Number(t.dataset.webadd)); return; }
   if (t.dataset.unedit) { S.editOf = null; drawChips(); }
   if (t.dataset.edit) { S.editOf = t.dataset.edit; drawChips(); $('text').focus(); $('text').placeholder = 'O que mudar nesta imagem? (o resto fica igual)'; }
@@ -723,7 +942,7 @@ document.addEventListener('click', async (e) => {
 document.addEventListener('change', async (e) => {
   const t = e.target;
   if (t.dataset && t.dataset.kind) {
-    try { await api('/api/asset/kind', { client: S.clientId, id: t.dataset.kind, kind: t.value }); const a = S.assets.find((x) => x.id === t.dataset.kind); if (a) a.kind = t.value; drawChips(); }
+    try { await api('/api/asset/kind', { client: libOwner(), ...(libOwner() === GERAL ? { conv: S.conv } : {}), id: t.dataset.kind, kind: t.value }); const a = S.assets.find((x) => x.id === t.dataset.kind); if (a) a.kind = t.value; drawChips(); }
     catch (err) { $('status').textContent = 'Erro: ' + err.message; }
   }
 });
@@ -742,9 +961,9 @@ $('webq').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preven
 $('webadd').onclick = () => { const u = $('weburl').value.trim(); if (u) addWeb({ url: u, name: ($('webq').value.trim() || 'imagem-web'), alias: $('webq').value.trim() }); };
 $('keyBtn').onclick = setKey;
 $('keyIn').addEventListener('keydown', (e) => { if (e.key === 'Enter') setKey(); });
-$('newChat').onclick = () => { S.lastBody = null; S.history = []; S.editOf = null; S.selected = new Set(); saveSel(); S.conv = newConv(S.clientId); saveLog(); drawLog(); drawAssets(); drawChips(); loadMem(); setNavOpen(false); S.pendingProject = S.curProject; S.convClient = null; drawChip(); drawConvs(); };
+$('newChat').onclick = () => { S.lastBody = null; S.history = []; S.editOf = null; S.selected = new Set(); S.conv = newConv(S.clientId); saveSel(); S.scope = null; S.convClient = null; S.pendingClient = null; /* zera ANTES de loadMem, senão ele consultaria o escopo da conversa anterior */ saveLog(); drawLog(); drawAssets(); drawChips(); loadMem(); setNavOpen(false); loadLibrary(); S.pendingProject = S.curProject; S.convClient = null; S.pendingClient = null; S.scope = null; drawChip(); drawConvs(); };
 $('saveClient').onclick = async () => {
-  try { const c = JSON.parse($('clientJson').value); await api('/api/client/save', { id: S.clientId, client: c }); S.client = c; $('clientName').textContent = c.name || S.clientId; $('status').textContent = 'Dados salvos'; }
+  try { const c = JSON.parse($('clientJson').value); if (libOwner() === GERAL) throw new Error('não há cliente nesta conversa'); await api('/api/client/save', { id: libOwner(), client: c }); S.client = c; drawHeader(); $('status').textContent = 'Dados salvos'; }
   catch (e) { $('status').textContent = 'JSON inválido: ' + e.message; }
 };
 const box = $('box2');
@@ -797,6 +1016,7 @@ function spDay(ms) { // dia civil em America/Sao_Paulo (C1: nunca o fuso do nave
   return civilDays(+p.year, +p.month, +p.day);
 }
 function groupOf(updated) { const d = spDay(Date.now()) - spDay(updated * 1000); return d <= 0 ? 'Hoje' : d === 1 ? 'Ontem' : d <= 7 ? 'Últimos 7 dias' : 'Anteriores'; }
+S.thinkOpen = new Set(); S.pendingClient = null;
 S.convs = null; S.convErr = null; S.convSkipped = 0; S.projects = null; S.projErr = null;
 S.renaming = null; S.menuFor = null; S.menuKind = null; S.newProj = false; S.curProject = null; S.pendingProject = null; S.convClient = null; S.scope = null;
 const projOpen = new Set(store.get('ui:projOpen') || []);
@@ -804,8 +1024,8 @@ const saveProjOpen = () => store.set('ui:projOpen', [...projOpen]);
 const ckey = (c) => (c.scope || c.client || '') + '|' + c.id;
 const findConv = (key) => (S.convs || []).find((c) => ckey(c) === key);
 const cref = (c) => (c.scope ? { scope: c.scope, conv: c.id } : { client: c.client || S.clientId, conv: c.id });
-const isActive = (c) => c.id === S.conv && (!c.client || c.client === S.clientId);
-const convRef = (id = S.conv) => { const c = (S.convs || []).find((x) => x.id === id && (!x.client || x.client === S.clientId)); return c ? cref(c) : { client: S.clientId, conv: id }; };
+const isActive = (c) => c.id === S.conv;
+const convRef = (id = S.conv) => { const c = (S.convs || []).find((x) => x.id === id); return c ? cref(c) : { scope: (id === S.conv && S.scope) || '_geral', conv: id }; };  // conversa ainda fora da lista: escopo neutro (o cliente é detectado ou escolhido; nunca herdado por engano)
 const findProj = (id) => (S.projects || []).find((p) => p.id === id);
 const SVG = {
   chev: '<svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>',
@@ -841,7 +1061,7 @@ function drawConvs() {
   const box = $('convList'), q = $('convQ').value.trim().toLowerCase();
   const cur = (S.convs || []).find(isActive);
   const pend = S.pendingProject && findProj(S.pendingProject);
-  $('convTitle').textContent = cur ? cur.title : pend ? `Nova conversa no projeto “${pend.name}”` : '';
+  drawHeader();
   if (S.convErr) { box.innerHTML = `<div class="conv-note" role="alert">${esc(S.convErr)}. Não consegui carregar as conversas.<br><button class="btn" id="convRetry" type="button">Tentar de novo</button></div>`; $('convRetry').onclick = () => { S.convErr = null; S.convs = null; drawConvs(); refreshSide(); }; return; }
   if (S.convs === null) { box.innerHTML = '<div class="conv-note">Carregando conversas…</div>'; return; }
   const match = (c) => !q || String(c.title || '').toLowerCase().includes(q);
@@ -889,12 +1109,12 @@ async function openConv(key) {
   if (S.busy) { $('status').textContent = 'Aguarde a geração terminar para trocar de conversa.'; return; }
   setNavOpen(false);
   const c = findConv(key); if (!c || isActive(c)) return;
-  S.pendingProject = null;
+  S.pendingProject = null; S.pendingClient = null;
   if (c.client && c.client !== S.clientId) {
     try { await loadClient(c.client, { keepConv: true }); }
     catch (e) { $('status').textContent = 'Não consegui carregar o cliente desta conversa: ' + e.message; }
   }
-  S.conv = c.id; S.scope = c.scope || null; store.set('conv:' + S.clientId, c.id); S.editOf = null; S.lastBody = null;
+  S.conv = c.id; S.scope = c.scope || null; store.set('conv:' + S.clientId, c.id); S.editOf = null; S.lastBody = null; S.selected = new Set(); restoreSel();
   S.curProject = c.project || null; if (c.project) { projOpen.add(c.project); saveProjOpen(); }
   let local = store.get(logKey() + ':' + c.id), note = null;
   if (!local || !local.length) {
@@ -907,7 +1127,7 @@ async function openConv(key) {
   }
   S.history = local; saveLog(); drawLog();
   if (note) $('wrap').insertAdjacentHTML('afterbegin', `<div class="conv-note" role="status">${esc(note)}</div>`);
-  loadMem(); drawConvs();
+  loadMem(); drawConvs(); if (libOwner() === GERAL) loadLibrary();  // a biblioteca neutra é por conversa
 }
 async function commitRename(v) {
   const k = S.renaming, title = v.trim().slice(0, 80); S.renaming = null;
@@ -1020,36 +1240,52 @@ $('convList').addEventListener('dragend', () => document.querySelectorAll('.drop
 
 /* --- cliente da conversa: automático (chip) + escolha manual (combobox no painel) --- */
 const SRC = { banco: 'banco', db: 'banco', local: 'local' };
+function drawHeader() {  // só o cliente DESTA conversa; sem cliente, o título da conversa (nunca o nome de um cliente herdado)
+  const cur = (S.convs || []).find(isActive), pend = S.pendingProject && findProj(S.pendingProject);
+  const title = cur ? cur.title : pend ? `Nova conversa no projeto “${pend.name}”` : 'Nova conversa';
+  if (S.convClient) { $('clientName').textContent = S.convClient.name; $('convTitle').textContent = cur ? cur.title : ''; }
+  else { $('clientName').textContent = title; $('convTitle').textContent = ''; }
+}
 function drawChip() {
   const c = S.convClient, row = $('ctxRow');
   row.innerHTML = c
     ? `<span class="ctx-chip"><button class="ctx-open" id="ctxChipOpen" type="button" title="Abrir o contexto do cliente">Cliente: <b>${esc(c.name)}</b> · fonte: ${esc(SRC[c.source] || c.source || 'desconhecida')}</button><button class="ctx-x" id="ctxChipX" type="button" aria-label="Remover o cliente desta conversa" title="Remover o cliente desta conversa">✕</button></span>`
     : '<button class="ctx-none" id="ctxChipOpen" type="button" title="Abrir o contexto da conversa">Nenhum cliente identificado · definir</button>';
-  drawCtx();
+  drawCtx(); drawHeader();
 }
 function drawCtx() {
   const c = S.convClient;
   $('ctxCurrent').innerHTML = c
     ? `<div class="ctx-cur"><b>${esc(c.name)}</b> <span class="badge">fonte: ${esc(SRC[c.source] || c.source || 'desconhecida')}</span></div><div class="row"><button class="btn" id="ctxRemove" type="button">Remover da conversa</button></div>`
     : '<div class="ctx-empty" role="status"><b>Nenhum cliente identificado.</b> Cite o cliente no pedido ou escolha aqui.</div>';
-  $('ctxBody').hidden = !c;
+  const own = libOwner() !== GERAL;  // dados/biblioteca de cliente só quando a biblioteca já é a dele
+  $('ctxJson').hidden = !own; $('libTitle').textContent = own ? 'Biblioteca do cliente' : 'Anexos desta conversa';
   const rm = $('ctxRemove'); if (rm) rm.onclick = removeConvClient;
 }
 async function applyConvClient(cl) {
   S.convClient = cl && cl.id ? { id: String(cl.id), name: cl.name || String(cl.id), source: cl.source || '' } : null;
-  if (S.convClient && S.convClient.id !== S.clientId) {
+  if (!S.pendingClient && S.convClient && S.convClient.id !== S.clientId) {
     try { await loadClient(S.convClient.id, { keepConv: true }); store.set('conv:' + S.clientId, S.conv); saveLog(); }
     catch (e) { $('status').textContent = 'Não consegui carregar os dados do cliente ' + S.convClient.name + ': ' + e.message; }
-  }
+  } else if (libOwner() !== S.libOwner) await loadLibrary();
+  S.libOwner = libOwner();
   drawChip();
 }
+async function loadLibrary() {  // biblioteca do dono atual: o cliente da conversa, ou os anexos da conversa neutra
+  const owner = libOwner(); S.libErr = null;
+  try {
+    if (owner !== GERAL) await loadClient(owner, { keepConv: true });
+    else { const r = await api('/api/client', { id: GERAL, conv: S.conv }); S.assets = r.assets || []; if (!S.selected.size) restoreSel(); S.selected = new Set([...S.selected].filter((id) => S.assets.some((a) => a.id === id))); }
+  } catch (e) { S.assets = []; S.libErr = 'Biblioteca indisponível: ' + e.message; $('status').textContent = S.libErr; }
+  S.libOwner = owner; drawAssets(); drawChips(); drawCtx();
+}
 async function removeConvClient() {
-  try { await api('/api/conv/client', { ...convRef(), client_id: null }); S.convClient = null; $('status').textContent = 'Cliente removido da conversa.'; }
+  try { const r = await api('/api/conv/client', { ...convRef(), client_id: null }); S.pendingClient = r.pending ? { id: null } : null; S.convClient = null; $('status').textContent = 'Cliente removido da conversa.'; await loadLibrary(); }
   catch (e) { $('status').textContent = 'Não consegui remover o cliente: ' + e.message; return; }
   drawChip(); loadConvs();
 }
 async function pickClient(cl) {
-  try { await api('/api/conv/client', { ...convRef(), client_id: cl.id }); $('status').textContent = `Cliente “${cl.name}” definido para esta conversa.`; }
+  try { const r = await api('/api/conv/client', { ...convRef(), client_id: cl.id }); S.pendingClient = r.pending ? { id: cl.id, name: cl.name, source: cl.source } : null; $('status').textContent = `Cliente “${cl.name}” definido para esta conversa.`; }
   catch (e) { $('status').textContent = 'Cliente definido só neste navegador (o servidor não confirmou): ' + e.message; }
   await applyConvClient(cl); loadConvs();
 }
@@ -1113,35 +1349,134 @@ function applyComposer() {
   const v = store.get('ui:composer') || {};
   COMPOSER_IDS.forEach((id) => { if (v[id] != null && [...$(id).options].some((o) => o.value === v[id])) $(id).value = v[id]; });
   COMPOSER_CHECKS.forEach((id) => { if (typeof v[id] === 'boolean') $(id).checked = v[id]; });
-  $('effort').value = effortOf(); setModeHint(); syncOut();
+  $('effort').value = effortOf(); setModeHint(); syncModelBtn();
 }
 $('effort').addEventListener('change', () => { const e = EFFORT[$('effort').value]; if (!e) return; ['impDesigner', 'impSkills', 'doReview'].forEach((id, i) => { $(id).checked = e[i]; }); saveComposer(); });
 COMPOSER_CHECKS.forEach((id) => $(id).addEventListener('change', () => { $('effort').value = effortOf(); saveComposer(); }));
 COMPOSER_IDS.forEach((id) => $(id).addEventListener('change', saveComposer));
-const syncOut = () => { $('outVal').textContent = `${$('quality').value} · ${$('size').value}`; };
-function setOut(o) {
-  const pop = $('outPop'); if (o) setAdv(false);
-  pop.hidden = !o; $('outBtn').setAttribute('aria-expanded', String(o));
-  if (o) { const bx = $('box2').getBoundingClientRect(), br = $('outBtn').getBoundingClientRect(); pop.style.left = Math.max(8, Math.min(br.left - bx.left, bx.width - pop.offsetWidth - 8)) + 'px'; }
+function syncModelBtn() {
+  const e = effortOf();
+  document.querySelectorAll('input[name=effortR]').forEach((r) => { r.checked = r.value === e; });
+  $('effCustom').hidden = e !== 'custom';
+  $('mdlName').textContent = $('imageModel').value || 'Modelo';
+  $('mdlEff').textContent = { baixo: 'Baixo', medio: 'Médio', alto: 'Alto', custom: 'Personalizado' }[e];
 }
-$('outBtn').onclick = (e) => { e.stopPropagation(); setOut($('outPop').hidden); if (!$('outPop').hidden) $('quality').focus(); };
-$('outPop').addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); setOut(false); $('outBtn').focus(); } });
-['quality', 'size'].forEach((id) => $(id).addEventListener('change', syncOut));
-function setAdv(o) { if (o && !$('outPop').hidden) setOut(false); $('advPop').hidden = !o; $('advBtn').setAttribute('aria-expanded', String(o)); }
-$('advBtn').onclick = (e) => { e.stopPropagation(); setAdv($('advPop').hidden); };
-$('advPop').addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); setAdv(false); $('advBtn').focus(); } });
+document.querySelectorAll('input[name=effortR]').forEach((r) => r.addEventListener('change', () => { $('effort').value = r.value; $('effort').dispatchEvent(new Event('change')); }));
+['imageModel', 'textModel', 'quality', 'size', 'effort'].forEach((id) => $(id).addEventListener('change', syncModelBtn));
+COMPOSER_CHECKS.forEach((id) => $(id).addEventListener('change', syncModelBtn));
+function setModel(o) {
+  $('modelPop').hidden = !o; $('modelBtn').setAttribute('aria-expanded', String(o));
+  if (o) { const c = document.querySelector('input[name=effortR]:checked') || document.querySelector('input[name=effortR]'); c.focus(); }
+}
+$('modelBtn').onclick = (e) => { e.stopPropagation(); setModel($('modelPop').hidden); };
+$('modelPop').addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); setModel(false); $('modelBtn').focus(); } });
+$('modelPop').addEventListener('keydown', (e) => {  // Tab que sairia do popover: nunca deixa o foco cair no body
+  if (e.key !== 'Tab') return;
+  const f = [...$('modelPop').querySelectorAll('input, select, summary, button, textarea')].filter((x) => !x.disabled && !x.classList.contains('vh') && x.getClientRects().length && !(x.tagName !== 'SUMMARY' && x.closest('details:not([open])')));
+  if (!f.length) return;
+  if (!e.shiftKey && document.activeElement === f[f.length - 1]) { e.preventDefault(); setModel(false); ($('micBtn').hidden ? $('send') : $('micBtn')).focus(); }
+  else if (e.shiftKey && document.activeElement === f[0]) { e.preventDefault(); setModel(false); $('modelBtn').focus(); }
+});
+$('modelPop').addEventListener('focusout', (e) => { const n = e.relatedTarget; if (n && !$('modelPop').contains(n) && n !== $('modelBtn')) setModel(false); });  // Tab para fora fecha
 document.addEventListener('click', (e) => {
-  if (!$('advPop').hidden && !e.target.closest('#advPop, #advBtn')) setAdv(false);
-  if (!$('outPop').hidden && !e.target.closest('#outPop, #outBtn')) setOut(false);
+  if (!$('modelPop').hidden && !e.composedPath().includes($('modelPop')) && !e.target.closest('#modelBtn')) setModel(false);
   if (!$('convMenu').hidden && !e.composedPath().includes($('convMenu')) && !e.target.closest('[data-more], [data-pmore]')) closeConvMenu(false);  // composedPath: o alvo pode ter saído do DOM no re-render
 });
 document.addEventListener('keydown', (e) => {
   if (e.key !== 'Escape') return;
-  if (!$('outPop').hidden) { setOut(false); $('outBtn').focus(); }
-  else if (!$('advPop').hidden) { setAdv(false); $('advBtn').focus(); }
+  if (!$('modelPop').hidden) { setModel(false); $('modelBtn').focus(); }
   else if (!$('convMenu').hidden) closeConvMenu(true);
   else if (document.body.classList.contains('nav-open')) setNavOpen(false);
 });
+/* ditado por voz (Web Speech API, pt-BR): só aparece se o navegador suporta; o áudio NÃO passa pelo nosso servidor, mas o navegador pode enviá-lo a um serviço de reconhecimento de voz de terceiros (ex.: Chrome) */
+(() => {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition, mic = $('micBtn');
+  if (!SR) return;  // sem suporte: o botão continua escondido (nada de botão morto)
+  mic.hidden = false;
+  let rec = null;
+  const setRec = (on) => { mic.setAttribute('aria-pressed', String(on)); mic.classList.toggle('rec', on); const l = on ? 'Parar o ditado' : 'Ditar por voz'; mic.setAttribute('aria-label', l); mic.title = on ? l : 'Ditar (o navegador processa o áudio)'; };
+  mic.onclick = () => {
+    if (rec) { rec.stop(); return; }
+    const r = new SR(), base = $('text').value, sep = base && !/\s$/.test(base) ? ' ' : '';
+    r.lang = 'pt-BR'; r.interimResults = true; r.continuous = false;
+    r.onresult = (e) => { let t = ''; for (const x of e.results) t += x[0].transcript; $('text').value = base + sep + t; autosize(); };
+    r.onerror = (e) => { say(e.error === 'not-allowed' || e.error === 'service-not-allowed' ? 'O navegador bloqueou o microfone. Libere o acesso para ditar.' : e.error === 'no-speech' ? 'Não ouvi nada. Tente de novo.' : 'Não consegui ouvir (' + e.error + ').'); };
+    r.onend = () => { rec = null; setRec(false); };
+    try { rec = r; r.start(); setRec(true); say('Ouvindo… fale o pedido.'); } catch { rec = null; say('Não consegui iniciar o microfone.'); }
+  };
+})();
+
+/* --- ações do resultado, "Pensando" e detalhes técnicos --- */
+const findMsg = (mid) => S.history.find((x) => x.id === mid);
+function say(t) { $('status').textContent = t; }
+async function copyImage(m) {
+  const url = absUrl(m.url);
+  try {
+    const blob = await (await fetch(m.url)).blob();
+    if (navigator.clipboard && window.ClipboardItem && /^image\/(png|jpeg|webp)$/.test(blob.type)) { await navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })]); say('Imagem copiada.'); return; }
+  } catch { /* cai para o link */ }
+  try { await navigator.clipboard.writeText(url); say('Link da imagem copiado.'); }
+  catch { say('Não consegui copiar. Use “Baixar” para guardar a imagem.'); }
+}
+async function shareImage(m) {
+  const url = absUrl(m.url);
+  if (navigator.share) { try { await navigator.share({ title: 'Imagem criada', url }); say('Imagem compartilhada.'); return; } catch (e) { if (e && e.name === 'AbortError') { say('Compartilhamento cancelado.'); return; } } }
+  try { await navigator.clipboard.writeText(url); say('Compartilhar não está disponível aqui; copiei o link da imagem.'); }
+  catch { say('Não consegui compartilhar nem copiar o link.'); }
+}
+function regenerate(m) {
+  if (S.busy) { say('Aguarde a geração terminar.'); return; }
+  const lastImg = [...S.history].reverse().find((x) => x.kind === 'image');
+  if (S.lastBody && lastImg && lastImg.id === m.id) { send(S.lastBody.text, S.lastBody); return; }
+  if (m.request) send(m.request); else say('Não encontrei o pedido original desta imagem.');
+}
+function setFeedback(m, v, btn) {
+  const cur = store.get(fbKey(m)), nv = cur === v ? null : v;
+  if (nv) store.set(fbKey(m), nv); else store.del(fbKey(m));
+  const row = btn.parentElement; row.querySelector('[data-act=up]').setAttribute('aria-pressed', String(nv === 'up')); row.querySelector('[data-act=down]').setAttribute('aria-pressed', String(nv === 'down'));
+  say(nv ? 'Obrigado pelo retorno (guardado só neste navegador).' : 'Retorno removido.');
+}
+let imgMenuFor = null, imgMenuBtn = null;
+function closeImgMenu(refocus) { $('imgMenu').hidden = true; const b = imgMenuBtn; imgMenuFor = null; imgMenuBtn = null; if (refocus && b && b.isConnected) b.focus(); }
+function openImgMenu(m, btn) {
+  imgMenuFor = m.id; imgMenuBtn = btn; const r = btn.getBoundingClientRect(), mn = $('imgMenu');
+  mn.innerHTML = `<a role="menuitem" href="${esc(m.url)}" download="${esc(m.id)}" data-iact="dl">Baixar</a><button role="menuitem" type="button" data-iact="tech">Ver detalhes técnicos</button>`;
+  mn.hidden = false; mn.style.top = Math.max(8, Math.min(r.top - mn.offsetHeight - 4, innerHeight - mn.offsetHeight - 8)) + 'px'; mn.style.left = Math.max(8, Math.min(r.left, innerWidth - 230)) + 'px';
+  mn.querySelector('a').focus();
+}
+$('imgMenu').addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') { e.stopPropagation(); closeImgMenu(true); return; }
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') { const it = [...$('imgMenu').querySelectorAll('a,button')], i = it.indexOf(document.activeElement); e.preventDefault(); it[(i + (e.key === 'ArrowDown' ? 1 : -1) + it.length) % it.length].focus(); }
+});
+$('imgMenu').addEventListener('click', (e) => { const a = e.target.closest('[data-iact]'); if (!a) return; const m = findMsg(imgMenuFor); if (a.dataset.iact === 'tech') { const op = imgMenuBtn; closeImgMenu(false); if (m) openTech(m, op); } else closeImgMenu(false); });
+let techOpener = null, techMid = null;
+function openTech(m, opener) { techOpener = opener || document.activeElement; techMid = m.id; $('techBody').innerHTML = techHtml(m); $('techDlg').hidden = false; $('techClose').focus(); }
+function closeTech() { $('techDlg').hidden = true; let o = techOpener && techOpener.isConnected && techOpener.offsetParent !== null ? techOpener : null; if (!o) o = document.querySelector(`[data-act=more][data-mid="${CSS.escape(techMid || '')}"]`); if (o) o.focus(); else $('text').focus(); }
+$('techClose').onclick = closeTech;
+$('techDlg').addEventListener('mousedown', (e) => { if (e.target === $('techDlg')) closeTech(); });
+$('techDlg').addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') { e.stopPropagation(); if ($('lightbox').classList.contains('on')) $('lightbox').classList.remove('on'); else closeTech(); return; }
+  if (e.key !== 'Tab') return;
+  const f = [...$('techDlg').querySelectorAll(FOCUSABLE)].filter((x) => !x.disabled && x.offsetParent !== null);
+  if (!f.length) return;
+  if (e.shiftKey && document.activeElement === f[0]) { e.preventDefault(); f[f.length - 1].focus(); }
+  else if (!e.shiftKey && document.activeElement === f[f.length - 1]) { e.preventDefault(); f[0].focus(); }
+  else if (!$('techDlg').contains(document.activeElement)) { e.preventDefault(); f[0].focus(); }
+});
+$('wrap').addEventListener('click', (e) => {
+  const et = e.target.closest('[data-errtech]');
+  if (et) { const em = S.history.find((x) => x.job === et.dataset.errtech && x.errorDetail); if (em) { techOpener = et; techMid = null; $('techBody').innerHTML = `<pre>${esc(em.errorDetail)}</pre>`; $('techDlg').hidden = false; $('techClose').focus(); } return; }
+  const th = e.target.closest('[data-think]'), ac = e.target.closest('[data-act]');
+  if (th) { const k = th.dataset.think; if (S.thinkOpen.has(k)) S.thinkOpen.delete(k); else S.thinkOpen.add(k); const keep = k; drawLog(); const b = document.querySelector(`[data-think="${CSS.escape(keep)}"]`); if (b) b.focus(); return; }
+  if (!ac) return;
+  const m = findMsg(ac.dataset.mid); if (!m) return;
+  const a = ac.dataset.act;
+  if (a === 'copy') copyImage(m); else if (a === 'share') shareImage(m); else if (a === 'regen') regenerate(m);
+  else if (a === 'up' || a === 'down') setFeedback(m, a, ac);
+  else if (a === 'more') { e.stopPropagation(); if (!$('imgMenu').hidden && imgMenuBtn === ac) closeImgMenu(false); else openImgMenu(m, ac); }
+});
+document.addEventListener('click', (e) => { if (!$('imgMenu').hidden && !e.composedPath().includes($('imgMenu')) && !e.target.closest('[data-act=more]')) closeImgMenu(false); });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$('imgMenu').hidden) closeImgMenu(true); });
 
 drawChip();
 init().catch((e) => { $('wrap').innerHTML = `<div class="empty err">Falha ao iniciar: ${esc(e.message)}</div>`; });

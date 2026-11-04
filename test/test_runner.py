@@ -138,6 +138,60 @@ def test_text_budget_preflight():
     ok("orcamento" in r.preflight(**base())["checks"], "texto sem limite passa")
 
 
+def test_deadline_gates():
+    """Prazo total (produção, cf): sem tempo para revisar entrega sem nota; sem tempo para reparar mantém a melhor tentativa."""
+    tt = [0.0]
+    r, _ = make()
+    r.clock = lambda: tt[0]
+    seen = {}
+
+    def mk(scores, gen_s=10, rev_s=5):
+        it = iter(scores)
+        st = {"gens": 0, "revs": 0}
+
+        def gen(cycle, brief):
+            st["gens"] += 1
+            tt[0] += gen_s
+            return {"cycle": cycle, "prompt": brief["prompt"], "id": f"g{cycle}", "url": "/u", "meta": {}}
+
+        def rev(entry, brief):
+            st["revs"] += 1
+            tt[0] += rev_s
+            s = next(it)
+            return {"veto": [], "fix": "f"}, s, s >= 8
+        return gen, rev, st
+    gen, rev, st = mk([9])
+    out = r.run({"prompt": "p"}, max_repairs=2, generate=gen, review=rev, revise=lambda b, rv: b,
+                review_gate=lambda e, g: seen.setdefault("gen_s", g) or True, repair_gate=lambda c: seen.setdefault("cycle_s", c) or True)
+    ok(out["cut"] is False and out["decision"].action == "accept" and seen["gen_s"] == 10, "com tempo de sobra: nada é cortado e o portão de revisão recebe a duração da geração (10 s)")
+    gen, rev, st = mk([5, 9])
+    out = r.run({"prompt": "p"}, max_repairs=2, generate=gen, review=rev, revise=lambda b, rv: b,
+                review_gate=lambda e, g: True, repair_gate=lambda c: seen.__setitem__("cycle_s", c) or True)
+    ok(seen["cycle_s"] == 15 and out["cut"] is False and st["gens"] == 2, "o portão de reparo recebe a duração da volta inteira (geração + revisão = 15 s)")
+    gen, rev, st = mk([9])
+    out = r.run({"prompt": "p"}, max_repairs=2, generate=gen, review=rev, revise=lambda b, rv: b, review_gate=lambda e, g: False)
+    e = out["cycles"][0]
+    ok(st["revs"] == 0 and st["gens"] == 1 and "score" not in e and "approved" not in e and out["cut"] is True, "sem tempo para o critic: a imagem sai SEM nota, o critic não é chamado e cut=True")
+    ok(out["decision"].action == "accept" and "sem revisão" in out["decision"].reason and out["best"]["ok"] is None, "...e é aceite (não escalona nem repara), com o motivo")
+    gen, rev, st = mk([9])
+    out = r.run({"prompt": "p"}, max_repairs=2, generate=gen, review=lambda e, b: None, revise=lambda b, rv: b)
+    ok(st["gens"] == 1 and out["cut"] is True and out["decision"].action == "accept" and "score" not in out["cycles"][0], "critic que estoura o tempo (devolve None): imagem entregue sem revisão, cut=True, sem reparo")
+    gen, rev, st = mk([5, 9])
+    out = r.run({"prompt": "p"}, max_repairs=2, generate=gen, review=rev, revise=lambda b, rv: b, review_gate=lambda e, g: True, repair_gate=lambda c: False)
+    ok(st["gens"] == 1 and out["cut"] is True and out["decision"].action == "stop" and "prazo" in out["decision"].reason, "reprovada e sem tempo para a próxima volta: para com a melhor tentativa e cut=True")
+    ok(out["best"]["entry"]["id"] == "g0" and out["trace"][0]["decision"] == "stop", "a melhor tentativa fica e o trace registra 'stop'")
+    gen, rev, st = mk([9])
+    out = r.run({"prompt": "p"}, max_repairs=2, generate=gen, review=None, revise=None, review_gate=lambda e, g: False)
+    ok(out["cut"] is False and out["decision"].reason == "revisão desligada", "revisão desligada de propósito não conta como corte por prazo")
+    gen, rev, st = mk([9])
+    called = []
+    r.run({"prompt": "p"}, max_repairs=2, generate=gen, review=rev, revise=lambda b, rv: b, repair_gate=lambda c: called.append(c) or True)
+    ok(called == [], "aprovada: o portão de reparo nem é consultado")
+    gen, rev, st = mk([4, 4.5, 5])
+    out = r.run({"prompt": "p"}, max_repairs=2, generate=gen, review=rev, revise=lambda b, rv: b, repair_gate=lambda c: True)
+    ok(out["cut"] is False and out["decision"].action == "escalate", "sem portão de prazo o comportamento anterior se mantém (escalona no limite)")
+
+
 def entries(*scores):
     """review/generate falsos: notas na ordem; aprova a partir de 8."""
     it = iter(scores)
@@ -234,7 +288,7 @@ def test_trace():
 
 
 def main():
-    for fn in (test_preflight, test_budget_preflight, test_text_budget_preflight, test_loop, test_loop_budget_and_questions, test_trace):
+    for fn in (test_preflight, test_budget_preflight, test_text_budget_preflight, test_deadline_gates, test_loop, test_loop_budget_and_questions, test_trace):
         print(f"== {fn.__name__}")
         fn()
     print(f"\nTUDO OK ({N['ok']} verificações)")
