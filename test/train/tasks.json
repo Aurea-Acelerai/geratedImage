@@ -135,6 +135,15 @@
       "mode": "livre",
       "gold": "reference/chatgpt_cvc_banner.png",
       "expect_texts": []
+    },
+    {
+      "id": "T6",
+      "title": "Generalização: um prompt de uma linha, outra marca e formato story, sem pessoa",
+      "text": "Crie um story de Black Friday para a Magazine Luiza",
+      "assets": [],
+      "size": "auto",
+      "mode": "livre",
+      "expect_texts": []
     }
   ]
 }

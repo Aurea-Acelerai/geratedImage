@@ -65,7 +65,20 @@ def brand_research(post, query, model, timeout=150):
                "input": [{"role": "system", "content": RESEARCH_SYSTEM}, {"role": "user", "content": f"Pesquise para um banner publicitário: {query}"}]}
     resp = post("/responses", payload, timeout)
     text, sources = _text_and_sources(resp)
-    return parse_brief(text), sources
+    brief = parse_brief(text)
+    for item in resp.get("output", []) or []:  # fontes consultadas pela busca, quando o modelo não anota citações no texto
+        for s in ((item.get("action") or {}).get("sources") or []) if item.get("type") == "web_search_call" else []:
+            if isinstance(s, dict) and str(s.get("url", "")).startswith("http"):
+                sources.append({"url": s["url"], "title": str(s.get("title", ""))[:120]})
+    for o in brief.get("ofertas_vigentes", []):  # a fonte que o próprio resumo cita por oferta também conta
+        if isinstance(o, dict) and str(o.get("fonte", "")).startswith("http"):
+            sources.append({"url": o["fonte"], "title": ""})
+    seen, uniq = set(), []
+    for s in sources:
+        if s["url"] not in seen:
+            seen.add(s["url"])
+            uniq.append(s)
+    return brief, uniq
 
 
 def brief_text(brief, sources):

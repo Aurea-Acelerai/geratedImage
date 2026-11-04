@@ -1264,7 +1264,7 @@ def api_project_delete(b):
         with CONV_LOCK:
             for sc, cid, c, _m in _scan_convs()[0]:
                 if c.get("project") == pid:
-                    pass
+                    c.pop("project")
                     k = conv_path(sc, cid)
                     t0 = get_store().mtime(k)
                     get_store().write_bytes(k, json.dumps(c, ensure_ascii=False, indent=2).encode("utf-8"), "application/json")
@@ -1411,7 +1411,7 @@ def run_chat(b, emit, cid, text, ctx, inputs, files=None, auto=None, stale=None,
     suggest = [{"id": a["id"], "name": a["name"], "kind": a["kind"]} for a in load_assets(cid) if a["kind"] in IDENTITY_KINDS and a["id"] not in pinned_ids]
     library = ", ".join(f"{s['name']} ({s['kind']})" for s in suggest)
     # pesquisa na web (como o ChatGPT faz antes de desenhar): só com marca real e fatos que não se inventam
-    brand_brief, rq = conv.get("brand_brief"), resolved.get("research")
+    brand_brief, rq, no_logo = conv.get("brand_brief"), resolved.get("research"), None
     if rq and imp.get("research", True) and provider == "openai" and not MOCK and not (
             brand_brief and skills_router.norm(brand_brief.get("query", "")) == skills_router.norm(rq)):
         emit(f"Pesquisando na web: «{rq}» (busca da OpenAI, modelo {text_model})…")
@@ -1421,28 +1421,48 @@ def run_chat(b, emit, cid, text, ctx, inputs, files=None, auto=None, stale=None,
             brand_brief = {"query": rq, "brief": brief_r, "sources": srcs}
             emit(f"Pesquisa pronta em {round(time.time() - tr0)}s: slogan «{brief_r.get('slogan')}», {len(brief_r.get('ofertas_vigentes', []))} oferta(s) vigente(s), "
                  f"{len(srcs)} fonte(s): " + ", ".join(urllib.parse.urlparse(s["url"]).netloc for s in srcs[:4]))
+            if not srcs and brief_r.get("ofertas_vigentes"):  # oferta sem fonte citada não é fato: descarta
+                brief_r["ofertas_vigentes"] = []
+                avisos.append("A pesquisa não trouxe fontes citáveis; descartei as ofertas encontradas (não publico preço ou condição sem fonte).")
             brand = str(brief_r.get("marca") or "").strip()
             if brand and not any(x["kind"] == "logo" for x in inputs):
-                try:
-                    lu = brief_r.get("logo_url")
-                    if not lu and brief_r.get("site_oficial"):
-                        lu = research.find_logo_url(fetch_text(brief_r["site_oficial"]), brief_r["site_oficial"])
-                    if lu:
+                got, why = None, []
+                cands = [("site da marca", brief_r.get("logo_url"))]
+                for label, lu in cands + [("página oficial", "PAGE"), ("Wikimedia Commons", "COMMONS")]:
+                    try:
+                        if lu == "PAGE":
+                            lu = brief_r.get("site_oficial") and research.find_logo_url(fetch_text(brief_r["site_oficial"]), brief_r["site_oficial"])
+                        elif lu == "COMMONS":
+                            res = api_websearch({"q": f"logo {brand}"})["results"]
+                            lu = next((r["url"] for r in res if r.get("mime") != "image/svg+xml" and "logo" in r["title"].lower()), None)
+                        if not lu:
+                            continue
                         data, mime = fetch_image(lu)
-                        asset = store_asset(cid, "logo", f"logo {brand}.{MIME_EXT[mime]}", mime, data, brand,
-                                            {"origem": "web", "pagina": str(lu)[:300], "licenca": "da pesquisa na web; confirmar o direito de uso"})
-                        files.append(asset["id"])
-                        inputs.append(dict(id=asset["id"], kind="logo", name=asset["name"], mime=mime, bytes=data,
-                                           role_text=f"{KIND_ROLE['logo']} (arquivo: {asset['name']}; baixado do site da marca)"))
-                        emit(f"Logo da marca baixado do site e anexado: {asset['name']}.")
-                except Exception as e:  # noqa: BLE001
-                    avisos.append(f"Não consegui baixar o logo da marca ({type(e).__name__}: {str(e)[:80]}); envie o logo oficial para ele ficar fiel.")
+                        got = (data, mime, label, lu)
+                        break
+                    except Exception as e:  # noqa: BLE001
+                        why.append(f"{label}: {str(e)[:60]}")
+                if got:
+                    data, mime, label, lu = got
+                    asset = store_asset(cid, "logo", f"logo {brand}.{MIME_EXT[mime]}", mime, data, brand,
+                                        {"origem": "web", "pagina": str(lu)[:300], "licenca": "da pesquisa na web; confirmar o direito de uso"})
+                    files.append(asset["id"])
+                    inputs.append(dict(id=asset["id"], kind="logo", name=asset["name"], mime=mime, bytes=data,
+                                       role_text=f"{KIND_ROLE['logo']} (arquivo: {asset['name']}; baixado de: {label})"))
+                    emit(f"Logo da marca baixado ({label}) e anexado: {asset['name']}.")
+                else:
+                    no_logo = brand
+                    emit("Não achei um logo utilizável na web" + (f" ({'; '.join(why)})" if why else "") + ".")
+                    avisos.append(f"Não consegui um logo oficial de {brand}; a peça sai sem logo desenhado. Envie o logo oficial para colocá-lo fiel.")
         except Exception as e:  # noqa: BLE001
             brand_brief = conv.get("brand_brief")
             avisos.append(f"A pesquisa na web não funcionou ({type(e).__name__}: {str(e)[:100]}); segui SEM fatos pesquisados e sem inventar slogan, oferta ou condição.")
     lib = {a["id"]: a for a in load_assets(cid)}
     files_desc = ", ".join(f"{lib[i]['name']} ({lib[i]['kind']}" + (f"; apelido: {lib[i]['alias']}" if lib[i].get("alias") else "") + ")" for i in files if i in lib)
     memory = memory_text(conv, files_desc)
+    if no_logo:
+        memory += ("\n" if memory else "") + (f"Logo oficial de {no_logo}: NÃO disponível mesmo após pesquisar na web. NÃO pergunte por ele e NÃO faça pergunta alguma sobre o logo: "
+                                              "gere a peça já, com o nome da marca só como texto tipográfico simples (sem simular o logo) e as cores da pesquisa; o aviso ao usuário já foi dado.")
     if brand_brief and not conv.get("brand_brief"):  # pesquisa feita agora: o texto legível vai ao designer (depois vem da memória)
         memory += ("\n" if memory else "") + research.brief_text(brand_brief["brief"], brand_brief["sources"])
     if region:
@@ -1483,6 +1503,17 @@ def run_chat(b, emit, cid, text, ctx, inputs, files=None, auto=None, stale=None,
         emit(f"O designer está escrevendo o briefing ({'OpenAI, modelo ' + text_model if provider == 'openai' and not MOCK else 'DEMONSTRAÇÃO, sem API' if MOCK else 'Claude CLI: SEM chave da OpenAI'})…")
         brief = write_briefing(ctx_eff, text_eff, size, history, inputs, model=text_model, provider=provider, mode=mode, use_skills=imp["skills"],
                                memory=memory, intent=intent, original=text, library=library)
+        if brief.get("question") and not MOCK and provider == "openai" and imp.get("auto", True):
+            # modo automático: o usuário quer que o app execute o que foi pedido, sem perguntas; decide a melhor suposição e avisa
+            q0 = str(brief["question"])[:300]
+            emit(f"O designer ia perguntar «{q0}»; modo automático: decidindo sozinho pela melhor suposição.")
+            brief = write_briefing(ctx_eff, text_eff, size, history, inputs, model=text_model, provider=provider, mode=mode, use_skills=imp["skills"],
+                                   memory=(memory + "\n" if memory else "") + f"MODO AUTOMÁTICO: o usuário não quer perguntas e quer que você execute o pedido já. A pergunta que você ia fazer era: «{q0}». "
+                                   "NÃO devolva question. Adote a suposição mais razoável pelo pedido e pelo contexto (pessoa real citada sem foto: gere a peça SEM a pessoa e sem sósia; logo ou fato ausente: "
+                                   "não invente, use a marca só como texto) e registre em `note` (uma frase) a suposição que adotou.",
+                                   intent=intent, original=text, library=library)
+            if not brief.get("question"):
+                avisos.append(f"Não perguntei «{q0[:120]}»: segui pela melhor suposição" + (f" ({str(brief.get('note'))[:140]})" if brief.get("note") else "") + ".")
         if brief.get("question"):
             record(question=brief["question"])
             sw = [{"q": str(s["q"])[:120], "kind": s.get("kind") if s.get("kind") in KIND_ROLE else "referencia"}
