@@ -6,6 +6,7 @@ Harness conversacional de geração e edição de imagens (qualquer tipo de imag
 ```bash
 cd test && sh run_tests.sh              # tudo, sem chave, sem rede de verdade, sem custo (é o comando do CI)
 python3 -I test/test_provider.py        # adapter da OpenAI
+python3 -I test/test_runner.py          # preflight e laço de decisão
 python3 -I test/test_obsidian_sync.py   # sincronização Obsidian -> repositório
 ./test/run_chat.sh --mock               # chat local sem API
 ```
@@ -14,6 +15,7 @@ Python 3.9+ só com stdlib; Pillow é opcional (sem ele os testes de edição lo
 ## Regras
 - **Nenhuma chamada paga à API real sem orçamento aprovado pelo usuário** (número de chamadas e modelo). Testes usam `test/fake_openai.py` ou transporte injetado.
 - **Chaves e dados:** nunca commitar `.env`, chaves, notas privadas do Obsidian nem imagens de clientes. `test/clients/` e `test/chat_out/` guardam uso real: nunca apagar.
+- **Execução pelo Runner** (`test/runner.py`): preflight leve antes de gastar texto ou imagem, decisão explícita (aceita, repara, escalona, para) e trace. Não há flag para pular o preflight; a suíte de testes não roda dentro de requisição.
 - **Chamadas de imagem só pelo adapter** `test/provider.py` (validação contra `test/provider_capabilities.json`, retry só para erro seguro, orçamento). Sem fallback de edição para geração. Regra de modelo/tamanho/parâmetro só entra com fonte oficial e data.
 - **Teste de verdade:** afirme comportamento (o que foi enviado, quantas vezes, que erro saiu), não que um mock foi chamado. O preflight de produção é leve; a suíte de testes não roda dentro de requisição.
 - **Não afirmar** paridade com o ChatGPT sem comparação cega com baseline obtido legitimamente. Hoje: "paridade ainda não demonstrada". Não documentar como existente o que é só contrato ou TODO.

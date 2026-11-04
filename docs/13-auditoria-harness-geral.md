@@ -73,7 +73,7 @@ Decisão: o protótipo é referência de ideias (gates por código, contrato de 
 | D | `vercel.json` não incluiria `provider_capabilities.json` no pacote; a função falharia em produção na 1ª imagem | **Corrigido** |
 | E | `input_fidelity=high` é enviado por padrão. A documentação só diz que `gpt-image-2` não aceita o parâmetro; para os modelos 2.5 **não verifiquei**. O recuo automático existente trata a recusa | Aberto (registrado em `provider_capabilities.json`) |
 | F | Chamadas de texto/critic (`ui.openai_post`, `/chat/completions`) seguem sem retry nem orçamento | Aberto |
-| G | Não há `ExecutionService`/Runner: o preflight está espalhado em `run_chat` | Aberto |
+| G | Não há `ExecutionService`/Runner: o preflight está espalhado em `run_chat` | **Corrigido na rodada 3** (`test/runner.py`, ver §10). Falta estender retry/orçamento às chamadas de texto (F) |
 | H | Estado da conversa, resolução de imagem-base, critic e `checks.py`: não auditados a fundo | Aberto |
 
 ## 6. O que foi implementado nesta rodada
@@ -101,7 +101,7 @@ Modelos `gpt-image-2.5-sunburst` e `gpt-image-2.5-flare`; tamanhos custom com la
 ## 8. Plano incremental (próximas rodadas, uma melhoria por vez)
 
 1. ~~**Obsidian → repositório**~~ (feito na rodada 2): `tools/obsidian_sync.py` com origem explícita, manifesto com hashes, dry-run por padrão, conflitos, sem sobrescrita nem exclusão, contenção de caminho. Antes: decidir o `.gitignore` de `.claude/agents` e quais agentes `eng-*` adaptar (propostos: `eng-api`, `eng-qa-revisor`, `eng-arquiteto`; um agente de direção de arte precisa ser **criado**, pois o vault não tem).
-2. **Runner com preflight leve**: reunir validação de schema, referências, parâmetros, credenciais, orçamento e imagem-base ambígua num serviço testável, e estender retry/orçamento às chamadas de texto/critic (achado F).
+2. ~~**Runner com preflight leve**~~ (feito na rodada 3, §10; falta o item F): reunir validação de schema, referências, parâmetros, credenciais, orçamento e imagem-base ambígua num serviço testável, e estender retry/orçamento às chamadas de texto/critic (achado F).
 3. **Estado e versões de imagem**: `parent_id`, modelo, parâmetros e versão do prompt por imagem; teste "mude só a cor" resolvendo a base antes da chamada.
 4. **Benchmark versionado** (dev e avaliação final separados) com casos gerais, não só marketing; rodada com a API real **só com orçamento aprovado pelo Kelvin**; baseline externo apenas por comparação cega com referências obtidas legitimamente.
 5. **Avaliação de texto**: OCR com limites explícitos para fidelidade textual; revisão humana nos casos subjetivos.
@@ -113,3 +113,19 @@ cd test
 sh run_tests.sh                  # tudo, sem chave e sem custo
 python3 -I test_provider.py      # só o adapter
 ```
+
+## 10. Rodada 3: Runner com preflight leve
+
+**O que existe agora** (`test/runner.py`, ligado ao `run_chat` em `chat_server.py`):
+
+- **Preflight** (`Runner.preflight`): roda sem rede e sem custo, **antes do briefing** (chamada paga de texto) e de qualquer imagem. Junta **todos** os problemas numa única falha (`PreflightError` → `ApiError 400`, "Pré-checagem falhou, nada foi gerado: …"). Checagens: esquema; referências existentes e pertencentes à biblioteca do escopo; imagem-base sem ambiguidade (duas bases, ou edição sem base); credencial; parâmetros aceitos pelo modelo (a mesma `validate_request` do adapter, com o alvo já convertido e a máscara final); orçamento da sessão e da tarefa; armazenamento gravável (escrita de teste só no disco).
+- **Orçamento limita o plano:** se o orçamento cobre menos gerações que o planejado, o laço é reduzido e o usuário recebe o aviso.
+- **Laço com decisão explícita** (`Runner.run` + `Runner.decide`): aceita (aprovada ou revisão desligada), repara, **escalona** para revisão humana ou para. Escalona por limite de reparos, orçamento esgotado ou **ausência de progresso** (nota igual ou menor que a da tentativa anterior). Escalonado = a melhor tentativa é entregue, marcada como não aprovada, com aviso claro. Em empate de nota fica a primeira tentativa.
+- **Trace por execução** (`msg["trace"]` e no turno da conversa): por tentativa, decisão e motivo, nota, tempo, `request_id`, tentativas de rede e `usage`. Sem prompt, chave nem imagem. A resposta traz também `preflight` (as checagens feitas).
+- **Sem contorno:** o preflight não tem flag para ser pulado e o adapter valida de novo a requisição exata antes de cada chamada paga. A suíte de testes **não** roda dentro da requisição: continua em `test/run_tests.sh` e no CI.
+
+**Mudança de comportamento (intencional):** antes, a revisão reprovada sempre gastava os 2 reparos; agora para quando a nota não melhora. O preflight é pulado em modo demonstração e sem chave (o fluxo "só briefing via Claude CLI" não gera imagem).
+
+**Testes novos:** `test_runner.py` (45 verificações; 14 mutações no Runner, todas mortas) e `e2e_preflight.py` (a falha acontece antes do briefing: 0 chamadas ao redator e 0 imagens; escalonamento por orçamento). Os e2e existentes passam inalterados, inclusive nas variantes `E2E_STORE=memory` e `E2E_INLINE=1`.
+
+**Ainda aberto:** (F) chamadas de texto e do critic sem retry nem orçamento; concorrência só é aplicada na hora da chamada (semáforo), não no preflight; sem `parent_id` entre versões de imagem; benchmark; OCR. Nada disso foi medido com a API real.

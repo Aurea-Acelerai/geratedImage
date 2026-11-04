@@ -19,7 +19,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 ROOT = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
-import checks, client_provider, critic, provider as provider_mod, regionedit, research, skills_router  # noqa: E402
+import checks, client_provider, critic, provider as provider_mod, regionedit, research, runner as runner_mod, skills_router  # noqa: E402
 import store as store_mod  # noqa: E402  (Store: FileStore/MemoryStore/BlobStore)
 import run_comparison as rc  # noqa: E402
 import ui_server as ui  # noqa: E402  (openai_post, ApiError, env_models)
@@ -163,6 +163,25 @@ def _api_error(e):
     return ui.ApiError({"validation": 400, "auth": 400, "budget": 429}.get(e.kind, 502), str(e))
 
 
+def _storage_probe():
+    """None se dá para gravar. Só o disco é testado com escrita; outros backends já gravam o estado a cada passo da tarefa."""
+    s = get_store()
+    if getattr(s, "name", "") != "file":
+        return None
+    key = f"chat_out/.preflight-{uuid.uuid4().hex[:8]}"
+    try:
+        s.write_bytes(key, b"ok")
+        s.delete(key)
+    except Exception as e:  # noqa: BLE001
+        return f"{type(e).__name__}"
+    return None
+
+
+def get_runner():
+    """Runner com preflight leve (sem rede, sem custo). Montado a cada chamada: a chave e o store podem mudar."""
+    return runner_mod.Runner(images_client(), SESSION_BUDGET, key_fn=lambda: os.getenv("OPENAI_API_KEY"), storage_probe=_storage_probe)
+
+
 def sniff_mime(b64):
     return {"iVBOR": "image/png", "/9j/4": "image/jpeg", "UklGR": "image/webp"}.get(b64[:5], "image/png")
 
@@ -238,7 +257,7 @@ def write_briefing(ctx, text, size, history, inputs, feedback=None, prev=None, m
     return json.loads(r["choices"][0]["message"]["content"])
 
 
-def make_image(prompt, size, quality, inputs, model, fidelity=None, notes=None, mask=None, budget=None):
+def make_image(prompt, size, quality, inputs, model, fidelity=None, notes=None, mask=None, budget=None, meta=None):
     if MOCK:
         time.sleep(0.8)
         w, h = (1024, 1024) if size == "auto" else (int(x) for x in size.split("x"))  # "auto": sem alvo com proporção própria, 1024x1024
@@ -277,6 +296,8 @@ def make_image(prompt, size, quality, inputs, model, fidelity=None, notes=None, 
         raise _api_error(e)
     if notes is not None:
         notes.extend(w for w in r["warnings"] if w not in notes)
+    if meta is not None:  # rastreabilidade da chamada (sem prompt, chave nem imagem)
+        meta.update(request_id=r["request_id"], attempts=r["attempts"], ms=r["ms"], usage=r["usage"])
     return r["b64"], r["ext"]
 
 
@@ -1571,6 +1592,35 @@ def run_chat(b, emit, cid, text, ctx, inputs, files=None, auto=None, stale=None,
                 fresh["brand_brief"] = brand_brief
             save_conv(fresh)
 
+    # --- execução: parâmetros do laço e PREFLIGHT (barato, sem rede). Falha aqui evita gastar o briefing e as imagens ---
+    do_rev = bool(imp["review"])
+    max_cycle = (1 if region else critic.MAX_CYCLES) if imp["designer"] else 0  # com região, correções por texto quase nunca melhoram: no máximo 2 gerações
+    fidelity = "high" if any(x["kind"] in IDENTITY_KINDS + ("alvo", "variacao") for x in inputs) else None
+    mid = re.sub(r"[^a-z0-9]", "", time.strftime("%Y%m%d%H%M%S") + uuid.uuid4().hex[:4])
+    task_budget = provider_mod.Budget("tarefa", TASK_BUDGET_CALLS)
+    call_inputs, mask_png = inputs, None
+    if region:
+        mask_png = region["mask"]
+        if region["mode"] == "extend":
+            call_inputs = [dict(alvo_in, bytes=region["canvas"], mime="image/png")] + [x for x in inputs if x is not alvo_in]
+    runner = get_runner()
+    pf = {"checks": ["pulado: sem API real (demonstração ou sem chave)"], "allowed_calls": max_cycle + 1, "warnings": []}
+    limit_reason = None
+    if provider == "openai" and not MOCK:
+        try:
+            pf = runner.preflight(model=image_model, size=size, quality=quality, intent=intent, inputs=inputs, mask=mask_png, call_inputs=call_inputs,
+                                  known_ids={a["id"] for a in load_assets(cid)}, allowed_kinds=set(KIND_ROLE) | {"alvo", "variacao"},
+                                  task_budget=task_budget, planned_calls=max_cycle + 1 + (1 if imp["compare_raw"] else 0))
+        except runner_mod.PreflightError as e:
+            log_event("preflight_falhou", problemas=e.problems)
+            raise ui.ApiError(400, str(e))
+        avisos.extend(w for w in pf["warnings"] if w not in avisos)
+        capped = min(max_cycle, max(0, pf["allowed_calls"] - 1 - (1 if imp["compare_raw"] else 0)))
+        if capped < max_cycle:
+            limit_reason = f"o orçamento de chamadas limitou o plano a {capped + 1} geração(ões)"
+        max_cycle = capped
+        emit("Pré-checagem ok (" + ", ".join(pf["checks"]) + ").")
+
     if imp["designer"]:
         emit(f"O designer está escrevendo o briefing ({'OpenAI, modelo ' + text_model if provider == 'openai' and not MOCK else 'DEMONSTRAÇÃO, sem API' if MOCK else 'Claude CLI: SEM chave da OpenAI'})…")
         brief = write_briefing(ctx_eff, text_eff, size, history, inputs, model=text_model, provider=provider, mode=mode, use_skills=imp["skills"],
@@ -1604,22 +1654,14 @@ def run_chat(b, emit, cid, text, ctx, inputs, files=None, auto=None, stale=None,
             return {"role": "assistant", "kind": "text", "text": "Sem OPENAI_API_KEY não há como gerar a imagem."}
         brief = {"prompt": text_eff}
         emit("Sem briefing do designer: o seu texto vai direto ao modelo de imagem.")
-    do_rev = bool(imp["review"])
-    max_cycle = (1 if region else critic.MAX_CYCLES) if imp["designer"] else 0  # com região, correções por texto quase nunca melhoram: no máximo 2 gerações
-    fidelity = "high" if any(x["kind"] in IDENTITY_KINDS + ("alvo", "variacao") for x in inputs) else None
-    mid = re.sub(r"[^a-z0-9]", "", time.strftime("%Y%m%d%H%M%S") + uuid.uuid4().hex[:4])
-    cycles, best = [], None
-    task_budget = provider_mod.Budget("tarefa", TASK_BUDGET_CALLS)
-    for cycle in range(max_cycle + 1):
+    held = {}  # gid -> (b64, ext): a imagem fica fora da entrada (que vai para a resposta e para a conversa)
+
+    def gen_cb(cycle, brief):
         how = "editando com as imagens de entrada" if inputs else "gerando"
         emit(f"Tentativa {cycle + 1}: {how} (OpenAI Images, modelo {image_model}, {size}, {quality}" + (", fidelidade alta" if fidelity and image_model not in FIDELITY_REJECTED else "") + ")…")
         tg = time.time()
-        call_inputs, mask_png = inputs, None
-        if region:
-            mask_png = region["mask"]
-            if region["mode"] == "extend":
-                call_inputs = [dict(alvo_in, bytes=region["canvas"], mime="image/png")] + [x for x in inputs if x is not alvo_in]
-        b64, ext = make_image(brief["prompt"], size, quality, call_inputs, image_model, fidelity, avisos, mask=mask_png, budget=task_budget)
+        meta = {}
+        b64, ext = make_image(brief["prompt"], size, quality, call_inputs, image_model, fidelity, avisos, mask=mask_png, budget=task_budget, meta=meta)
         gid = f"{mid}c{cycle}"
         if region:  # guarda o que o modelo gerou e entrega o original recomposto
             raw = base64.b64decode(b64)
@@ -1631,25 +1673,26 @@ def run_chat(b, emit, cid, text, ctx, inputs, files=None, auto=None, stale=None,
         get_store().write_bytes(f"chat_out/{slug(scope)}/{gid}.{ext}", base64.b64decode(b64), "image/svg+xml" if ext == "svg" else "image/png")
         url = f"/files/{slug(scope)}/out/{gid}.{ext}"
         emit(f"Imagem da tentativa {cycle + 1} pronta em {round(time.time() - tg)}s.", image_url=url)
-        entry = {"cycle": cycle, "prompt": brief["prompt"], "id": gid, "url": url}
-        if do_rev:
-            emit(f"O critic está revisando ({'OpenAI, modelo ' + (b.get('critic_model') or text_model) if not MOCK else 'DEMONSTRAÇÃO'})…")
-            rv, s, ok = do_review(ctx_critic, text_eff, brief["prompt"], b64, ext, size, inputs, b.get("critic_model") or text_model, notes, packs)
-            entry.update(score=s, approved=ok, veto=rv.get("veto", []), fix=rv.get("fix"), review=rv)
-            emit(f"Nota {s}: {'aprovada' if ok else 'reprovada'}" + (f" · vetos: {', '.join(rv.get('veto', []))}" if rv.get("veto") else "")
-                 + (f" · correção: {rv.get('fix')}" if not ok and rv.get("fix") else ""))
-        else:
-            rv, s, ok = None, None, None
-        cycles.append(entry)
-        if best is None or (s or 0) > (best["score"] or 0):
-            best = {"score": s, "entry": entry, "rv": rv, "ok": ok}
-        if not do_rev or ok or cycle == max_cycle:
-            break
-        emit("Corrigindo o briefing com a sugestão do critic…")
-        brief = write_briefing(ctx_eff, text_eff, size, history, inputs, feedback=rv.get("fix"), prev=brief["prompt"],
-                               model=text_model, provider=provider, mode=mode, use_skills=imp["skills"], memory=memory, intent=intent, original=text, library=library)
-        if brief.get("question"):
-            break
+        held[gid] = (b64, ext)
+        return {"cycle": cycle, "prompt": brief["prompt"], "id": gid, "url": url, "meta": meta}
+
+    def review_cb(entry, brief):
+        emit(f"O critic está revisando ({'OpenAI, modelo ' + (b.get('critic_model') or text_model) if not MOCK else 'DEMONSTRAÇÃO'})…")
+        b64, ext = held[entry["id"]]
+        rv, s, ok = do_review(ctx_critic, text_eff, brief["prompt"], b64, ext, size, inputs, b.get("critic_model") or text_model, notes, packs)
+        emit(f"Nota {s}: {'aprovada' if ok else 'reprovada'}" + (f" · vetos: {', '.join(rv.get('veto', []))}" if rv.get("veto") else "")
+             + (f" · correção: {rv.get('fix')}" if not ok and rv.get("fix") else ""))
+        return rv, s, ok
+
+    def revise_cb(brief, rv):
+        return write_briefing(ctx_eff, text_eff, size, history, inputs, feedback=rv.get("fix"), prev=brief["prompt"],
+                              model=text_model, provider=provider, mode=mode, use_skills=imp["skills"], memory=memory, intent=intent, original=text, library=library)
+
+    run = runner.run(brief, max_repairs=max_cycle, generate=gen_cb, review=review_cb if do_rev else None, revise=revise_cb,
+                     task_budget=task_budget, reserve_calls=1 if imp["compare_raw"] else 0, emit=emit, limit_reason=limit_reason)
+    cycles, best, trace = run["cycles"], run["best"], run["trace"]
+    if do_rev and not best["ok"]:
+        avisos.append(f"Escalado para revisão humana: {run['decision'].reason}. A melhor tentativa foi entregue, mas não foi aprovada.")
     e = best["entry"]
     if "identidade_divergente" in ((best["rv"] or {}).get("veto") or []):
         avisos.append("A imagem NÃO manteve a identidade da referência (pessoa, produto ou logo): não use como se fosse. Confira a foto anexada e o tipo dela; "
@@ -1657,10 +1700,10 @@ def run_chat(b, emit, cid, text, ctx, inputs, files=None, auto=None, stale=None,
     msg = {"role": "assistant", "kind": "image", "id": e["id"], "url": e["url"], "score": best["score"], "approved": best["ok"],
            "veto": (best["rv"] or {}).get("veto", []), "review": best["rv"], "prompt": e["prompt"], "request": text, "resolved": text_eff,
            "intent": intent, "conv": conv["id"], "files": files, "fontes": (brand_brief or {}).get("sources", []), "pesquisa": (brand_brief or {}).get("query"), "falha_identidade": "identidade_divergente" in ((best["rv"] or {}).get("veto") or []), "avisos": avisos, "cycles": cycles, "skills": used, "packs": packs, "mode": mode, "improve": imp,
-           "generations": len(cycles), "seconds": round(time.time() - t0, 1), "size": size,
+           "generations": len(cycles), "seconds": round(time.time() - t0, 1), "size": size, "trace": trace, "preflight": pf["checks"],
            "inputs": [{"kind": x["kind"], "name": x["name"]} for x in inputs]}
     record(briefing=e["prompt"], image_id=e["id"], score=best["score"], approved=bool(best["ok"]),
-           inputs=[{"kind": x["kind"], "name": x["name"]} for x in inputs], mode=mode, packs=packs)
+           inputs=[{"kind": x["kind"], "name": x["name"]} for x in inputs], mode=mode, packs=packs, trace=trace)
     if imp["compare_raw"]:
         emit("Gerando a versão do GPT puro (o seu texto, sem a aplicação) para comparar…")
         tr = time.time()

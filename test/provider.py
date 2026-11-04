@@ -50,6 +50,11 @@ class Budget:
     def __init__(self, name, max_calls=None):
         self.name, self.max_calls, self.calls, self._lock = name, max_calls, 0, threading.Lock()
 
+    def remaining(self):
+        """Chamadas que ainda cabem (None = sem limite)."""
+        with self._lock:
+            return None if self.max_calls is None else max(0, self.max_calls - self.calls)
+
     def reserve(self):
         with self._lock:
             if self.max_calls is not None and self.calls >= self.max_calls:
