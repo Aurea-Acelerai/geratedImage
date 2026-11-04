@@ -83,7 +83,7 @@ def brand_research(post, query, model, timeout=150):
 
 def brief_text(brief, sources):
     """Bloco para o designer: só fatos pesquisados, com fonte."""
-    L = ["Pesquisa na web já feita (use ESTES fatos; o que está null não existe: não invente slogan, oferta, cor ou condição):"]
+    L = ["Pesquisa na web já feita (use ESTES fatos só para completar o que o usuário NÃO informou: o que o usuário escreveu no pedido, o logo e a foto que anexou e os dados do cliente têm prioridade sobre a pesquisa; o que está null não existe: não invente slogan, oferta, cor ou condição):"]
     L.append(f"- Marca: {brief.get('marca')} | site oficial: {brief.get('site_oficial')} | slogan: {brief.get('slogan')} | tom: {brief.get('tom')}")
     cores = ", ".join(f"{c.get('nome')} {c.get('hex') or '(hex não encontrado)'}" for c in brief.get("cores", []) if isinstance(c, dict))
     L.append(f"- Cores da marca: {cores or 'não encontradas'}")

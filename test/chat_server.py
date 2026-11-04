@@ -1662,6 +1662,9 @@ def _run_chat(b, emit, cid, text, ctx, inputs, files=None, auto=None, stale=None
     library = ", ".join(f"{s['name']} ({s['kind']})" for s in suggest)
     # pesquisa na web (como o ChatGPT faz antes de desenhar): só com marca real e fatos que não se inventam
     brand_brief, rq, no_logo = conv.get("brand_brief"), resolved.get("research"), None
+    if rq and mode == "marca" and ctx_eff:  # o usuário já informou a marca (cliente: paleta, tom, estilo): vale o que ele deu, sem pesquisar por cima
+        emit("Usando as informações da marca cadastradas no cliente; não pesquisei na web (o que você informar no pedido ou anexar também vale mais que qualquer pesquisa).")
+        rq = None
     if rq and imp.get("research", True) and provider == "openai" and not MOCK and not (
             brand_brief and skills_router.norm(brand_brief.get("query", "")) == skills_router.norm(rq)):
         emit(f"Pesquisando na web: «{rq}» (busca da OpenAI, modelo {text_model})…")
