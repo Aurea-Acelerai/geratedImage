@@ -156,7 +156,7 @@ class H(BaseHTTPRequestHandler):
                 STATS["edits"] += 1; STATS["edit_images"].append(imgs); STATS["edit_fields"].append(sorted(fields))
                 STATS["image_prompts"].append(fields.get("prompt", b"").decode())
             if "rejectfidelity" in fields.get("prompt", b"").decode().lower() and "input_fidelity" in fields:
-                return self._json(400, {"error": {"message": "Unknown parameter: 'input_fidelity'."}})
+                return self._json(400, {"error": {"message": "The model 'gpt-image-2.5-sunburst' does not support the 'input_fidelity' parameter."}})
             size = fields.get("size", b"1024x1024").decode()
             if size == "auto":
                 size = "1024x1280"  # a API acompanha a proporção do alvo (simulado: 4:5)

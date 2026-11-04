@@ -184,6 +184,9 @@ def test_retry():
     e = make(err(400, "Unknown parameter: 'input_fidelity'."))[0]
     x = raises(lambda: e.generate("x", MODEL, "1024x1024"), "unsupported_param")
     ok(x is not None and x.param == "input_fidelity", "parâmetro recusado é identificado (para o chamador recuar com aviso)")
+    e = make(err(400, "The model 'gpt-image-2.5-sunburst' does not support the 'input_fidelity' parameter."))[0]
+    x = raises(lambda: e.generate("x", MODEL, "1024x1024"), "unsupported_param")
+    ok(x is not None and x.param == "input_fidelity", "mensagem real da OpenAI ('does not support the ... parameter') também é identificada")
     ok(pv.parse_retry_after("3") == 3.0 and pv.parse_retry_after(None) is None and pv.parse_retry_after("lixo") is None, "parse_retry_after: número, ausente e inválido")
     ok(abs(pv.parse_retry_after("Wed, 21 Oct 2026 07:28:10 GMT", now=calendar.timegm((2026, 10, 21, 7, 28, 5)) ) - 5) < 1, "parse_retry_after: data HTTP")
 

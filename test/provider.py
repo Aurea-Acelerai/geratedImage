@@ -273,7 +273,8 @@ class OpenAIClient:
             return ProviderError("model", text, **kw)
         if status == 400:
             m = re.search(r"(?:unknown|unsupported|unrecognized)[^']*parameter[^']*'([a-z_]+)'", msg, re.I) or \
-                re.search(r"'([a-z_]+)'[^.]*(?:not supported|is not allowed|unknown)", msg, re.I)
+                re.search(r"'([a-z_]+)'[^.]*(?:not supported|is not allowed|unknown)", msg, re.I) or \
+                re.search(r"(?:does not|doesn't) support the '([a-z_]+)' parameter", msg, re.I)  # "The model 'x' does not support the 'input_fidelity' parameter."
             if m:
                 return ProviderError("unsupported_param", text, param=m.group(1), **kw)
         return ProviderError("bad_request", text, **kw)
