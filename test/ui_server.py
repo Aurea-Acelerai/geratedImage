@@ -65,7 +65,7 @@ def api_defaults(_):
 
 
 def api_system(b):
-    text = rc.load_system_prompt(b.get("client") or {}, b.get("agency") or "Aurea Tech")
+    text = rc.load_system_prompt(b.get("client") or {}, b.get("agency") or "Aurea Tech", request=b.get("request"), size=b.get("size"))
     return {"system": text, "chars": len(text), "sha": hashlib.sha1(text.encode()).hexdigest()[:8],
             "mtime": time.strftime("%H:%M:%S", time.localtime(rc.SYSTEM_PROMPT_PATH.stat().st_mtime))}
 
@@ -76,7 +76,7 @@ def api_naive(b):
 
 def api_briefing(b):
     client_ctx, request = b.get("client") or {}, b["request"]
-    system = rc.load_system_prompt(client_ctx)
+    system = rc.load_system_prompt(client_ctx, request=request, size=b.get("size"))
     user = f"Pedido: {request}\n"
     if b.get("feedback"):
         user += (f"\nA versão anterior foi reprovada. Prompt anterior:\n{b.get('prev')}\n\n"

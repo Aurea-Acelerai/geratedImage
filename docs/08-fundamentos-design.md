@@ -4,6 +4,8 @@ Fonte: documento "Design Nível Apple — Roadmap Completo" (material do Kelvin,
 
 As seções 1 a 6 (entre os marcadores `agent:start` e `agent:end`) são **injetadas no system prompt do designer em toda geração**, via `test/checks.py` (`design_fundamentals()`); se os marcadores sumirem, o designer não roda. Editar essas seções muda o comportamento do agente e exige aprovação do CEO (seção 9).
 
+**Aprofundamento:** cada regra é detalhada (por quê, como aplicar no briefing, como verificar, falha típica) nas skills `skills/design-*`, que o roteador (`test/skills_router.py`) carrega conforme o pedido (texto na peça, canal, série, vídeo). Este documento é o índice e o núcleo sempre ativo; as skills são o aprofundamento.
+
 Cada regra tem um ID (`H1`, `F2`...) para o designer, o critic e o curador citarem. Cada uma diz **onde é aplicada**:
 
 - **CÓDIGO**: checagem determinística, não depende de prompt (`test/checks.py`, ainda por fazer).
@@ -55,14 +57,14 @@ Cada regra tem um ID (`H1`, `F2`...) para o designer, o critic e o curador citar
 - **T2.** Entrelinha: display 1,05–1,15; corpo 1,4–1,6.
 - **T3.** Tracking: título grande mais negativo, texto pequeno mais positivo (SF Pro: 12pt = 0; 13 = -0,08; 14 = -0,15; 16 = -0,31; 17 = -0,43).
 - **T4.** Nunca justificar texto curto.
-- **T5.** Mínimos digitais: corpo >= 16 px; headline >= 32 px.
+- **T5.** Tamanho mínimo medido **na tela do celular**, não no canvas: um canvas de 1080 px aparece com ~390 pt (fator ~0,36). Mínimos de partida no canvas de 1080: legal >= 33 px, apoio >= 46 px, título >= 80 px (`checks.type_min_canvas`; heurística derivada, a validar). Os mínimos CSS (corpo >= 16 px, headline >= 32 px) valem só para telas de design.
 - **T6.** Densidade: no máximo 7 palavras por linha e 3 linhas em anúncio.
 - **T7.** Teste dos 3 níveis sem cor: a hierarquia sobrevive em preto e branco.
 
 ## 5. Formato e canal
 - **F1.** Formato padrão em social é **9:16**; 1:1 e 16:9 recortam mal no celular. **Adaptar por formato é redesenhar a hierarquia**, não redimensionar. [RUBRICA: `format`]
 - **F2.** Safe zone 9:16: **~14% topo, ~35% base, ~6% laterais**. Texto, logo e CTA ficam dentro. [CÓDIGO + RUBRICA: veto `safe_zone_violada`]
-  - *A confirmar:* os percentuais vêm do documento-fonte. Confirmar contra a especificação oficial da Meta antes de transformar em bloqueio automático. Para outros canais (feed 1:1, 4:5), levantar os valores antes de usar.
+  - *A confirmar (verificado em 04/11/2026):* as páginas oficiais da Meta que consegui ler confirmam que a zona de segurança do Reels existe e oferecem um verificador para baixar, mas **não publicam os percentuais**. Os 14/35/6% vêm do documento-fonte e de fontes secundárias; o código os usa como piso conservador. Conferir no verificador oficial antes de tratar como regra da plataforma. Para outras proporções, levantar os valores antes de usar.
 - **F3.** A "regra dos 20% de texto" **não existe mais** (Meta removeu em set/2020). Não reprovar por isso.
 - **F4.** CTA: um só, alto contraste, em área terminal, alvo de toque >= 44 px, verbo + benefício. [RUBRICA: `message_clarity`, veto `cta_vago`]
 - **F5.** Projetar para consumo **no mudo**: o que importa vai escrito na tela.
@@ -98,7 +100,9 @@ O agente **não treina modelo**. Aprende por memória curada com portão de qual
 Scorecard 0–2 por item do documento-fonte (oferta em uma frase, 3 níveis de hierarquia, teste de 120 px, CTA com benefício, adaptação por formato, contraste medido, grid e espaçamento definidos, tokens e componentes, hook rate/CTR conhecidos, decisões justificadas em uma frase, cadência de teste, racional escrito). Serve como lista de perguntas do curador ao revisar um lote; não é critério de aprovação de peça.
 
 ## Pendências deste documento
-- Valores de safe zone por canal além de 9:16 (F2).
+- Conferir os percentuais de safe zone no verificador oficial da Meta e levantar os de outros canais (F2).
+- Validar com dados reais os mínimos de tipografia por tela (T5) e os tamanhos por canal da skill `design-formato-canal`.
+- Medir se as skills melhoram a nota: rodar o teste com e sem (`DESIGN_SKILLS=off`).
 - `test/checks.py`: contraste WCAG, safe zone por formato, miniatura de 120 px, mínimos de tipografia.
 - Parâmetros de tipografia e grid por cliente no `compose_text_overlay`.
 - Medir a rubrica v3 no eval set e recalibrar o critic com exemplos do CEO (`test/calibration/README.md`).

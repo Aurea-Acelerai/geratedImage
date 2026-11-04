@@ -37,6 +37,9 @@ Os modelos padrão (`gpt-image-2.5-sunburst`, `gpt-5.5`) seguem a documentação
 ## Regras de design (valem em toda geração)
 `docs/08-fundamentos-design.md` define as regras. Elas entram no system prompt do designer (`{{design_fundamentals}}`), na rubrica v3 do critic (`prompts/rubric.json`; a v2 fica em `rubric.v2.json`) e em checagens por código (`test/checks.py`). Teste offline: `cd test && python3 checks.py --self-test && python3 run_comparison.py --dry-run`.
 
+## Skills de design
+`skills/design-*` aprofundam cada regra de `docs/08` (7 skills: estratégia, hierarquia/composição, cor/contraste/craft, tipografia/texto, formato/canal, série/marca, movimento/vídeo). `test/skills_router.py` escolhe as skills por pedido e as injeta no system prompt (`{{design_skills}}`, versão compacta); a seção "Revisão (critic)" de cada skill vai para o critic. Teste: `cd test && python3 skills_router.py --self-test` (checa que toda regra do `docs/08` tem aprofundamento). Para medir o efeito: rode o teste com `DESIGN_SKILLS=off` e sem.
+
 ## Chat estilo ChatGPT (cliente, logo, referências e iteração)
 ```bash
 cd test

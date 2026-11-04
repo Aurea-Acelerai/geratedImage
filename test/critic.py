@@ -66,10 +66,12 @@ def parse_json(text):
         return json.loads(m.group(0))
 
 
-def review(vlm, briefing, client_ctx, request, images, retries=1):
+def review(vlm, briefing, client_ctx, request, images, retries=1, notes=""):
     """images: lista de (rótulo, base64 png). Falha explícita se o JSON for inválido: nunca aprova por omissão."""
     user = (f"Pedido original: {request}\n\nBriefing enviado ao modelo de imagem:\n{briefing}\n\n"
             f"Contexto da marca:\n{json.dumps(client_ctx, ensure_ascii=False)}")
+    if notes:  # checagens específicas das skills de design aplicadas a esta peça (skills_router.review_notes)
+        user += f"\n\nChecagens específicas desta peça (skills de design aplicadas):\n{notes}"
     last = None
     for _ in range(retries + 1):
         try:

@@ -10,6 +10,21 @@ Fonte única das regras: `prompts/designer-imagegen.system.md` (v0.4). Esta skil
 ## Regra obrigatória: fundamentos de design
 Toda geração segue `docs/08-fundamentos-design.md` (seções 1 a 6, IDs E, H, C, K, T, F). Isso não é opcional nem depende do pedido: o texto das regras é injetado no system prompt (`test/checks.py`, `design_fundamentals()`), o critic as aplica pela rubrica v3 e `checks.apply()` acrescenta vetos por código. Sem o documento, o designer não roda. Mudar essas regras exige aprovação do CEO (docs/08, seção 9).
 
+## Skills de design (carregadas conforme o pedido)
+O roteador (`test/skills_router.py`) escolhe, pelo pedido, quais skills aprofundam as regras de `docs/08`:
+
+| Skill | Quando |
+|---|---|
+| `design-estrategia` | sempre (oferta, hook, ponto focal, ângulo: E1 a E5) |
+| `design-hierarquia-composicao` | sempre (H1 a H6, Gestalt) |
+| `design-cor-contraste-craft` | sempre (C1, C2, K1 a K5) |
+| `design-tipografia-texto` | a peça tem título, preço, oferta, CTA ou texto (T1 a T7) |
+| `design-formato-canal` | há canal, formato ou destino (feed, stories, display, impressão: F1 a F8) |
+| `design-serie-marca` | série, campanha, variações, carrossel, kit |
+| `design-movimento-video` | vídeo, animação, motion (hoje só roteiro e quadros-chave) |
+
+Cada skill termina com "Revisão (critic)": o critic recebe as checagens das skills aplicadas. No Claude Code, invoque a skill pelo nome quando o pedido cair no gatilho.
+
 ## Fluxo
 
 0. **Triage (modelo rápido e barato):** classifique `use_case`, `role` (hero/cell) e se a peça tem texto exato, dados ou edição de peça aprovada. Isso decide o caminho abaixo.

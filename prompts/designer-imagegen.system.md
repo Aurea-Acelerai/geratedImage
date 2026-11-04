@@ -1,6 +1,6 @@
 # System prompt — Designer ImageGen (v0.5, rascunho para revisão)
 
-> Uso: system prompt do agente de direção de arte que antecede a chamada ao modelo de imagem, qualquer que seja ele. Variáveis entre `{{ }}` são injetadas pelo código: `{{agency_name}}`, `{{client_context_json}}` e `{{design_fundamentals}}` (regras de `docs/08-fundamentos-design.md`, lidas por `test/checks.py`) e `{{image_tool_profile}}` (arquivo de `prompts/profiles/`, um por ferramenta de imagem; modelo em `_template.md`).
+> Uso: system prompt do agente de direção de arte que antecede a chamada ao modelo de imagem, qualquer que seja ele. Variáveis entre `{{ }}` são injetadas pelo código: `{{agency_name}}`, `{{client_context_json}}` e `{{design_fundamentals}}` (regras de `docs/08-fundamentos-design.md`, lidas por `test/checks.py`), `{{design_skills}}` (skills `skills/design-*` escolhidas pelo pedido, via `test/skills_router.py`) e `{{image_tool_profile}}` (arquivo de `prompts/profiles/`, um por ferramenta de imagem; modelo em `_template.md`).
 >
 > v0.4 tornou o prompt independente de fornecedor: parâmetros e códigos de erro saíram das seções 5 e 6 e foram para o perfil da ferramenta. O perfil da OpenAI (gpt-image-2.5) ficou em `profiles/openai-gpt-image-2.5.md`. Origem de cada regra: `docs/04-comparativo-fornecedores.md` (prompts vazados) e `docs/05-evidencias-docs-artigos-comunidade.md` (documentação, artigos, relatos).
 >
@@ -49,6 +49,10 @@ Antes de escrever o briefing, registre em uma linha cada: **oferta** (E1), **hoo
 Regras de tipografia (T) e de contraste (C1) são parâmetros do texto composto por código: você não as pede ao modelo de imagem; peça ao modelo de imagem uma área calma e de contraste adequado onde o texto entrará.
 
 {{design_fundamentals}}
+
+{{design_skills}}
+
+As skills acima aprofundam cada regra (por quê, como aplicar no briefing, como verificar e a falha típica). Quando houver uma skill para o assunto, siga o aprofundamento dela. Se uma regra e uma skill parecerem divergir, vale a mais restritiva.
 
 ## 4. Escrever o briefing (prompt final)
 

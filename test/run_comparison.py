@@ -25,6 +25,7 @@ import argparse, base64, csv, json, os, pathlib, random, sys, time
 ROOT = pathlib.Path(__file__).resolve().parent
 SYSTEM_PROMPT_PATH = ROOT.parent / "prompts" / "designer-imagegen.system.md"
 sys.path.insert(0, str(ROOT))
+import skills_router  # skills de design escolhidas por pedido (skills/design-*)
 import checks  # regras de design (docs/08) e checagens por código
 import critic  # rubrica, limiar e prompt do critic: prompts/rubric.json e prompts/critic.system.md
 from critic import MAX_CYCLES, PASS_SCORE, WEIGHTS, decide, weighted
@@ -33,12 +34,13 @@ from critic import MAX_CYCLES, PASS_SCORE, WEIGHTS, decide, weighted
 PROFILE_PATH = ROOT.parent / "prompts" / "profiles" / os.environ.get("IMAGE_PROFILE", "openai-gpt-image-2.5.md")
 
 
-def load_system_prompt(client_ctx, agency="Aurea Tech"):
+def load_system_prompt(client_ctx, agency="Aurea Tech", request=None, size=None, has_inputs=False):
     txt = SYSTEM_PROMPT_PATH.read_text(encoding="utf-8")
     profile = PROFILE_PATH.read_text(encoding="utf-8")
     return (txt.replace("{{client_context_json}}", json.dumps(client_ctx, ensure_ascii=False, indent=2))
                .replace("{{agency_name}}", agency)
                .replace("{{design_fundamentals}}", checks.design_fundamentals())
+               .replace("{{design_skills}}", skills_router.render(skills_router.select(request, size, has_inputs)) if request and os.getenv("DESIGN_SKILLS", "on") != "off" else "")
                .replace("{{image_tool_profile}}", profile))
 
 
@@ -54,9 +56,18 @@ def save_png(b64, path):
 def self_test():
     critic.self_test()
     checks.self_test()
+    skills_router.self_test()
     sp = load_system_prompt({"name": "x"})
     assert "E1." in sp and "agent:start" not in sp, "regras de design não chegaram ao system prompt"
-    assert all(v not in sp for v in ("{{client_context_json}}", "{{agency_name}}", "{{image_tool_profile}}", "{{design_fundamentals}}")), "variável sem preencher"
+    sk = load_system_prompt({"name": "x"}, request="banner de promoção para stories", size="1536x1024")
+    assert 'skill name="design-tipografia-texto"' in sk and 'skill name="design-formato-canal"' in sk and "{{design_skills}}" not in sk
+    assert "<skill" not in sp, "sem pedido não há skills roteadas"
+    os.environ["DESIGN_SKILLS"] = "off"
+    try:
+        assert "<skill" not in load_system_prompt({"name": "x"}, request="banner de promoção", size="1536x1024")
+    finally:
+        del os.environ["DESIGN_SKILLS"]
+    assert all(v not in sp for v in ("{{client_context_json}}", "{{agency_name}}", "{{image_tool_profile}}", "{{design_fundamentals}}", "{{design_skills}}")), "variável sem preencher"
 
 
 def run_case(client, case, client_ctx, out, args):
@@ -66,7 +77,8 @@ def run_case(client, case, client_ctx, out, args):
     size = case.get("size") or os.getenv("IMAGE_SIZE", "1024x1024")
     quality = os.getenv("IMAGE_QUALITY", "medium")
     request = case["request"]
-    system = load_system_prompt(client_ctx)
+    system = load_system_prompt(client_ctx, request=request, size=size)
+    skill_notes = skills_router.review_notes(skills_router.select(request, size))
     arms = getattr(args, "arms", "ABC") if args else "ABC"
     res = {"case": case["id"], "request": request, "size": size, "image_model": image_model, "arms": {}}
 
@@ -78,7 +90,7 @@ def run_case(client, case, client_ctx, out, args):
     vlm = critic.openai_vlm(client, os.getenv("CRITIC_MODEL", text_model))  # trocar de backend = outro adaptador
 
     def review(b64, briefing):
-        rv = critic.review(vlm, briefing, client_ctx, request, [("Imagem avaliada", b64)])
+        rv = critic.review(vlm, briefing, client_ctx, request, [("Imagem avaliada", b64)], notes=skill_notes)
         return checks.apply(rv, b64, size)  # vetos por código valem para todos os braços
 
     pa = naive_prompt(client_ctx, request)

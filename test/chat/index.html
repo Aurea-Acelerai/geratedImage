@@ -197,6 +197,7 @@ function msgHtml(m, i) {
       <div class="meta"><button class="btn" data-edit="${m.id}">✎ Editar esta imagem</button>
         <a class="btn" href="${m.url}" download="${m.id}">Baixar</a></div>
       <details><summary>Briefing, revisão e tentativas</summary>
+        ${(m.skills || []).length ? `<pre>skills aplicadas: ${m.skills.map(esc).join(', ')}</pre>` : ''}
         <pre>${esc(m.prompt)}</pre>
         ${scores ? `<pre>${esc(scores)}${issues ? '\n\n' + esc(issues) : ''}</pre>` : ''}
         ${cyc ? `<pre>${esc(cyc)}</pre>` : ''}

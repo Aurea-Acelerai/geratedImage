@@ -19,7 +19,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 ROOT = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
-import checks, critic  # noqa: E402
+import checks, critic, skills_router  # noqa: E402
 import run_comparison as rc  # noqa: E402
 import ui_server as ui  # noqa: E402  (openai_post, ApiError, env_models)
 
@@ -131,7 +131,7 @@ def write_briefing(ctx, text, size, history, inputs, feedback=None, prev=None, m
                 "prompt": f"Use case: ads-marketing\nPrimary request: {text}\nStyle/medium: {ctx.get('image_style', '')}\n"
                           f"Input images: {len(inputs)}\nColor palette: {', '.join(ctx.get('palette', []))}"
                           + (f"\n[mock: corrigido -> {feedback}]" if feedback else "")}
-    system = rc.load_system_prompt(ctx)
+    system = rc.load_system_prompt(ctx, request=text, size=size, has_inputs=bool(inputs))
     user = build_user(text, size, history, inputs, feedback, prev)
     if provider == "claude":
         import run_briefings_claude as rbc
@@ -163,7 +163,7 @@ def make_image(prompt, size, quality, inputs, model):
     return r["data"][0]["b64_json"], "png"
 
 
-def do_review(ctx, text, briefing, b64, ext, size, inputs, model):
+def do_review(ctx, text, briefing, b64, ext, size, inputs, model, notes=""):
     if MOCK:
         time.sleep(0.4)
         rv = {"scores": {k: random.randint(6, 10) for k in rc.WEIGHTS}, "veto": random.choice([[], [], [], ["logo_inventado"]]),
@@ -180,7 +180,7 @@ def do_review(ctx, text, briefing, b64, ext, size, inputs, model):
         imgs = [("Imagem avaliada", b64)]
         for x in inputs:
             imgs.append((f"Referência fornecida ({x['kind']}): {x['name']}", base64.b64encode(x["bytes"]).decode()))
-        rv = critic.review(vlm, briefing, ctx, text, imgs)
+        rv = critic.review(vlm, briefing, ctx, text, imgs, notes=notes)
     if ext == "png":
         rv = checks.apply(rv, b64, size)
     s, ok = critic.decide(rv)
@@ -288,12 +288,14 @@ def api_chat(b):
         return {"message": {"role": "assistant", "kind": "text", "briefing_only": True,
                             "text": "Sem OPENAI_API_KEY: gerei só o briefing, sem imagem.\n\n" + brief.get("prompt", "")}}
     do_rev = b.get("review", True)
+    used = skills_router.select(text, size, bool(inputs))
+    notes = skills_router.review_notes(used)
     cycles, best = [], None
     for cycle in range(critic.MAX_CYCLES + 1):
         b64, ext = make_image(brief["prompt"], size, quality, inputs, image_model)
         entry = {"cycle": cycle, "prompt": brief["prompt"]}
         if do_rev:
-            rv, s, ok = do_review(ctx, text, brief["prompt"], b64, ext, size, inputs, b.get("critic_model") or text_model)
+            rv, s, ok = do_review(ctx, text, brief["prompt"], b64, ext, size, inputs, b.get("critic_model") or text_model, notes)
             entry.update(score=s, approved=ok, veto=rv.get("veto", []), fix=rv.get("fix"), review=rv)
         else:
             rv, s, ok = None, None, None
@@ -313,7 +315,7 @@ def api_chat(b):
     (OUT / slug(cid) / f"{mid}.{ext}").write_bytes(base64.b64decode(b64))
     return {"message": {"role": "assistant", "kind": "image", "id": mid, "url": f"/files/{slug(cid)}/out/{mid}.{ext}",
                         "score": s, "approved": ok, "veto": (rv or {}).get("veto", []), "review": rv, "prompt": prompt,
-                        "cycles": cycles, "generations": len(cycles), "seconds": round(time.time() - t0, 1), "size": size,
+                        "cycles": cycles, "skills": used, "generations": len(cycles), "seconds": round(time.time() - t0, 1), "size": size,
                         "inputs": [{"kind": x["kind"], "name": x["name"]} for x in inputs]}}
 
 

@@ -90,9 +90,19 @@ def safe_zone_ok(box, w, h):
 
 
 def type_min_ok(kind, px):
-    """T5: corpo >= 16 px, headline >= 32 px."""
+    """T5 em CSS px (tela de design): corpo >= 16 px, headline >= 32 px. Para peças em canvas, use type_min_canvas."""
     need = {"body": 16, "headline": 32}[kind]
     return px >= need, need
+
+
+PHONE_W = 390  # largura de referência de um celular, em pt
+# tamanho mínimo exibido na tela, em pt (heurística de partida derivada; validar com o time)
+MIN_ON_SCREEN_PT = {"legal": 12, "support": 16.5, "headline": 29}
+
+
+def type_min_canvas(kind, canvas_w):
+    """T5 (skill design-tipografia-texto): px mínimo no canvas = pt na tela x (largura do canvas / 390)."""
+    return round(MIN_ON_SCREEN_PT[kind] * canvas_w / PHONE_W)
 
 
 # ---------- imagem ----------
@@ -143,6 +153,8 @@ def self_test():
     assert safe_zone_ok((100, 300, 900, 1500), 1080, 1920)[0] is False
     assert safe_zone_ok((0, 0, 10, 10), 1024, 1024)[1].startswith("sem regra")
     assert type_min_ok("headline", 28)[0] is False and type_min_ok("body", 16)[0] is True
+    # canvas 1080: legal >= 33 px, apoio >= 46 px, título >= 80 px
+    assert type_min_canvas("legal", 1080) == 33 and type_min_canvas("headline", 1080) == 80
     # PNG mínimo 2x1 e checagem de dimensões
     png = b"\x89PNG\r\n\x1a\n" + struct.pack(">I", 13) + b"IHDR" + struct.pack(">II", 2, 1) + b"\x08\x02\x00\x00\x00"
     b64 = base64.b64encode(png).decode()

@@ -22,7 +22,7 @@ TAIL = '\n\nResponda SOMENTE JSON: {"use_case":"...","role":"hero|cell","prompt"
 
 def briefing(request, client_ctx, model="sonnet", size=None, timeout=240, feedback=None, prev=None):
     with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False, encoding="utf-8") as f:
-        f.write(rc.load_system_prompt(client_ctx))
+        f.write(rc.load_system_prompt(client_ctx, request=request, size=size))
         sp = f.name
     user = f"Pedido: {request}" + (f"\nTamanho da peça: {size}" if size else "")
     if feedback:
