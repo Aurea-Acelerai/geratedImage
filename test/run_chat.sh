@@ -33,4 +33,5 @@ if [[ "$*" != *--mock* && -z "$OPENAI_API_KEY" ]]; then
 fi
 
 (sleep 1.5; open "http://127.0.0.1:$PORT" 2>/dev/null) &
-exec python3 chat_server.py --port $PORT "$@"
+PY=python3; [ -x .venv/bin/python ] && PY=.venv/bin/python  # com Pillow: edição localizada e extensão de fundo
+exec $PY chat_server.py --port $PORT "$@"
