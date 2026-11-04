@@ -22,7 +22,8 @@ FAKE, CHAT = free_port(), free_port()
 tmp = tempfile.TemporaryDirectory()
 procs = [subprocess.Popen([sys.executable, str(ROOT / "fake_openai.py"), "--port", str(FAKE)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL),
          subprocess.Popen([sys.executable, str(ROOT / "chat_server.py"), "--port", str(CHAT)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                          env={**os.environ, "CHAT_DATA_DIR": tmp.name, "OPENAI_API_KEY": "fake", "OPENAI_BASE_URL": f"http://127.0.0.1:{FAKE}/v1"})]
+                          env={**os.environ, "CHAT_DATA_DIR": tmp.name, "OPENAI_API_KEY": "fake", "OPENAI_BASE_URL": f"http://127.0.0.1:{FAKE}/v1",
+                               "COMMONS_API": f"http://127.0.0.1:{FAKE}/w/api.php", "WEB_ALLOW_LOCAL": "1"})]
 try:
     for _ in range(50):
         try:
@@ -228,6 +229,69 @@ try:
     ok("NÃO estão anexadas" in wu and "rodrigo.webp (pessoa)" in wu, "o designer é informado do que há na biblioteca e não está anexado")
     p, _ = run({"client": "71", "conv": "convsug2", "text": "preciso perguntar algo sobre a pessoa", "asset_ids": [pid], "review": False}); msug2 = p["message"]
     ok(msug2["kind"] == "text" and not any(s["id"] == pid for s in msug2["suggest"]), "foto já anexada não é sugerida de novo")
+    # 13) contexto da conversa inteiro, arquivos que ficam, apelidos, web e segurança
+    # (a) o nome citado anexa sozinho; (b) a conversa lembra os arquivos; (c) transcrição completa; (d) soltar funciona
+    cx = "convctx"
+    p, steps = run({"client": "71", "conv": cx, "text": "gere uma imagem com o Rodrigo Faro", "review": False}); mc1 = p["message"]
+    ok(any(i["kind"] == "pessoa" for i in mc1["inputs"]) and pid in mc1["files"], f"o nome citado anexa a foto sozinho ({[i['kind'] for i in mc1['inputs']]})")
+    ok(any(x["text"].startswith("Anexei automaticamente pelo nome") for x in steps), "o progresso avisa o anexo automático")
+    p, _ = run({"client": "71", "conv": cx, "text": "agora de oculos escuros", "review": False}); mc2 = p["message"]
+    ok([i["kind"] for i in mc2["inputs"]] == ["alvo", "pessoa"], f"sem reanexar nada e sem citar o nome: a pessoa continua na conversa ({[i['kind'] for i in mc2['inputs']]})")
+    wu = call(FAKE, "/__stats")[1]["last_writer_user"]
+    ok("[1] Usuário: gere uma imagem com o Rodrigo Faro" in wu and "[2] Usuário: agora de oculos escuros" not in wu and "Arquivos da conversa" in wu and "rodrigo.webp (pessoa; apelido: rodrigo)" in wu,
+       "o designer recebe a transcrição e os arquivos da conversa com o apelido")
+    cvx = json.loads((pathlib.Path(tmp.name) / "conversations" / "71" / f"{cx}.json").read_text(encoding="utf-8"))
+    ok(pid in cvx["files"], "os arquivos da conversa ficam gravados no servidor")
+    call(CHAT, "/api/conv/files", {"client": "71", "conv": cx, "drop": [pid]})
+    p, _ = run({"client": "71", "conv": cx, "text": "agora com fundo azul", "review": False}); mc3 = p["message"]
+    ok(not any(i["kind"] == "pessoa" for i in mc3["inputs"]), "depois de soltar a foto, ela sai da conversa")
+    # (e) apelido editável
+    ok(call(CHAT, "/api/asset/alias", {"client": "71", "id": pid, "alias": "Rodrigo Faro"})[0] == 200, "apelido editável")
+    p, _ = run({"client": "71", "conv": "convalias", "text": "foto do rodrigo faro sorrindo", "review": False})
+    ok(any(i["kind"] == "pessoa" for i in p["message"]["inputs"]), "apelido de duas palavras casa com o texto")
+    # (f) busca na web e adição à biblioteca
+    st, ws = call(CHAT, "/api/websearch", {"q": "logo CVC"})
+    ok(st == 200 and len(ws["results"]) == 1 and ws["results"][0]["license"] == "CC BY-SA 4.0" and ws["results"][0]["author"] == "Autor Teste", f"busca na web: candidato com licença e autor ({ws['results'][0]['title']})")
+    ok("logo CVC" in call(FAKE, "/__stats")[1]["web_queries"][-1], "a consulta chega à fonte")
+    r0 = ws["results"][0]
+    st, wa = call(CHAT, "/api/webadd", {"client": "71", "kind": "logo", "url": r0["url"], "name": r0["title"], "page": r0["page"], "license": r0["license"], "alias": "CVC"})
+    ok(st == 200 and wa["asset"]["kind"] == "logo" and wa["asset"]["origem"] == "web" and wa["asset"]["licenca"] == "CC BY-SA 4.0" and wa["asset"]["alias"] == "CVC", "imagem da web entra na biblioteca com origem, licença e apelido")
+    ok(call(CHAT, "/api/webadd", {"client": "71", "kind": "logo", "url": f"http://127.0.0.1:{FAKE}/img/falso.png"})[0] == 400, "link que não é imagem é recusado (confere o conteúdo)")
+    p, _ = run({"client": "71", "conv": "convweb", "text": "banner da CVC", "review": False})
+    ok(any(i["kind"] == "logo" for i in p["message"]["inputs"]), "o logo adicionado pela web é anexado ao citar o nome")
+    # (g) designer sugere buscar na web
+    p, _ = run({"client": "71", "conv": "convsw", "text": "preciso buscarweb o logo", "review": False}); msw = p["message"]
+    ok(msw["kind"] == "text" and msw["suggest_web"] and msw["suggest_web"][0]["q"] == "logo CVC" and msw["suggest_web"][0]["kind"] == "logo", "a pergunta do designer traz o botão de buscar na web")
+    # (h) falha de identidade fica explícita
+    p, _ = run({"client": "71", "conv": "convfail", "text": "foto do rodrigo faro trocarpessoa"}); mfl = p["message"]
+    ok(mfl["falha_identidade"] is True and mfl["approved"] is False and any("NÃO manteve a identidade" in a for a in mfl["avisos"]), "identidade divergente: falha explícita, nunca aprovada")
+    # (i) só o navegador local
+    def raw(path, body, headers):
+        rq = urllib.request.Request(f"http://127.0.0.1:{CHAT}{path}", data=json.dumps(body).encode(), method="POST")
+        for k, v in headers.items(): rq.add_header(k, v)
+        try:
+            with urllib.request.urlopen(rq, timeout=20) as rr: return rr.status
+        except urllib.error.HTTPError as e: return e.code
+    ok(raw("/api/state", {}, {"Origin": "https://site-malicioso.example"}) == 403, "página de outro site (Origin) é bloqueada")
+    ok(raw("/api/state", {}, {"Host": "site-malicioso.example"}) == 403, "Host estranho (DNS rebinding) é bloqueado")
+    # (j) chave: formato, validação na OpenAI e nada no registro
+    ok(call(CHAT, "/api/setkey", {"key": "abc"})[0] == 400, "chave com formato inválido é recusada")
+    okk = "sk-" + "x" * 30
+    st, kr = call(CHAT, "/api/setkey", {"key": okk, "save": False})
+    ok(st == 200 and kr["ok"] and kr["saved"] is False, "chave válida é aceita (validada na OpenAI)")
+    p, _ = run({"client": "71", "conv": "convkey", "text": "uma xicara", "review": False})
+    ok(f"Bearer {okk}" in call(FAKE, "/__stats")[1]["auth"], "a nova chave passa a ser usada nas chamadas")
+    evs2 = (pathlib.Path(tmp.name) / "logs" / "events.jsonl").read_text(encoding="utf-8")
+    ok(okk not in evs2 and any(json.loads(x)["kind"] == "chave" for x in evs2.splitlines()), "a chave nunca vai para o registro")
+    # (k) proteção contra SSRF (rede interna) com a trava ligada
+    sys.path.insert(0, str(ROOT))
+    os.environ.pop("WEB_ALLOW_LOCAL", None)
+    cs = __import__("chat_server")
+    for bad in ("http://example.com/a.png", "https://localhost/a.png", "https://127.0.0.1/a.png", "https://169.254.169.254/latest", "file:///etc/passwd"):
+        try:
+            cs._check_url(bad); ok(False, f"deveria bloquear {bad}")
+        except Exception as e:
+            ok(type(e).__name__ == "ApiError", f"bloqueia {bad}")
     print("\nTUDO OK")
 finally:
     for p in procs:

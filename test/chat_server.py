@@ -14,7 +14,7 @@ critic (rubrica v3) -> até 2 correções. Sem OPENAI_API_KEY, se o CLI `claude`
 Limite conhecido: logo e texto exato deveriam ser compostos por código (compose_text_overlay, ainda não existe).
 Aqui o logo vai como imagem de entrada e o critic reprova se for redesenhado (veto logo_inventado).
 """
-import argparse, base64, json, mimetypes, os, pathlib, random, re, shutil, sys, threading, time, urllib.error, urllib.parse, urllib.request, uuid
+import argparse, base64, getpass, ipaddress, json, mimetypes, os, pathlib, random, re, shutil, socket, subprocess, sys, threading, time, urllib.error, urllib.parse, urllib.request, uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 ROOT = pathlib.Path(__file__).resolve().parent
@@ -29,6 +29,12 @@ CLIENTS, OUT = DATA / "clients", DATA / "chat_out"
 LOG_DIR = DATA / "logs"
 MOCK = False
 LOG_LOCK = threading.Lock()
+KEYCHAIN_SERVICE = "geratedimage-openai"
+COMMONS_API = os.getenv("COMMONS_API", "https://commons.wikimedia.org/w/api.php")
+WEB_UA = "geratedimage-prototype/0.1 (uso local de teste)"
+WEB_ALLOW_LOCAL = os.getenv("WEB_ALLOW_LOCAL") == "1"  # só para testes automáticos (servidor falso em 127.0.0.1)
+GENERIC_ALIAS = {"logo", "foto", "imagem", "image", "img", "screenshot", "captura", "tela", "produto", "pessoa", "referencia", "peca",
+                 "copy", "novo", "final", "versao", "whatsapp", "download", "photo", "picture", "untitled"}
 CONV_LOCK = threading.Lock()  # duas tarefas da mesma conversa não podem se sobrescrever
 FIDELITY_REJECTED = set()  # modelos que recusaram input_fidelity (não insiste a cada tentativa)
 FIDELITY_MSG = "O modelo de imagem não aceitou input_fidelity=high; usei sem ele. A fidelidade ao rosto, logo ou produto de referência pode cair."
@@ -149,7 +155,8 @@ def build_user(text, size, history, inputs, feedback=None, prev=None, memory="",
     u += ('\n\nO assunto e a cena do **pedido atual** são exigências literais: preserve-os no prompt final e não reaproveite a cena de '
           'pedidos anteriores (a menos que o pedido atual seja uma edição da imagem anterior).\n'
           'Se o pedido não disser o que deve aparecer (sem assunto), ou, numa peça de marketing, se faltar a oferta e não der para deduzir, '
-          'responda SOMENTE {"question":"<uma pergunta curta em português>"}.\n'
+          'responda SOMENTE {"question":"<uma pergunta curta em português>","search":[{"q":"<consulta curta>","kind":"logo|pessoa|produto|referencia"}]} '
+          '(o campo search é opcional: use-o quando a resposta é uma imagem que dá para buscar na web, como um logo ou a foto de uma pessoa pública).\n'
           'Caso contrário responda SOMENTE JSON: {"use_case":"...","role":"hero|cell","prompt":"<prompt final em inglês no schema>"}')
     return u
 
@@ -283,7 +290,7 @@ def api_state(_):
             clients.append({"id": d.name, "name": json.loads((d / "client.json").read_text(encoding="utf-8")).get("name", d.name)})
     return {"mock": MOCK, "has_key": bool(os.getenv("OPENAI_API_KEY")), "has_claude": shutil.which("claude") is not None,
             **ui.env_models(), "pass_score": critic.PASS_SCORE, "max_cycles": critic.MAX_CYCLES, "clients": clients,
-            "kinds": list(KIND_ROLE), "sizes": sorted(SIZES)}
+            "kinds": list(KIND_ROLE), "sizes": sorted(SIZES), "web_search": True}
 
 
 def api_client(b):
@@ -305,16 +312,83 @@ def api_asset(b):
         raise ui.ApiError(400, "SVG não é aceito pela API de imagem: converta a logo para PNG (fundo transparente) antes de enviar.")
     if b.get("kind") not in KIND_ROLE:
         raise ui.ApiError(400, f"tipo inválido; use um de {list(KIND_ROLE)}")
-    data = base64.b64decode(b["b64"])
+    return {"asset": store_asset(cid, b["kind"], b.get("name"), mime, base64.b64decode(b["b64"]), b.get("alias"))}
+
+
+def derive_alias(name):
+    """Apelido a partir do nome do arquivo ('rodrigo.webp' -> 'rodrigo'); vazio se só tiver palavras genéricas."""
+    stem = re.sub(r"[_\-.]+", " ", os.path.splitext(os.path.basename(name or ""))[0]).lower()
+    words = [w for w in re.findall(r"[a-zà-ú0-9]+", stem) if not w.isdigit() and len(w) >= 3 and skills_router.norm(w) not in GENERIC_ALIAS]
+    return " ".join(words)[:60]
+
+
+def store_asset(cid, kind, name, mime, data, alias=None, extra=None):
     if len(data) > 20 * 1024 * 1024:
         raise ui.ApiError(400, "arquivo maior que 20 MB")
     aid = uuid.uuid4().hex[:8]
-    a = {"id": aid, "kind": b["kind"], "name": re.sub(r"[\x00-\x1f\x7f]", " ", os.path.basename(b.get("name") or f"{aid}.{MIME_EXT[mime]}"))[:80],
-         "file": f"{aid}.{MIME_EXT[mime]}", "mime": mime}
+    clean = re.sub(r"[\x00-\x1f\x7f]", " ", os.path.basename(name or f"{aid}.{MIME_EXT[mime]}"))[:80]
+    a = {"id": aid, "kind": kind, "name": clean, "alias": re.sub(r"[\x00-\x1f\x7f]", " ", (alias if alias is not None else derive_alias(clean)))[:60].strip(),
+         "file": f"{aid}.{MIME_EXT[mime]}", "mime": mime, **(extra or {})}
     (cdir(cid) / "assets" / a["file"]).write_bytes(data)
     assets = load_assets(cid) + [a]
     (cdir(cid) / "assets.json").write_text(json.dumps(assets, ensure_ascii=False, indent=2), encoding="utf-8")
-    return {"asset": with_urls(cid, [a])[0]}
+    return with_urls(cid, [a])[0]
+
+
+def api_asset_alias(b):
+    cid = b["client"]
+    assets = load_assets(cid)
+    hit = [a for a in assets if a["id"] == b["id"]]
+    if not hit:
+        raise ui.ApiError(404, "imagem não encontrada na biblioteca")
+    hit[0]["alias"] = re.sub(r"[\x00-\x1f\x7f]", " ", str(b.get("alias", "")))[:60].strip()
+    (cdir(cid) / "assets.json").write_text(json.dumps(assets, ensure_ascii=False, indent=2), encoding="utf-8")
+    return {"ok": True, "alias": hit[0]["alias"]}
+
+
+def alias_matches(text, assets):
+    """Imagens da biblioteca cujo apelido aparece no texto (palavra inteira): 'rodrigo faro' casa com o apelido 'rodrigo'."""
+    t = " " + skills_router.norm(text) + " "
+    out = []
+    for a in assets:
+        al = skills_router.norm(a.get("alias") or "").strip()
+        if not al:
+            continue
+        whole = lambda w: re.search(rf"(?<![a-z0-9]){re.escape(w)}(?![a-z0-9])", t)
+        if whole(al) or (len(al.split()) > 1 and all(whole(w) for w in al.split())):
+            out.append(a)
+    return out
+
+
+def resolve_files(cid, conv, b, text):
+    """Arquivos da CONVERSA (como no ChatGPT): o que já estava na conversa + o que a tela mandou + o que o texto cita pelo nome."""
+    assets = load_assets(cid)
+    by_id = {a["id"]: a for a in assets}
+    ids, stale = [], []
+    for i in conv.get("files", []):
+        (ids if i in by_id else stale).append(i)
+    for i in b.get("asset_ids") or []:
+        if i not in ids:
+            ids.append(i)  # id inexistente cai no erro 409 de collect_inputs
+    auto = []
+    for a in alias_matches(text, assets):
+        if a["id"] not in ids:
+            ids.append(a["id"])
+            auto.append(a)
+    return ids, auto, stale
+
+
+def api_conv_files(b):
+    """Fixa ou solta imagens na conversa (fica no servidor: recarregar a página não perde)."""
+    with CONV_LOCK:
+        conv = load_conv(b["client"], b.get("conv") or "x")
+        files = [i for i in conv.get("files", []) if i not in set(b.get("drop") or [])]
+        for i in b.get("add") or []:
+            if i not in files:
+                files.append(i)
+        conv["files"] = files
+        save_conv(conv)
+    return {"files": files}
 
 
 def api_asset_delete(b):
@@ -370,6 +444,132 @@ def api_models(_):
     return {"ok": not notes, "image_models": image, "text_models": text, "notes": notes}
 
 
+# ---------- chave da OpenAI pelo navegador (nunca passa pelo chat nem por arquivo do repositório) ----------
+def load_key_from_keychain():
+    if os.getenv("OPENAI_API_KEY") or sys.platform != "darwin":
+        return False
+    try:
+        r = subprocess.run(["security", "find-generic-password", "-a", getpass.getuser(), "-s", KEYCHAIN_SERVICE, "-w"],
+                           capture_output=True, text=True, timeout=15)
+        if r.returncode == 0 and r.stdout.strip():
+            os.environ["OPENAI_API_KEY"] = r.stdout.strip()
+            return True
+    except Exception:  # noqa: BLE001
+        pass
+    return False
+
+
+def api_setkey(b):
+    key = str(b.get("key", "")).strip()
+    if not re.fullmatch(r"sk-[A-Za-z0-9_\-]{20,}", key):
+        raise ui.ApiError(400, "Isso não parece uma chave da OpenAI (começa com sk- e é longa).")
+    old = os.environ.get("OPENAI_API_KEY")
+    os.environ["OPENAI_API_KEY"] = key
+    try:
+        openai_get("/models")
+    except ui.ApiError as e:
+        if old is None:
+            os.environ.pop("OPENAI_API_KEY", None)
+        else:
+            os.environ["OPENAI_API_KEY"] = old
+        raise ui.ApiError(400, f"A OpenAI não aceitou a chave: {e}")
+    saved = False
+    if b.get("save") and sys.platform == "darwin":
+        try:  # a chave aparece por um instante na lista de processos; em troca, não digita de novo nunca mais
+            subprocess.run(["security", "add-generic-password", "-a", getpass.getuser(), "-s", KEYCHAIN_SERVICE, "-U", "-w", key],
+                           capture_output=True, timeout=15, check=True)
+            saved = True
+        except Exception:  # noqa: BLE001
+            saved = False
+    log_event("chave", definida=True, guardada_no_keychain=saved)  # nunca a chave
+    return {"ok": True, "saved": saved}
+
+
+# ---------- busca de imagens na web (logos, pessoas públicas, produtos): fonte aberta, o usuário escolhe ----------
+class _SafeRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        _check_url(newurl)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def _check_url(url):
+    u = urllib.parse.urlparse(url)
+    if WEB_ALLOW_LOCAL:
+        if u.scheme not in ("http", "https") or not u.hostname:
+            raise ui.ApiError(400, "link inválido")
+        return
+    if u.scheme != "https" or not u.hostname:
+        raise ui.ApiError(400, "só são aceitos links https de imagem")
+    try:
+        infos = socket.getaddrinfo(u.hostname, u.port or 443)
+    except OSError:
+        raise ui.ApiError(400, "não consegui resolver o endereço do link")
+    for info in infos:
+        ip = ipaddress.ip_address(info[4][0])
+        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
+            raise ui.ApiError(400, "endereço não permitido (rede interna)")
+
+
+def fetch_image(url, limit=15 * 1024 * 1024):
+    """Baixa uma imagem com limites: https, fora de rede interna, até 15 MB, só PNG/JPEG/WEBP (confere o conteúdo, não só o cabeçalho)."""
+    _check_url(url)
+    req = urllib.request.Request(url, headers={"User-Agent": WEB_UA})
+    try:
+        with urllib.request.build_opener(_SafeRedirect).open(req, timeout=25) as r:
+            data = r.read(limit + 1)
+    except urllib.error.URLError as e:
+        raise ui.ApiError(502, f"Não consegui baixar a imagem: {getattr(e, 'reason', e)}")
+    if len(data) > limit:
+        raise ui.ApiError(400, "imagem maior que 15 MB")
+    if data[:8] == b"\x89PNG\r\n\x1a\n":
+        return data, "image/png"
+    if data[:3] == b"\xff\xd8\xff":
+        return data, "image/jpeg"
+    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return data, "image/webp"
+    raise ui.ApiError(400, "o link não é uma imagem PNG, JPEG ou WEBP")
+
+
+def _plain(html):
+    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", html or "")).strip()
+
+
+def api_websearch(b):
+    q = str(b.get("q", "")).strip()[:120]
+    if len(q) < 2:
+        raise ui.ApiError(400, "digite o que buscar (ex.: logo CVC)")
+    params = {"action": "query", "format": "json", "generator": "search", "gsrnamespace": "6", "gsrsearch": f"{q} filetype:bitmap|drawing",
+              "gsrlimit": "14", "prop": "imageinfo", "iiprop": "url|mime|size|extmetadata", "iiurlwidth": "1024"}
+    req = urllib.request.Request(COMMONS_API + "?" + urllib.parse.urlencode(params), headers={"User-Agent": WEB_UA})
+    try:
+        with urllib.request.urlopen(req, timeout=20) as r:
+            data = json.loads(r.read())
+    except Exception as e:  # noqa: BLE001
+        raise ui.ApiError(502, f"A busca na web falhou: {e}")
+    out = []
+    for p in sorted((data.get("query") or {}).get("pages", {}).values(), key=lambda x: x.get("index", 0)):
+        ii = (p.get("imageinfo") or [{}])[0]
+        em = ii.get("extmetadata") or {}
+        if ii.get("mime") not in ("image/png", "image/jpeg", "image/webp", "image/svg+xml"):
+            continue
+        out.append({"title": p.get("title", "").replace("File:", "", 1), "url": ii.get("thumburl") or ii.get("url"), "page": ii.get("descriptionurl"),
+                    "license": _plain((em.get("LicenseShortName") or {}).get("value")) or "licença não informada",
+                    "author": _plain((em.get("Artist") or {}).get("value"))[:80], "mime": ii.get("mime"), "w": ii.get("width"), "h": ii.get("height")})
+    return {"results": out[:8], "source": "Wikimedia Commons",
+            "aviso": "São candidatos, não confirmações: confira se é a marca ou pessoa certa e a licença. O direito de uso é responsabilidade de quem publica."}
+
+
+def api_webadd(b):
+    kind = b.get("kind") if b.get("kind") in KIND_ROLE else "referencia"
+    data, mime = fetch_image(str(b.get("url", "")))
+    ext = MIME_EXT[mime]
+    name = (str(b.get("name") or "imagem-web").strip() or "imagem-web")[:60]
+    if not name.lower().endswith("." + ext):
+        name = re.sub(r"\.[A-Za-z0-9]{2,4}$", "", name) + "." + ext
+    extra = {"origem": "web", "pagina": str(b.get("page") or "")[:300], "licenca": str(b.get("license") or "")[:80]}
+    return {"asset": store_asset(b["client"], kind, name, mime, data, b.get("alias"), extra)}
+
+
 # ---------- jobs (a geração leva minutos: o navegador acompanha por polling) ----------
 JOBS = {}
 
@@ -396,8 +596,11 @@ def start_job(fn, meta=None):
                       approved=m.get("approved"), veto=m.get("veto"), avisos=m.get("avisos"), resolved=m.get("resolved"),
                       image=m.get("id"), pergunta=m.get("text") if m.get("kind") == "text" else None, segundos=m.get("seconds"))
         except ui.ApiError as e:
-            job["status"], job["error"] = "error", str(e)
-            log_event("erro", job=jid, erro=str(e))
+            msg = str(e)
+            if re.search(r"safety|moderation|content[_ ]policy|blocked", msg, re.I):
+                msg += " | Dica: a OpenAI pode bloquear pedidos com pessoas reais ou conteúdo sensível. Reescreva sem o nome da pessoa ou use outra foto de referência."
+            job["status"], job["error"] = "error", msg
+            log_event("erro", job=jid, erro=msg)
         except Exception as e:  # noqa: BLE001
             job["status"], job["error"] = "error", f"{type(e).__name__}: {e}"
             log_event("erro", job=jid, erro=job["error"])
@@ -421,16 +624,19 @@ def api_chat(b):
     if not text:
         raise ui.ApiError(400, "mensagem vazia")
     ctx = load_client(cid)
-    inputs = collect_inputs(cid, b.get("edit_of"), b.get("asset_ids") or [])
+    conv = load_conv(cid, b.get("conv") or uuid.uuid4().hex[:10])
+    b["conv"] = conv["id"]
+    files, auto, stale = resolve_files(cid, conv, b, text)
+    inputs = collect_inputs(cid, b.get("edit_of"), files)
     if not MOCK and not os.getenv("OPENAI_API_KEY") and not shutil.which("claude"):
         raise ui.ApiError(400, "Sem OPENAI_API_KEY e sem o CLI claude: nada a executar.")
     provider_now = "mock" if MOCK else ("openai" if os.getenv("OPENAI_API_KEY") else "claude-cli (SEM chave: nenhuma imagem é gerada)")
     meta = {"provedor": provider_now, "client": cid, "conv": b.get("conv"), "texto": text, "modo": b.get("mode") or "livre", "tamanho": b.get("size"),
-            "qualidade": b.get("quality"), "anexos": [{"tipo": x["kind"], "nome": x["name"]} for x in inputs], "edit_of": b.get("edit_of"),
+            "qualidade": b.get("quality"), "anexos": [{"tipo": x["kind"], "nome": x["name"]} for x in inputs], "auto_anexados": [a["name"] for a in auto], "edit_of": b.get("edit_of"),
             "melhorias": {"designer": (b.get("improve") or {}).get("designer", True), "skills": (b.get("improve") or {}).get("skills", True),
                           "critic": b.get("review", True), "comparar": (b.get("improve") or {}).get("compare_raw", False)},
             "modelos": {"imagem": b.get("image_model"), "texto": b.get("text_model")}}
-    return {"job": start_job(lambda emit: run_chat(b, emit, cid, text, ctx, inputs), meta)}
+    return {"job": start_job(lambda emit: run_chat(b, emit, cid, text, ctx, inputs, files, auto, stale), meta)}
 
 
 # ---------- memória da conversa (em disco; sobrevive a reinício e a atualizar a página) ----------
@@ -448,10 +654,12 @@ def load_conv(cid, conv_id):
     p = conv_path(cid, conv_id)
     if p.exists():
         try:
-            return json.loads(p.read_text(encoding="utf-8"))
+            c = json.loads(p.read_text(encoding="utf-8"))
+            c.setdefault("files", [])
+            return c
         except json.JSONDecodeError:  # arquivo corrompido: guarda a cópia e recomeça, em vez de travar a conversa
             p.rename(p.with_name(p.name + f".corrompido-{int(time.time())}"))
-    return {"id": slug(conv_id), "client": slug(cid), "created": time.strftime("%Y-%m-%d %H:%M:%S"), "turns": [], "carry": []}
+    return {"id": slug(conv_id), "client": slug(cid), "created": time.strftime("%Y-%m-%d %H:%M:%S"), "turns": [], "carry": [], "files": []}
 
 
 def save_conv(conv):
@@ -475,26 +683,40 @@ def last_image(cid, conv):
     return None, None
 
 
-def memory_text(conv):
-    """O que o designer e o resolvedor 'lembram': pedidos, o que foi gerado e perguntas pendentes."""
-    if not conv["turns"] and not conv["carry"]:
+def memory_text(conv, files_desc=""):
+    """O que o designer e o resolvedor 'lembram': a transcrição inteira, os arquivos da conversa e os detalhes recentes."""
+    turns = conv["turns"]
+    if not turns and not conv["carry"] and not files_desc:
         return ""
-    lines = ["Memória da conversa (mais antigo primeiro):"]
-    recent = conv["turns"][-8:]
-    for i, t in enumerate(recent):
-        lim = 1500 if i == len(recent) - 1 else 500  # o último pedido vai quase inteiro: é dele que o resolvedor parte
-        if t.get("question"):
-            lines.append(f'{t["n"]}. Pedido: {t["resolved"][:lim]} | o designer PERGUNTOU: "{t["question"]}" (sem imagem)')
-        else:
-            lines.append(f'{t["n"]}. Pedido: {t["resolved"][:lim]} | intenção: {t["intent"]} | resultado: imagem {t["image_id"]} '
+    L = ["Memória da conversa. Tudo o que foi dito, anexado e gerado nesta conversa continua valendo: não peça de novo o que já está aqui."]
+    if files_desc:
+        L.append("Arquivos da conversa (já anexados; valem em todos os pedidos até o usuário remover): " + files_desc)
+    if turns:
+        L.append("Transcrição (mais antigo primeiro):")
+        if len(turns) > 40:
+            L.append(f"(... {len(turns) - 40} turnos mais antigos omitidos)")
+        for t in turns[-40:]:
+            L.append(f'[{t["n"]}] Usuário: {t["request"][:300]}')
+            if t.get("question"):
+                L.append(f'     Designer: perguntou "{t["question"][:200]}" (sem imagem)')
+            else:
+                L.append(f'     Designer: gerou a imagem {t["image_id"]} ({"aprovada" if t["approved"] else "reprovada"}, nota {t["score"]}); briefing: {t["briefing"][:160]}')
+        L.append("Detalhes dos últimos turnos:")
+        recent = turns[-3:]
+        for i, t in enumerate(recent):
+            lim = 1500 if i == len(recent) - 1 else 500  # o último pedido vai quase inteiro: é dele que o resolvedor parte
+            if t.get("question"):
+                L.append(f'{t["n"]}. Pedido: {t["resolved"][:lim]} | o designer PERGUNTOU: "{t["question"]}" (sem imagem)')
+            else:
+                L.append(f'{t["n"]}. Pedido: {t["resolved"][:lim]} | intenção: {t["intent"]} | resultado: imagem {t["image_id"]} '
                          f'(nota {t["score"]}, {"aprovada" if t["approved"] else "reprovada"}) | briefing final: {t["briefing"][:600]}')
     if conv["carry"]:
-        lines.append("Instruções duradouras do usuário: " + "; ".join(conv["carry"]))
-    last = conv["turns"][-1] if conv["turns"] else None
+        L.append("Instruções duradouras do usuário: " + "; ".join(conv["carry"]))
+    last = turns[-1] if turns else None
     if last and last.get("question"):
-        lines.append(f'PERGUNTA PENDENTE: o último turno terminou numa pergunta do designer; a nova mensagem provavelmente a responde '
-                     f'(pedido original: {last["resolved"][:1500]}; intenção original: {last["intent"]})')
-    return "\n".join(lines)
+        L.append(f'PERGUNTA PENDENTE: o último turno terminou numa pergunta do designer; a nova mensagem provavelmente a responde '
+                 f'(pedido original: {last["resolved"][:1500]}; intenção original: {last["intent"]})')
+    return "\n".join(L)
 
 
 def resolve_turn(conv, text, avail, model, provider):
@@ -549,7 +771,7 @@ def api_asset_kind(b):
     return {"ok": True}
 
 
-def run_chat(b, emit, cid, text, ctx, inputs):
+def run_chat(b, emit, cid, text, ctx, inputs, files=None, auto=None, stale=None):
     size = b.get("size") if b.get("size") in SIZES else "1024x1024"
     quality = b.get("quality") or ui.env_models()["quality"]
     em = ui.env_models()
@@ -562,6 +784,11 @@ def run_chat(b, emit, cid, text, ctx, inputs):
     ctx_critic = ctx if mode == "marca" else {"modo": "livre (sem marca do cliente): julgue assunto, estilo e paleta só pelo pedido e pelo briefing"}
     t0 = time.time()
     avisos = []
+    files, auto, stale = list(files or []), list(auto or []), list(stale or [])
+    if stale:
+        avisos.append("Uma imagem que estava na conversa foi apagada da biblioteca e saiu dela.")
+    if auto:
+        emit("Anexei automaticamente pelo nome: " + ", ".join(f"{a['name']} ({a['kind']})" for a in auto) + ". Para tirar, clique no × do anexo.")
 
     # --- memória: entender a mensagem no contexto da conversa ---
     conv = load_conv(cid, b.get("conv") or uuid.uuid4().hex[:10])
@@ -589,7 +816,9 @@ def run_chat(b, emit, cid, text, ctx, inputs):
     pinned_ids = {x.get("id") for x in inputs}
     suggest = [{"id": a["id"], "name": a["name"], "kind": a["kind"]} for a in load_assets(cid) if a["kind"] in IDENTITY_KINDS and a["id"] not in pinned_ids]
     library = ", ".join(f"{s['name']} ({s['kind']})" for s in suggest)
-    memory = memory_text(conv)
+    lib = {a["id"]: a for a in load_assets(cid)}
+    files_desc = ", ".join(f"{lib[i]['name']} ({lib[i]['kind']}" + (f"; apelido: {lib[i]['alias']}" if lib[i].get("alias") else "") + ")" for i in files if i in lib)
+    memory = memory_text(conv, files_desc)
     if conv["turns"] or text_eff != text:
         emit(f"Memória: entendi como {'edição da imagem anterior' if intent == 'edit' else 'variação' if intent == 'variation' else 'pedido novo'}"
              + (f" · pedido resolvido: «{text_eff[:220]}»" if text_eff != text else ""))
@@ -612,6 +841,7 @@ def run_chat(b, emit, cid, text, ctx, inputs):
             fresh["turns"].append({"n": len(fresh["turns"]) + 1, "t": time.strftime("%H:%M:%S"), "request": text, "resolved": text_eff,
                                    "intent": intent, **turn})
             fresh["carry"] = resolved["carry"]
+            fresh["files"] = files
             save_conv(fresh)
 
     if imp["designer"]:
@@ -620,7 +850,9 @@ def run_chat(b, emit, cid, text, ctx, inputs):
                                memory=memory, intent=intent, original=text, library=library)
         if brief.get("question"):
             record(question=brief["question"])
-            return {"role": "assistant", "kind": "text", "text": brief["question"], "conv": conv["id"], "suggest": suggest}
+            sw = [{"q": str(s["q"])[:120], "kind": s.get("kind") if s.get("kind") in KIND_ROLE else "referencia"}
+                  for s in (brief.get("search") or []) if isinstance(s, dict) and s.get("q")][:3]
+            return {"role": "assistant", "kind": "text", "text": brief["question"], "conv": conv["id"], "suggest": suggest, "suggest_web": sw, "files": files}
         if provider == "claude":
             return {"role": "assistant", "kind": "text", "briefing_only": True,
                     "text": "Sem OPENAI_API_KEY: gerei só o briefing, sem imagem.\n\n" + brief.get("prompt", "")}
@@ -666,11 +898,11 @@ def run_chat(b, emit, cid, text, ctx, inputs):
             break
     e = best["entry"]
     if "identidade_divergente" in ((best["rv"] or {}).get("veto") or []):
-        avisos.append("A imagem não manteve a identidade da referência (pessoa, produto ou logo). Confira a foto anexada e o tipo dela; "
+        avisos.append("A imagem NÃO manteve a identidade da referência (pessoa, produto ou logo): não use como se fosse. Confira a foto anexada e o tipo dela; "
                       "a API de imagem pode não preservar o rosto de uma pessoa real.")
     msg = {"role": "assistant", "kind": "image", "id": e["id"], "url": e["url"], "score": best["score"], "approved": best["ok"],
            "veto": (best["rv"] or {}).get("veto", []), "review": best["rv"], "prompt": e["prompt"], "request": text, "resolved": text_eff,
-           "intent": intent, "conv": conv["id"], "avisos": avisos, "cycles": cycles, "skills": used, "packs": packs, "mode": mode, "improve": imp,
+           "intent": intent, "conv": conv["id"], "files": files, "falha_identidade": "identidade_divergente" in ((best["rv"] or {}).get("veto") or []), "avisos": avisos, "cycles": cycles, "skills": used, "packs": packs, "mode": mode, "improve": imp,
            "generations": len(cycles), "seconds": round(time.time() - t0, 1), "size": size,
            "inputs": [{"kind": x["kind"], "name": x["name"]} for x in inputs]}
     record(briefing=e["prompt"], image_id=e["id"], score=best["score"], approved=bool(best["ok"]),
@@ -694,24 +926,60 @@ def run_chat(b, emit, cid, text, ctx, inputs):
 
 POST = {"/api/client": api_client, "/api/client/save": api_client_save, "/api/asset": api_asset,
         "/api/asset/delete": api_asset_delete, "/api/asset/kind": api_asset_kind, "/api/chat": api_chat, "/api/job": api_job,
-        "/api/conv": api_conv, "/api/clientlog": api_clientlog}
+        "/api/conv": api_conv, "/api/clientlog": api_clientlog, "/api/conv/files": api_conv_files,
+        "/api/asset/alias": api_asset_alias, "/api/setkey": api_setkey, "/api/websearch": api_websearch, "/api/webadd": api_webadd}
+
+
+BRAND_EXT = {".css", ".png", ".svg", ".ico", ".woff2"}
 
 
 class H(BaseHTTPRequestHandler):
-    def _send(self, code, body, ctype="application/json"):
+    def _send(self, code, body, ctype="application/json", cache="no-store"):
         data = body if isinstance(body, bytes) else json.dumps(body, ensure_ascii=False).encode()
         self.send_response(code)
         self.send_header("Content-Type", ctype + ("; charset=utf-8" if ctype.startswith("text") or ctype == "application/json" else ""))
         self.send_header("Content-Length", str(len(data)))
-        self.send_header("Cache-Control", "no-store")
+        self.send_header("Cache-Control", cache)
         self.end_headers()
-        self.wfile.write(data)
+        if not getattr(self, "_head_only", False):
+            self.wfile.write(data)
+
+    def _brand(self, raw_path):
+        """GET /brand/<arquivo>: estáticos da marca em chat/brand, só extensões da allowlist, sem sair da pasta."""
+        base = (ROOT / "chat" / "brand").resolve()
+        name = raw_path[len("/brand/"):]
+        low = raw_path.lower()
+        if (not name or ".." in name or "\0" in raw_path or "%00" in low or "%2e" in low or "%2f" in low or "%5c" in low
+                or not re.fullmatch(r"[A-Za-z0-9._-]+", name) or pathlib.Path(name).suffix.lower() not in BRAND_EXT):
+            return self._send(404, {"error": "não encontrado"})
+        p = (base / name).resolve()
+        if not p.is_relative_to(base) or not p.is_file():
+            return self._send(404, {"error": "não encontrado"})
+        ctype = "text/css" if p.suffix.lower() == ".css" else (mimetypes.guess_type(p.name)[0] or "application/octet-stream")
+        self._send(200, p.read_bytes(), ctype, cache="no-cache")
+
+    def do_HEAD(self):
+        self._head_only = True
+        self.do_GET()
+
+    def _local_only(self):
+        """Só aceita o próprio navegador: Host e Origin precisam ser 127.0.0.1 ou localhost. Bloqueia páginas de outros sites
+        que tentariam gastar a chave ou mexer na biblioteca (CSRF) e DNS rebinding."""
+        host = (self.headers.get("Host") or "").rsplit(":", 1)[0].strip("[]")
+        if host not in ("127.0.0.1", "localhost"):
+            return False
+        org = self.headers.get("Origin")
+        return not org or urllib.parse.urlparse(org).hostname in ("127.0.0.1", "localhost")
 
     def do_GET(self):
+        if not self._local_only():
+            return self._send(403, {"error": "acesso negado: só o navegador local pode usar este chat"})
         path = urllib.parse.urlparse(self.path).path
         try:
             if path in ("/", "/index.html"):
                 return self._send(200, (ROOT / "chat" / "index.html").read_bytes(), "text/html")
+            if self.path.split("?", 1)[0].startswith("/brand/"):
+                return self._brand(self.path.split("?", 1)[0])
             if path == "/api/state":
                 return self._send(200, api_state({}))
             if path == "/api/models":
@@ -727,6 +995,8 @@ class H(BaseHTTPRequestHandler):
             self._send(e.status, {"error": str(e)})
 
     def do_POST(self):
+        if not self._local_only():
+            return self._send(403, {"error": "acesso negado: só o navegador local pode usar este chat"})
         fn = POST.get(self.path)
         if not fn:
             return self._send(404, {"error": "não encontrado"})
@@ -753,6 +1023,8 @@ def main():
     MOCK = a.mock
     rc.self_test()
     cdir("71")
+    if not MOCK and load_key_from_keychain():
+        print("Chave da OpenAI lida do Keychain do Mac.")
     print(f"Chat em http://127.0.0.1:{a.port}  ({'MOCK' if MOCK else 'OPENAI_API_KEY ' + ('definida' if os.getenv('OPENAI_API_KEY') else 'NÃO definida')})")
     try:
         srv = ThreadingHTTPServer(("127.0.0.1", a.port), H)

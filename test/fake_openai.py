@@ -16,7 +16,7 @@ import argparse, base64, email, json, re, struct, sys, threading, time, zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 STATS = {"models": 0, "chat_writer": 0, "chat_critic": 0, "generations": 0, "edits": 0, "edit_images": [], "writer_images": [],
-         "critic_images": [], "auth": set(), "edit_fields": [], "last_writer_user": "", "writer_systems": [], "image_prompts": [], "critic_systems": [], "resolver_users": []}
+         "critic_images": [], "auth": set(), "edit_fields": [], "last_writer_user": "", "writer_systems": [], "image_prompts": [], "critic_systems": [], "resolver_users": [], "web_queries": []}
 LOCK = threading.Lock()
 CRITIC_KEYS = ["subject", "style", "composition", "hierarchy", "legibility_size", "message_clarity", "craft", "color_contrast",
                "text", "defects", "format", "binding_count", "invariants", "brand_fit", "style_mechanism", "identity_match"]
@@ -43,6 +43,19 @@ class H(BaseHTTPRequestHandler):
 
     def do_GET(self):
         STATS["auth"].add(self.headers.get("Authorization", ""))
+        if self.path.startswith("/w/api.php"):
+            import urllib.parse as up
+            qs = up.parse_qs(up.urlparse(self.path).query)
+            STATS["web_queries"].append(qs.get("gsrsearch", [""])[0])
+            port = self.server.server_port
+            pages = {"1": {"index": 1, "title": "File:Logo CVC 1989.png", "imageinfo": [{"thumburl": f"http://127.0.0.1:{port}/img/logo.png", "descriptionurl": "https://commons.wikimedia.org/wiki/File:Logo_CVC_1989.png",
+                     "mime": "image/png", "width": 512, "height": 512, "extmetadata": {"LicenseShortName": {"value": "CC BY-SA 4.0"}, "Artist": {"value": "<a href='x'>Autor Teste</a>"}}}]},
+                     "2": {"index": 2, "title": "File:Doc.pdf", "imageinfo": [{"mime": "application/pdf", "url": "http://x/doc.pdf"}]}}
+            return self._json(200, {"query": {"pages": pages}})
+        if self.path == "/img/logo.png":
+            d = png(64, 64); self.send_response(200); self.send_header("Content-Type", "image/png"); self.send_header("Content-Length", str(len(d))); self.end_headers(); self.wfile.write(d); return
+        if self.path == "/img/falso.png":
+            d = b"isto nao e uma imagem"; self.send_response(200); self.send_header("Content-Type", "image/png"); self.send_header("Content-Length", str(len(d))); self.end_headers(); self.wfile.write(d); return
         if self.path == "/__stats":
             return self._json(200, {k: (sorted(v) if isinstance(v, set) else v) for k, v in STATS.items()})
         if self.path == "/v1/models":
@@ -84,10 +97,14 @@ class H(BaseHTTPRequestHandler):
                 bad = k % 2 == 1
                 rv = {"issues": [{"criterion": "hierarchy", "evidence": "foco fraco", "severity": "media"}] if bad else [],
                       "scores": {c: (6 if bad else 9) for c in CRITIC_KEYS}, "veto": [], "fix": "aumentar o contraste do foco" if bad else ""}
+                if "trocarpessoa" in utext:
+                    rv["veto"] = ["identidade_divergente"]
                 return self._json(200, {"choices": [{"message": {"content": json.dumps(rv)}}]})
             with LOCK:
                 STATS["chat_writer"] += 1; STATS["writer_images"].append(nimg); STATS["last_writer_user"] = utext
                 STATS["writer_systems"].append({"livre": "MODO LIVRE" in system, "marca": "MODO COM MARCA" in system, "setor_no_prompt": "moda praia" in system})
+            if "buscarweb" in utext.lower() and "o designer PERGUNTOU" not in utext:
+                return self._json(200, {"choices": [{"message": {"content": json.dumps({"question": "Quer que eu busque o logo na web?", "search": [{"q": "logo CVC", "kind": "logo"}]})}}]})
             if "perguntar" in utext.lower() and "o designer PERGUNTOU" not in utext:  # pergunta uma vez; depois a memória já tem a resposta
                 out = {"question": "Qual é a oferta da peça?"}
             else:

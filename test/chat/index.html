@@ -65,6 +65,19 @@
   .what b { color: var(--ink); }
   .chk { display: flex; gap: 8px; align-items: flex-start; margin-top: 8px; font-size: 13px; }
   .chk input { margin-top: 3px; flex: none; }
+  #keybox { display: none; padding: 12px 20px; background: var(--warnbg); border-bottom: 1px solid var(--line); font-size: 13px; }
+  #keybox.on { display: block; }
+  #keybox input[type=password] { width: min(420px, 100%); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 6px 9px; }
+  #keybox .err { margin-top: 6px; }
+  .web { font-size: 12px; }
+  .web .res { display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; margin-top: 8px; }
+  .web .r { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 4px; }
+  .web .r img { width: 100%; aspect-ratio: 1; object-fit: contain; border-radius: 6px; background: #fff; cursor: zoom-in; display: block; }
+  .web .r .t { color: var(--muted); font-size: 10px; margin: 3px 0; word-break: break-word; }
+  .web .r button { width: 100%; font-size: 11px; padding: 3px; }
+  .failid { border: 1px solid var(--bad); border-left-width: 4px; border-radius: 8px; padding: 8px 12px; margin-bottom: 8px; color: var(--bad); font-size: 13px; }
+  .asset .al { position: absolute; right: 3px; bottom: 3px; font-size: 11px; background: rgba(0,0,0,.72); color: #fff; border-radius: 4px; padding: 0 4px; cursor: pointer; display: none; }
+  .asset:hover .al { display: block; }
   .mem { font-size: 12px; color: var(--muted); }
   .mem .it { margin-top: 6px; padding-left: 8px; border-left: 3px solid var(--line); }
   .mem b { color: var(--ink); }
@@ -126,6 +139,14 @@
   <p class="hint">Clique para anexar ao próximo pedido (contorno verde). Passe o mouse e use × para apagar. Logo: use PNG com fundo transparente.</p>
   <h2>Memória da conversa</h2>
   <div class="mem" id="mem">Vazia: a IA ainda não lembra de nada.</div>
+  <h2>Buscar na web</h2>
+  <div class="web">
+    <div class="row"><input id="webq" class="tiny" style="flex:2" placeholder="ex.: logo CVC, Rodrigo Faro" autocomplete="off"><select id="webkind" class="tiny" style="flex:1" autocomplete="off"></select></div>
+    <div class="row"><button class="btn" id="webgo">Buscar logos e imagens</button></div>
+    <div class="row"><input id="weburl" class="tiny" style="flex:2" placeholder="ou cole o link (https) de uma imagem" autocomplete="off"><button class="btn" id="webadd" style="flex:1">Adicionar</button></div>
+    <div id="webres" class="res"></div>
+    <div class="hint" id="webnote">Fonte: Wikimedia Commons (aberta). Resultados são candidatos: confira a marca ou pessoa e a licença antes de usar.</div>
+  </div>
   <h2>Geração</h2>
   <div class="row"><span>Tamanho</span><select id="size" autocomplete="off"></select></div>
   <div class="row"><span>Qualidade</span><select id="quality" autocomplete="off"><option>low</option><option selected>medium</option><option>high</option></select></div>
@@ -152,6 +173,15 @@
     <span style="flex:1"></span>
     <button class="btn" id="newChat">Nova conversa</button>
   </header>
+  <div id="keybox">
+    <b>Falta a chave da OpenAI.</b> Cole aqui uma vez: ela vai do seu navegador direto para este servidor local, não passa pelo chat nem fica em arquivo do projeto.
+    <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <input type="password" id="keyIn" placeholder="sk-..." autocomplete="off">
+      <label style="display:flex;gap:6px;align-items:center"><input type="checkbox" id="keySave" checked> guardar no Keychain do Mac</label>
+      <button class="btn" id="keyBtn">Usar esta chave</button>
+    </div>
+    <div class="err" id="keyErr"></div>
+  </div>
   <div id="banner"></div>
   <div id="log"><div class="wrap" id="wrap"></div></div>
   <div id="composer">
@@ -179,6 +209,10 @@ const store = {
 };
 function newConv(client) { const id = Math.random().toString(16).slice(2, 12); store.set('conv:' + client, id); return id; }
 const saveSel = () => store.set('sel:' + S.clientId, [...S.selected]);
+async function syncFiles(add = [], drop = []) {
+  saveSel();  // o servidor é a fonte da verdade dos arquivos da conversa; a tela também os envia em cada mensagem
+  try { await api('/api/conv/files', { client: S.clientId, conv: S.conv, add, drop }); } catch { /* o envio da mensagem leva os anexos */ }
+}
 const logKey = () => 'chat:' + S.clientId, jobKey = () => 'job:' + S.clientId;
 const saveLog = () => store.set(logKey(), S.history);
 
@@ -201,6 +235,8 @@ async function api(path, body) {
 async function init() {
   S.state = await api('/api/state');
   $('kind').innerHTML = S.state.kinds.map((k) => `<option>${k}</option>`).join('');
+  $('webkind').innerHTML = S.state.kinds.map((k) => `<option>${k}</option>`).join('');
+  $('keybox').className = (!S.state.mock && !S.state.has_key) ? 'on' : '';
   $('size').innerHTML = S.state.sizes.map((s) => `<option ${s === '1024x1024' ? 'selected' : ''}>${s}</option>`).join('');
   $('client').innerHTML = S.state.clients.map((c) => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('');
   $('imageModel').innerHTML = `<option>${esc(S.state.image_model)}</option>`;
@@ -242,7 +278,7 @@ async function loadClient(id) {
 function drawAssets() {
   $('assets').innerHTML = S.assets.map((a) => `
     <div class="asset ${S.selected.has(a.id) ? 'sel' : ''}" data-id="${a.id}" title="${esc(a.name)}">
-      <img src="${a.url}" alt="${esc(a.name)}"><select class="k" data-kind="${a.id}" title="Tipo da imagem: a IA trata cada tipo de um jeito">${(S.state.kinds || []).map((k) => `<option ${k === a.kind ? 'selected' : ''}>${k}</option>`).join('')}</select><span class="x" data-del="${a.id}">×</span>
+      <img src="${a.url}" alt="${esc(a.name)}"><select class="k" data-kind="${a.id}" title="Tipo da imagem: a IA trata cada tipo de um jeito">${(S.state.kinds || []).map((k) => `<option ${k === a.kind ? 'selected' : ''}>${k}</option>`).join('')}</select><span class="al" data-alias="${a.id}" title="Nome desta imagem: se você citar esse nome na conversa, ela é anexada sozinha">✎ ${esc(a.alias || 'nome')}</span><span class="x" data-del="${a.id}">×</span>
     </div>`).join('') || '<div class="hint" style="grid-column:1/-1">Nenhuma imagem ainda. Envie a logo e peças do cliente.</div>';
 }
 
@@ -282,6 +318,7 @@ function msgHtml(m) {
          <figure><img data-zoom="${m.raw.url}" src="${m.raw.url}" alt="GPT puro"><b>GPT puro</b> (só o seu texto)${rawScore}${(m.raw.veto || []).length ? ' · vetos: ' + m.raw.veto.map(esc).join(', ') : ''}</figure></div>`
       : `<img class="main" data-zoom="${m.url}" src="${m.url}" alt="imagem gerada">`;
     return `<div class="msg assistant"><div class="imgcard">
+      ${m.falha_identidade ? '<div class="failid"><b>Não consegui manter a identidade da referência.</b> Esta imagem <b>não é</b> a pessoa, o produto ou o logo pedido: não use como se fosse. A API pode ter alterado ou recusado o rosto; tente outra foto ou outro ângulo.</div>' : ''}
       ${hero}
       <div class="meta">${scoreHtml}${veto}<span class="hint">${m.generations} geração(ões) · ${m.seconds}s · ${esc(m.size)}</span></div>
       ${what}
@@ -297,7 +334,8 @@ function msgHtml(m) {
       </details></div></div>`;
   }
   const sug = (m.suggest || []).filter((s) => S.assets.some((a) => a.id === s.id)).map((s) => `<button class="btn" data-pin="${s.id}">📌 Usar ${esc(s.name)} (${esc(s.kind)}) e continuar</button>`).join(' ');
-  return `<div class="msg assistant"><div class="bubble ${m.error ? 'err' : ''}">${esc(m.text)}</div>${sug ? `<div class="meta">${sug}</div>` : ''}${m.error && S.lastBody ? '<div class="meta"><button class="btn" data-retry="1">↻ Tentar de novo</button></div>' : ''}</div>`;
+  const web = (m.suggest_web || []).map((s) => `<button class="btn" data-web="${esc(s.q)}|${esc(s.kind)}">🔎 Buscar «${esc(s.q)}» na web</button>`).join(' ');
+  return `<div class="msg assistant"><div class="bubble ${m.error ? 'err' : ''}">${esc(m.text)}</div>${sug || web ? `<div class="meta">${sug} ${web}</div>` : ''}${m.error && S.lastBody ? '<div class="meta"><button class="btn" data-retry="1">↻ Tentar de novo</button></div>' : ''}</div>`;
 }
 
 function liveHtml() {
@@ -327,12 +365,45 @@ async function uploadFiles(files, kind) {
     const b64 = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result.split(',')[1]); r.onerror = rej; r.readAsDataURL(f); });
     try {
       const { asset } = await api('/api/asset', { client: S.clientId, kind, name: f.name || 'colado.png', mime: f.type, b64 });
-      S.assets.push(asset); S.selected.add(asset.id); saveSel();
+      S.assets.push(asset); S.selected.add(asset.id); syncFiles([asset.id]);
     } catch (e) { $('status').textContent = 'Erro ao enviar: ' + e.message; }
   }
   drawAssets(); drawChips();
 }
 
+async function webSearch() {
+  const q = $('webq').value.trim();
+  if (q.length < 2) { $('webnote').textContent = 'Digite o que buscar.'; return; }
+  $('webres').innerHTML = ''; $('webnote').textContent = 'Buscando…';
+  try {
+    const r = await api('/api/websearch', { q });
+    S.webres = r.results;
+    $('webres').innerHTML = r.results.map((x, i) => `<div class="r"><img data-zoom="${esc(x.url)}" src="${esc(x.url)}" alt="${esc(x.title)}"><div class="t">${esc(x.title)}<br>${esc(x.license)}${x.author ? ' · ' + esc(x.author) : ''}</div><button class="btn" data-webadd="${i}">Adicionar e fixar</button></div>`).join('') || '<div class="hint" style="grid-column:1/-1">Nada encontrado. Tente outra consulta ou cole o link da imagem.</div>';
+    $('webnote').textContent = r.aviso;
+  } catch (e) { $('webnote').textContent = 'Erro: ' + e.message; }
+}
+async function addWeb(body) {
+  try {
+    const { asset } = await api('/api/webadd', { client: S.clientId, kind: $('webkind').value, ...body });
+    S.assets.push(asset); S.selected.add(asset.id); syncFiles([asset.id]); drawAssets(); drawChips();
+    $('webnote').textContent = `Adicionada e fixada: ${asset.name} (${asset.kind}). Confira se é a marca ou pessoa certa.`;
+  } catch (e) { $('webnote').textContent = 'Erro: ' + e.message; }
+}
+function webAdd(i) {
+  const x = (S.webres || [])[i]; if (!x) return;
+  const q = $('webq').value.trim();
+  addWeb({ url: x.url, name: x.title, page: x.page, license: x.license, alias: q.replace(/^(logo|foto|imagem)\s+(d[aeo]s?\s+)?/i, '') });
+}
+async function setKey() {
+  $('keyErr').textContent = '';
+  try {
+    const r = await api('/api/setkey', { key: $('keyIn').value, save: $('keySave').checked });
+    $('keyIn').value = ''; S.state = await api('/api/state'); $('keybox').className = '';
+    $('modeBadge').textContent = 'API OpenAI'; $('modeBadge').classList.remove('warn');
+    $('status').textContent = r.saved ? 'Chave aceita e guardada no Keychain.' : 'Chave aceita (só nesta execução).';
+    checkModels();
+  } catch (e) { $('keyErr').textContent = e.message; $('keyErr').style.color = 'var(--bad)'; }
+}
 function setModeHint() {
   $('modeHint').textContent = $('mode').value === 'livre'
     ? 'O seu pedido manda. Nada do cliente (setor, paleta, estilo) entra no briefing.'
@@ -341,6 +412,7 @@ function setModeHint() {
 async function loadMem() {
   try {
     const c = await api('/api/conv', { client: S.clientId, conv: S.conv });
+    if ((c.files || []).length || (c.turns || []).length) { S.selected = new Set((c.files || []).filter((id) => S.assets.some((a) => a.id === id))); saveSel(); drawAssets(); drawChips(); }
     const pins = [...S.selected].map((id) => S.assets.find((a) => a.id === id)).filter(Boolean);
     const parts = [];
     if (pins.length) parts.push(`<div class="it"><b>Imagens fixadas:</b> ${pins.map((a) => esc(a.name + ' (' + a.kind + ')')).join(', ')}</div>`);
@@ -377,7 +449,8 @@ async function poll(jobId, since) {
 
 async function finish(jobId, res) {
   S.live.done = true;
-  if (res.message) { if (!S.history.some((m) => m.job === jobId)) S.history.push({ ...res.message, job: jobId }); S.editOf = null; }
+  if (res.message) { if (!S.history.some((m) => m.job === jobId)) S.history.push({ ...res.message, job: jobId }); S.editOf = null;
+    if (res.message.files) { S.selected = new Set(res.message.files.filter((id) => S.assets.some((a) => a.id === id))); saveSel(); } }
   else S.history.push({ role: 'assistant', kind: 'text', error: true, text: 'Erro: ' + res.error, job: jobId });
   S.live = null; store.del(jobKey()); setBusy(false); $('status').textContent = '';
   saveLog(); drawLog(); drawAssets(); drawChips(); loadMem(); $('text').focus();
@@ -418,12 +491,15 @@ document.addEventListener('click', async (e) => {
   if (t.closest('#lightbox')) { $('lightbox').classList.remove('on'); return; }
   if (t.dataset.zoom) { zoom(t.dataset.zoom); return; }
   if (t.dataset.del) { e.stopPropagation(); await api('/api/asset/delete', { client: S.clientId, id: t.dataset.del });
-    S.assets = S.assets.filter((a) => a.id !== t.dataset.del); S.selected.delete(t.dataset.del); saveSel(); drawAssets(); drawChips(); return; }
+    S.assets = S.assets.filter((a) => a.id !== t.dataset.del); S.selected.delete(t.dataset.del); syncFiles([], [t.dataset.del]); drawAssets(); drawChips(); return; }
   const card = t.closest('.asset');
   if (t.tagName === 'SELECT') return;
-  if (card) { const id = card.dataset.id; S.selected.has(id) ? S.selected.delete(id) : S.selected.add(id); saveSel(); drawAssets(); drawChips(); return; }
-  if (t.dataset.pin) { S.selected.add(t.dataset.pin); saveSel(); drawAssets(); drawChips(); send('pode usar a imagem fixada'); return; }
-  if (t.dataset.unsel) { S.selected.delete(t.dataset.unsel); saveSel(); drawAssets(); drawChips(); }
+  if (card) { const id = card.dataset.id; if (S.selected.has(id)) { S.selected.delete(id); syncFiles([], [id]); } else { S.selected.add(id); syncFiles([id], []); } drawAssets(); drawChips(); return; }
+  if (t.dataset.pin) { S.selected.add(t.dataset.pin); syncFiles([t.dataset.pin]); drawAssets(); drawChips(); send('pode usar a imagem fixada'); return; }
+  if (t.dataset.unsel) { S.selected.delete(t.dataset.unsel); syncFiles([], [t.dataset.unsel]); drawAssets(); drawChips(); }
+  if (t.dataset.web) { const [q, k] = t.dataset.web.split('|'); $('webq').value = q; $('webkind').value = k; webSearch(); return; }
+  if (t.dataset.alias) { const a = S.assets.find((x) => x.id === t.dataset.alias); const v = prompt('Nome desta imagem (ex.: Rodrigo Faro). Se você citar esse nome na conversa, ela é anexada sozinha:', a ? (a.alias || '') : ''); if (v !== null) { try { await api('/api/asset/alias', { client: S.clientId, id: t.dataset.alias, alias: v }); if (a) a.alias = v.trim(); drawAssets(); } catch (err) { $('status').textContent = 'Erro: ' + err.message; } } return; }
+  if (t.dataset.webadd !== undefined) { webAdd(Number(t.dataset.webadd)); return; }
   if (t.dataset.unedit) { S.editOf = null; drawChips(); }
   if (t.dataset.edit) { S.editOf = t.dataset.edit; drawChips(); $('text').focus(); $('text').placeholder = 'O que mudar nesta imagem? (o resto fica igual)'; }
   if (t.dataset.sugg) { $('text').value = t.dataset.sugg; autosize(); $('text').focus(); }
@@ -445,6 +521,11 @@ $('addAsset').onclick = () => $('file').click();
 $('file').onchange = async (e) => { await uploadFiles([...e.target.files], $('kind').value); e.target.value = ''; };
 $('client').onchange = () => loadClient($('client').value);
 $('mode').onchange = setModeHint;
+$('webgo').onclick = webSearch;
+$('webq').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); webSearch(); } });
+$('webadd').onclick = () => { const u = $('weburl').value.trim(); if (u) addWeb({ url: u, name: ($('webq').value.trim() || 'imagem-web'), alias: $('webq').value.trim() }); };
+$('keyBtn').onclick = setKey;
+$('keyIn').addEventListener('keydown', (e) => { if (e.key === 'Enter') setKey(); });
 $('newChat').onclick = () => { S.lastBody = null; S.history = []; S.editOf = null; S.selected = new Set(); saveSel(); S.conv = newConv(S.clientId); saveLog(); drawLog(); drawAssets(); drawChips(); loadMem(); };
 $('saveClient').onclick = async () => {
   try { const c = JSON.parse($('clientJson').value); await api('/api/client/save', { id: S.clientId, client: c }); S.client = c; $('clientName').textContent = c.name || S.clientId; $('status').textContent = 'Dados salvos'; }
