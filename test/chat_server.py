@@ -68,6 +68,8 @@ WEB_ALLOW_LOCAL = os.getenv("WEB_ALLOW_LOCAL") == "1"  # só para testes automá
 GENERIC_ALIAS = {"logo", "foto", "imagem", "image", "img", "screenshot", "captura", "tela", "produto", "pessoa", "referencia", "peca",
                  "copy", "novo", "final", "versao", "whatsapp", "download", "photo", "picture", "untitled"}
 CONV_LOCK = threading.Lock()  # duas tarefas da mesma conversa não podem se sobrescrever
+GENERIC_ERROR = "Não consegui concluir a imagem."
+PF_NAME = "Cliente (pessoa física)"  # nome genérico gravado no lugar do nome de pessoa física (decisão conservadora: o nome nunca vai para a conversa nem para a lista)
 GERAL = "_geral"  # escopo neutro: conversa que ainda não tem cliente (o cliente é detectado pelo texto)
 PROJECT_LOCK = threading.Lock()  # ordem das travas: PROJECT_LOCK antes de CONV_LOCK
 CONV_BUSY = {}  # (cliente, conversa) -> nº de tarefas em andamento; protegido por CONV_LOCK. Excluir uma conversa ocupada seria desfeito pelo record()
@@ -123,6 +125,12 @@ def load_client(cid):
     if not get_store().exists(k):
         raise ui.ApiError(404, f"cliente {cid} não existe")
     return read_json(k)
+
+
+def lib_assets(cid, conv_id=None):
+    """Assets que a conversa pode ver. Na biblioteca neutra (_geral) cada anexo pertence a UMA conversa ('conv'); anexo sem dono fica fora."""
+    assets = load_assets(cid)
+    return [a for a in assets if a.get("conv") == conv_id] if slug(cid) == GERAL and conv_id is not None else assets
 
 
 def load_assets(cid):
@@ -211,6 +219,10 @@ def write_briefing(ctx, text, size, history, inputs, feedback=None, prev=None, m
                    memory="", intent="new", original=None, library=""):
     if MOCK:
         time.sleep(0.5)
+        if os.getenv("CHAT_TEST_LOG_PROMPT") == "1":  # só nos testes: registra o trecho do prompt que carrega o contexto do cliente
+            log_event("prompt_ctx", system=rc.mode_instructions(ctx, mode))
+            if "__boom__" in text:  # só nos testes: força uma exceção interna para provar que o usuário não vê o texto cru
+                raise ValueError("invalid literal for int() with base 10: 'auto'")
         if re.search(r"\bperguntar\b", text):
             return {"question": "(mock) Qual é a oferta da peça?"}
         return {"use_case": "ads-marketing", "role": "cell",
@@ -240,7 +252,7 @@ def write_briefing(ctx, text, size, history, inputs, feedback=None, prev=None, m
 def make_image(prompt, size, quality, inputs, model, fidelity=None, notes=None, mask=None):
     if MOCK:
         time.sleep(0.8)
-        w, h = (int(x) for x in size.split("x"))
+        w, h = (1024, 1024) if size == "auto" else (int(x) for x in size.split("x"))  # "auto": sem alvo com proporção própria, 1024x1024
         hue = random.randint(0, 360)
         svg = (f"<svg xmlns='http://www.w3.org/2000/svg' width='{w}' height='{h}'><rect width='100%' height='100%' "
                f"fill='hsl({hue},55%,52%)'/><text x='50%' y='42%' font-size='{w // 14}' fill='white' text-anchor='middle' font-weight='bold'>"
@@ -307,14 +319,14 @@ def find_out(cid, mid):
     raise ui.ApiError(404, "imagem a editar não encontrada")
 
 
-def collect_inputs(cid, edit_of, asset_ids, scope=None):
+def collect_inputs(cid, edit_of, asset_ids, scope=None, conv_id=None):
     inputs = []
     if edit_of:
         k = find_out(scope or cid, edit_of)
         mime = "image/svg+xml" if k.endswith(".svg") else "image/png"
         inputs.append(dict(kind="alvo", name=posixpath.basename(k), mime=mime, bytes=get_store().read_bytes(k),
                            role_text="ALVO DE EDIÇÃO: peça gerada anteriormente; mude só o que o pedido atual pede e mantenha o resto idêntico"))
-    by_id = {a["id"]: a for a in load_assets(cid)}
+    by_id = {a["id"]: a for a in lib_assets(cid, conv_id)}
     missing = [aid for aid in asset_ids if aid not in by_id]
     if missing:
         raise ui.ApiError(409, f"Uma imagem fixada não existe mais na biblioteca ({', '.join(missing)}). Remova-a da conversa (×) e envie de novo: "
@@ -333,7 +345,7 @@ def collect_inputs(cid, edit_of, asset_ids, scope=None):
 def api_state(_):
     cdir("71")
     clients = []
-    ids = sorted({k.split("/")[1] for k in get_store().list("clients/") if k.count("/") == 2 and k.endswith("/client.json")})
+    ids = sorted({k.split("/")[1] for k in get_store().list("clients/") if k.count("/") == 2 and k.endswith("/client.json")} - {GERAL})
     for i in ids:
         clients.append({"id": i, "name": read_json(f"clients/{i}/client.json").get("name", i)})
     return {"mock": MOCK, "has_key": bool(os.getenv("OPENAI_API_KEY")), "has_claude": shutil.which("claude") is not None,
@@ -343,6 +355,9 @@ def api_state(_):
 
 def api_client(b):
     cid = b["id"]
+    if slug(cid) == GERAL:  # biblioteca neutra das conversas sem cliente: só os assets; não é cliente e nada é criado
+        conv = _strict_id(b["conv"], "conversa") if b.get("conv") is not None else None  # com conv: só os anexos dela; sem: todos (compatibilidade)
+        return {"id": GERAL, "client": None, "assets": with_urls(GERAL, lib_assets(GERAL, conv))}
     if get_store().exists(cdir(cid) + "/client.json"):
         return {"id": slug(cid), "client": load_client(cid), "assets": with_urls(cid, load_assets(cid))}
     info = _lookup_client(_strict_id(cid, "cliente"))  # id que vem do banco: contexto pela lista permitida + biblioteca local do cliente
@@ -350,11 +365,19 @@ def api_client(b):
     return {"id": slug(cid), "client": ctx, "assets": with_urls(cid, load_assets(cid)), "source": info["source"]}
 
 
+def _not_reserved(cid):
+    """Ids que começam com '_' são do sistema (o escopo neutro _geral): nenhum cliente pode usá-los."""
+    if slug(cid).startswith("_"):
+        raise ui.ApiError(400, "id de cliente reservado: não pode começar com '_'")
+    return cid
+
+
 def api_client_new(b):
     name = str(b.get("name", "")).strip()[:80]
     if len(name) < 2:
         raise ui.ApiError(400, "dê um nome ao cliente")
     base = slug(re.sub(r"\s+", "-", skills_router.norm(name))) if re.search(r"[a-z0-9]", skills_router.norm(name)) else "cliente"
+    _not_reserved(base)
     cid, n = base, 2
     while get_store().exists(f"clients/{cid}/client.json"):
         cid, n = f"{base}-{n}", n + 1
@@ -367,6 +390,7 @@ def api_client_new(b):
 
 
 def api_client_save(b):
+    _not_reserved(b["id"])
     d = cdir(b["id"])
     write_json(f"{d}/client.json", b["client"])
     return {"ok": True, "id": slug(b["id"])}
@@ -380,7 +404,14 @@ def api_asset(b):
         raise ui.ApiError(400, "SVG não é aceito pela API de imagem: converta a logo para PNG (fundo transparente) antes de enviar.")
     if b.get("kind") not in KIND_ROLE:
         raise ui.ApiError(400, f"tipo inválido; use um de {list(KIND_ROLE)}")
-    return {"asset": store_asset(cid, b["kind"], b.get("name"), mime, base64.b64decode(b["b64"]), b.get("alias"))}
+    return {"asset": store_asset(cid, b["kind"], b.get("name"), mime, base64.b64decode(b["b64"]), b.get("alias"), _owner(cid, b))}
+
+
+def _owner(cid, b, extra=None):
+    """Na biblioteca neutra o anexo guarda a conversa dona (campo 'conv')."""
+    if slug(cid) == GERAL and b.get("conv") is not None:
+        return {**(extra or {}), "conv": _strict_id(b["conv"], "conversa")}
+    return extra
 
 
 def derive_alias(name):
@@ -403,12 +434,24 @@ def store_asset(cid, kind, name, mime, data, alias=None, extra=None):
     return with_urls(cid, [a])[0]
 
 
-def api_asset_alias(b):
-    cid = b["client"]
+def _find_assets(cid, b):
+    """(todos os assets, os que casam com b['id']). Na biblioteca neutra (_geral) o `conv` é obrigatório e tem que ser o DONO do asset:
+    divergente ou sem dono é 404 e nada é alterado."""
     assets = load_assets(cid)
     hit = [a for a in assets if a["id"] == b["id"]]
+    if slug(cid) == GERAL:
+        if b.get("conv") is None:
+            raise ui.ApiError(400, "informe a conversa (conv) ao mexer na biblioteca neutra")
+        owner = _strict_id(b["conv"], "conversa")
+        hit = [a for a in hit if a.get("conv") == owner]
     if not hit:
         raise ui.ApiError(404, "imagem não encontrada na biblioteca")
+    return assets, hit
+
+
+def api_asset_alias(b):
+    cid = b["client"]
+    assets, hit = _find_assets(cid, b)
     hit[0]["alias"] = re.sub(r"[\x00-\x1f\x7f]", " ", str(b.get("alias", "")))[:60].strip()
     write_json(f"{cdir(cid)}/assets.json", assets)
     return {"ok": True, "alias": hit[0]["alias"]}
@@ -430,7 +473,7 @@ def alias_matches(text, assets):
 
 def resolve_files(cid, conv, b, text):
     """Arquivos da CONVERSA (como no ChatGPT): o que já estava na conversa + o que a tela mandou + o que o texto cita pelo nome."""
-    assets = load_assets(cid)
+    assets = lib_assets(cid, conv["id"])
     by_id = {a["id"]: a for a in assets}
     ids, stale = [], []
     for i in conv.get("files", []):
@@ -448,10 +491,15 @@ def resolve_files(cid, conv, b, text):
 
 def api_conv_files(b):
     """Fixa ou solta imagens na conversa (fica no servidor: recarregar a página não perde)."""
+    scope = _scope_of(b)
     with CONV_LOCK:
-        conv = load_conv(b["client"], b.get("conv") or "x")
+        conv = load_conv(scope, _strict_id(b["conv"], "conversa"))  # id estrito: o slug() sozinho trocaria '../x' por 'x' e criaria outra conversa
         files = [i for i in conv.get("files", []) if i not in set(b.get("drop") or [])]
+        lib = _conv_client_id(conv, scope) or scope
+        mine = {a["id"] for a in lib_assets(lib, conv["id"])}  # na biblioteca neutra só os anexos DESTA conversa
         for i in b.get("add") or []:
+            if lib == GERAL and i not in mine:
+                raise ui.ApiError(409, "esse anexo não pertence a esta conversa")
             if i not in files:
                 files.append(i)
         conv["files"] = files
@@ -461,11 +509,14 @@ def api_conv_files(b):
 
 def api_asset_delete(b):
     cid = b["client"]
-    assets = load_assets(cid)
-    gone = [a for a in assets if a["id"] == b["id"]]
+    if slug(cid) == GERAL:
+        assets, gone = _find_assets(cid, b)
+    else:
+        assets = load_assets(cid)
+        gone = [a for a in assets if a["id"] == b["id"]]
     for a in gone:
         get_store().delete(f"{cdir(cid)}/assets/{a['file']}")
-    write_json(f"{cdir(cid)}/assets.json", [a for a in assets if a["id"] != b["id"]])
+    write_json(f"{cdir(cid)}/assets.json", [a for a in assets if a not in gone])
     return {"ok": True}
 
 
@@ -583,12 +634,18 @@ def _check_url(url):
 def fetch_image(url, limit=15 * 1024 * 1024):
     """Baixa uma imagem com limites: https, fora de rede interna, até 15 MB, só PNG/JPEG/WEBP (confere o conteúdo, não só o cabeçalho)."""
     _check_url(url)
-    req = urllib.request.Request(url, headers={"User-Agent": WEB_UA})
-    try:
-        with urllib.request.build_opener(_SafeRedirect).open(req, timeout=25) as r:
-            data = r.read(limit + 1)
-    except urllib.error.URLError as e:
-        raise ui.ApiError(502, f"Não consegui baixar a imagem: {getattr(e, 'reason', e)}")
+    data = None
+    for ua in (WEB_UA, "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"):
+        req = urllib.request.Request(url, headers={"User-Agent": ua, "Accept": "image/*"})
+        try:
+            with urllib.request.build_opener(_SafeRedirect).open(req, timeout=25) as r:
+                data = r.read(limit + 1)
+            break
+        except urllib.error.HTTPError as e:
+            if e.code not in (400, 403) or ua != WEB_UA:  # alguns sites recusam o agente do protótipo: tenta uma vez como navegador
+                raise ui.ApiError(502, f"Não consegui baixar a imagem: {e}")
+        except urllib.error.URLError as e:
+            raise ui.ApiError(502, f"Não consegui baixar a imagem: {getattr(e, 'reason', e)}")
     if len(data) > limit:
         raise ui.ApiError(400, "imagem maior que 15 MB")
     if data[:8] == b"\x89PNG\r\n\x1a\n":
@@ -629,6 +686,21 @@ def api_websearch(b):
             "aviso": "São candidatos, não confirmações: confira se é a marca ou pessoa certa e a licença. O direito de uso é responsabilidade de quem publica."}
 
 
+def wikipedia_logo_url(brand):
+    """Logo da marca pela imagem principal da página da Wikipédia (pt, depois en): costuma ser o logo no quadro lateral. Só aceita arquivo com 'logo' no nome."""
+    for lang in ("pt", "en"):
+        params = {"action": "query", "format": "json", "generator": "search", "gsrsearch": brand, "gsrlimit": "3",
+                  "prop": "pageimages", "piprop": "thumbnail|name", "pithumbsize": "1024"}
+        req = urllib.request.Request(f"https://{lang}.wikipedia.org/w/api.php?" + urllib.parse.urlencode(params), headers={"User-Agent": WEB_UA})
+        with urllib.request.urlopen(req, timeout=20) as r:
+            pages = sorted(((json.loads(r.read()).get("query") or {}).get("pages", {})).values(), key=lambda p: p.get("index", 99))
+        for p in pages:
+            if "logo" in str(p.get("pageimage", "")).lower() and (p.get("thumbnail") or {}).get("source") and \
+                    skills_router.norm(brand).split()[0] in skills_router.norm(p.get("title", "") + " " + p.get("pageimage", "")):
+                return p["thumbnail"]["source"]
+    return None
+
+
 def api_webadd(b):
     kind = b.get("kind") if b.get("kind") in KIND_ROLE else "referencia"
     data, mime = fetch_image(str(b.get("url", "")))
@@ -637,7 +709,7 @@ def api_webadd(b):
     if not name.lower().endswith("." + ext):
         name = re.sub(r"\.[A-Za-z0-9]{2,4}$", "", name) + "." + ext
     extra = {"origem": "web", "pagina": str(b.get("page") or "")[:300], "licenca": str(b.get("license") or "")[:80]}
-    return {"asset": store_asset(b["client"], kind, name, mime, data, b.get("alias"), extra)}
+    return {"asset": store_asset(b["client"], kind, name, mime, data, b.get("alias"), _owner(b["client"], b, extra))}
 
 
 # ---------- jobs (a geração leva minutos: o navegador acompanha por polling) ----------
@@ -684,9 +756,9 @@ def start_job(fn, meta=None):
                 msg += " | Dica: a OpenAI pode bloquear pedidos com pessoas reais ou conteúdo sensível. Reescreva sem o nome da pessoa ou use outra foto de referência."
             job["status"], job["error"] = "error", msg
             log_event("erro", job=jid, erro=msg)
-        except Exception as e:  # noqa: BLE001
-            job["status"], job["error"] = "error", f"{type(e).__name__}: {e}"
-            log_event("erro", job=jid, erro=job["error"])
+        except Exception as e:  # noqa: BLE001  (erro interno: a tela vê uma frase neutra; o detalhe técnico vai em error_detail e no log)
+            job["status"], job["error"], job["error_detail"] = "error", GENERIC_ERROR, f"{type(e).__name__}: {e}"
+            log_event("erro", job=jid, erro=job["error_detail"])
 
     if JOBS_INLINE:
         save()
@@ -712,7 +784,7 @@ def api_job(b):
         raise ui.ApiError(404, "tarefa não encontrada (o servidor foi reiniciado?)")
     since = int(b.get("since") or 0)
     return {"status": job["status"], "steps": job["steps"][since:], "next": len(job["steps"]),
-            "message": job["message"], "error": job["error"], "elapsed": round(job.get("t1", time.time()) - job["t0"], 1)}
+            "message": job["message"], "error": job["error"], "error_detail": job.get("error_detail"), "elapsed": round(job.get("t1", time.time()) - job["t0"], 1)}
 
 
 def client_providers():
@@ -764,7 +836,7 @@ def _lookup_client(cid):
     for pv in client_providers():
         try:
             ctx = pv.load(cid)
-            return {"id": cid, "name": ctx.get("name") or ctx.get("_display_name") or cid, "source": pv.name, "compra_id": ctx.get("_compra_id") or None, "name_origin": ctx.get("_name_origin"),
+            return {"id": cid, "name": PF_NAME if ctx.get("_pessoa_fisica") is True else (ctx.get("name") or ctx.get("_display_name") or cid), "source": pv.name, "compra_id": ctx.get("_compra_id") or None, "name_origin": ctx.get("_name_origin"),
                     "pessoa_fisica": ctx.get("_pessoa_fisica")}
         except client_provider.NotFound:
             continue
@@ -792,12 +864,13 @@ def sync_banco_logos(cl):
     return warns
 
 
-def migrate_assets(src, dst, ids):
+def migrate_assets(src, dst, ids, conv_id=None):
     """Copia (não move) para a biblioteca do cliente as imagens que a conversa anexou antes de o cliente ser conhecido."""
     if src == dst or not ids:
         return
     have = {a["id"] for a in load_assets(dst)}
-    moved = [a for a in load_assets(src) if a["id"] in ids and a["id"] not in have]
+    moved = [{k: v for k, v in a.items() if k != "conv"}  # na biblioteca do cliente o anexo não tem dono-conversa
+             for a in lib_assets(src, conv_id) if a["id"] in ids and a["id"] not in have]
     for a in moved:
         k = f"{cdir(src)}/assets/{a['file']}"
         if get_store().exists(k):
@@ -850,11 +923,13 @@ def api_chat(b):
             detect["client"]["compra_id"] = cmeta.get("compra_id") or None
             detect["client"]["name_origin"] = cmeta.get("name_origin")
             detect["client"]["pessoa_fisica"] = cmeta.get("pessoa_fisica")
+            if cmeta.get("pessoa_fisica") is True:
+                detect["client"]["name"] = PF_NAME
         if detect and detect["status"] == "match" and scope != cl:
-            migrate_assets(scope, cl, set(conv.get("files", [])) | set(b.get("asset_ids") or []))
+            migrate_assets(scope, cl, set(conv.get("files", [])) | set(b.get("asset_ids") or []), conv["id"])
     lib = cl or scope  # biblioteca de imagens: a do cliente, se já o conhecemos; imagens GERADAS ficam sempre na pasta da conversa
     files, auto, stale = resolve_files(lib, conv, b, text)
-    inputs = collect_inputs(lib, b.get("edit_of"), files, scope)
+    inputs = collect_inputs(lib, b.get("edit_of"), files, scope, conv["id"])
     if not MOCK and not os.getenv("OPENAI_API_KEY") and not shutil.which("claude"):
         raise ui.ApiError(400, "Sem OPENAI_API_KEY e sem o CLI claude: nada a executar.")
     provider_now = "mock" if MOCK else ("openai" if os.getenv("OPENAI_API_KEY") else "claude-cli (SEM chave: nenhuma imagem é gerada)")
@@ -878,7 +953,7 @@ def api_chat(b):
     jid = start_job(task, meta)
     if JOBS_INLINE:  # já terminou: devolve o resultado junto; a interface ainda consulta /api/job e recebe o mesmo estado
         j = api_job({"id": jid})
-        return {"job": jid, "status": j["status"], "message": j["message"], "error": j["error"]}
+        return {"job": jid, "status": j["status"], "message": j["message"], "error": j["error"], "error_detail": j.get("error_detail")}
     return {"job": jid}
 
 
@@ -1096,10 +1171,14 @@ def list_convs(scope=None):
     """Histórico do mais recente ao mais antigo. Sem escopo: todas as conversas de todas as pastas."""
     scope = _strict_id(scope, "escopo") if scope is not None else None
     found, skipped = _scan_convs(scope)
-    pids, names = {p["id"] for p in read_projects()}, {}
+    names, perr = {}, None
+    try:
+        pids = {p["id"] for p in read_projects()}
+    except ui.ApiError as e:  # projects.json ilegível não derruba o histórico: as conversas listam sem projeto e o erro vai junto
+        pids, perr = set(), str(e)
     convs = [_conv_item(sc, cid, c, m, pids, names) for sc, cid, c, m in found if c["turns"]]  # conversa sem mensagens não entra
     convs.sort(key=lambda x: x.pop("_m"), reverse=True)
-    return {"convs": convs, "skipped": skipped}
+    return {"convs": convs, "skipped": skipped, **({"projects_error": perr} if perr else {})}
 
 
 def _existing_conv_path(b):
@@ -1175,7 +1254,7 @@ def api_conv_client(b):
         return {"ok": True, "client": out, "pending": True}
     c = _edit_conv(b, lambda c: (c.update(client=info["id"], client_name=info["name"], client_source=info["source"], client_locked=True),
                                  c.update(compra_id=info["compra_id"]) if info["compra_id"] else c.pop("compra_id", None)))
-    migrate_assets(scope, info["id"], set(c.get("files", [])))
+    migrate_assets(scope, info["id"], set(c.get("files", [])), cid)
     resp = {"ok": True, "client": out}
     if info["source"] == "banco":
         warns = sync_banco_logos(info["id"])
@@ -1276,11 +1355,12 @@ def api_project_delete(b):
 
 def api_conv_move(b):
     pid = b.get("project")
-    if pid is not None:
-        pid = _strict_id(pid, "projeto")
-        if not any(p["id"] == pid for p in read_projects()):
-            raise ui.ApiError(404, "projeto não encontrado")
-    _edit_conv(b, lambda c: c.update(project=pid) if pid else c.pop("project", None))
+    with PROJECT_LOCK:  # valida e grava na mesma trava: excluir o projeto no meio não deixa a conversa apontando para ele
+        if pid is not None:
+            pid = _strict_id(pid, "projeto")
+            if not any(p["id"] == pid for p in read_projects()):
+                raise ui.ApiError(404, "projeto não encontrado")
+        _edit_conv(b, lambda c: c.update(project=pid) if pid else c.pop("project", None))
     return {"ok": True}
 
 
@@ -1288,10 +1368,7 @@ def api_asset_kind(b):
     cid = b["client"]
     if b.get("kind") not in KIND_ROLE:
         raise ui.ApiError(400, f"tipo inválido; use um de {list(KIND_ROLE)}")
-    assets = load_assets(cid)
-    hit = [a for a in assets if a["id"] == b["id"]]
-    if not hit:
-        raise ui.ApiError(404, "imagem não encontrada na biblioteca")
+    assets, hit = _find_assets(cid, b)
     hit[0]["kind"] = b["kind"]
     write_json(f"{cdir(cid)}/assets.json", assets)
     return {"ok": True}
@@ -1408,7 +1485,7 @@ def run_chat(b, emit, cid, text, ctx, inputs, files=None, auto=None, stale=None,
             region = None
             avisos.append(f"Não consegui limitar a edição a uma região ({type(e).__name__}: {str(e)[:90]}); editei a imagem inteira.")
     pinned_ids = {x.get("id") for x in inputs}
-    suggest = [{"id": a["id"], "name": a["name"], "kind": a["kind"]} for a in load_assets(cid) if a["kind"] in IDENTITY_KINDS and a["id"] not in pinned_ids]
+    suggest = [{"id": a["id"], "name": a["name"], "kind": a["kind"]} for a in lib_assets(cid, conv["id"]) if a["kind"] in IDENTITY_KINDS and a["id"] not in pinned_ids]
     library = ", ".join(f"{s['name']} ({s['kind']})" for s in suggest)
     # pesquisa na web (como o ChatGPT faz antes de desenhar): só com marca real e fatos que não se inventam
     brand_brief, rq, no_logo = conv.get("brand_brief"), resolved.get("research"), None
@@ -1428,13 +1505,15 @@ def run_chat(b, emit, cid, text, ctx, inputs, files=None, auto=None, stale=None,
             if brand and not any(x["kind"] == "logo" for x in inputs):
                 got, why = None, []
                 cands = [("site da marca", brief_r.get("logo_url"))]
-                for label, lu in cands + [("página oficial", "PAGE"), ("Wikimedia Commons", "COMMONS")]:
+                for label, lu in cands + [("página oficial", "PAGE"), ("Wikimedia Commons", "COMMONS"), ("Wikipédia", "WIKI")]:
                     try:
                         if lu == "PAGE":
                             lu = brief_r.get("site_oficial") and research.find_logo_url(fetch_text(brief_r["site_oficial"]), brief_r["site_oficial"])
                         elif lu == "COMMONS":
                             res = api_websearch({"q": f"logo {brand}"})["results"]
                             lu = next((r["url"] for r in res if r.get("mime") != "image/svg+xml" and "logo" in r["title"].lower()), None)
+                        elif lu == "WIKI":
+                            lu = wikipedia_logo_url(brand)
                         if not lu:
                             continue
                         data, mime = fetch_image(lu)
@@ -1445,7 +1524,7 @@ def run_chat(b, emit, cid, text, ctx, inputs, files=None, auto=None, stale=None,
                 if got:
                     data, mime, label, lu = got
                     asset = store_asset(cid, "logo", f"logo {brand}.{MIME_EXT[mime]}", mime, data, brand,
-                                        {"origem": "web", "pagina": str(lu)[:300], "licenca": "da pesquisa na web; confirmar o direito de uso"})
+                                        _owner(cid, {"conv": conv["id"]}, {"origem": "web", "pagina": str(lu)[:300], "licenca": "da pesquisa na web; confirmar o direito de uso"}))
                     files.append(asset["id"])
                     inputs.append(dict(id=asset["id"], kind="logo", name=asset["name"], mime=mime, bytes=data,
                                        role_text=f"{KIND_ROLE['logo']} (arquivo: {asset['name']}; baixado de: {label})"))
@@ -1457,7 +1536,7 @@ def run_chat(b, emit, cid, text, ctx, inputs, files=None, auto=None, stale=None,
         except Exception as e:  # noqa: BLE001
             brand_brief = conv.get("brand_brief")
             avisos.append(f"A pesquisa na web não funcionou ({type(e).__name__}: {str(e)[:100]}); segui SEM fatos pesquisados e sem inventar slogan, oferta ou condição.")
-    lib = {a["id"]: a for a in load_assets(cid)}
+    lib = {a["id"]: a for a in lib_assets(cid, conv["id"])}
     files_desc = ", ".join(f"{lib[i]['name']} ({lib[i]['kind']}" + (f"; apelido: {lib[i]['alias']}" if lib[i].get("alias") else "") + ")" for i in files if i in lib)
     memory = memory_text(conv, files_desc)
     if no_logo:
@@ -1704,7 +1783,8 @@ class H(BaseHTTPRequestHandler):
         except KeyError as e:
             self._send(400, {"error": f"campo ausente: {e}"})
         except Exception as e:  # noqa: BLE001
-            self._send(500, {"error": f"{type(e).__name__}: {e}"})
+            log_event("erro", rota=self.path, erro=f"{type(e).__name__}: {e}")
+            self._send(500, {"error": "Erro interno do servidor.", "error_detail": f"{type(e).__name__}: {e}"})
 
     def log_message(self, fmt, *args):
         sys.stderr.write("  %s\n" % (fmt % args))
