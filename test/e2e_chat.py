@@ -48,7 +48,8 @@ else:
     from http.server import ThreadingHTTPServer
     S = cs0.get_store()
     assert S.name == "memory"
-    srv0 = ThreadingHTTPServer(("127.0.0.1", CHAT), cs0.H)
+    srv0 = ThreadingHTTPServer(("127.0.0.1", 0), cs0.H)  # porta 0: o SO escolhe no bind (free_port() + import lento de chat_server era uma corrida entre sessões)
+    CHAT = srv0.server_address[1]
     threading.Thread(target=srv0.serve_forever, daemon=True).start()
 try:
     for _ in range(50):  # a OpenAI falsa precisa estar de pé antes da primeira chamada (o servidor em memória sobe na hora)
