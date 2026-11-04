@@ -2,3 +2,5 @@
 __pycache__/
 test/out/
 .DS_Store
+
+.venv/

@@ -24,37 +24,20 @@ import argparse, base64, csv, json, os, pathlib, random, sys, time
 
 ROOT = pathlib.Path(__file__).resolve().parent
 SYSTEM_PROMPT_PATH = ROOT.parent / "prompts" / "designer-imagegen.system.md"
-MAX_CYCLES = 2
-PASS_SCORE = 8.0
+sys.path.insert(0, str(ROOT))
+import critic  # rubrica, limiar e prompt do critic: prompts/rubric.json e prompts/critic.system.md
+from critic import MAX_CYCLES, PASS_SCORE, WEIGHTS, decide, weighted
 
-RUBRIC = """Avalie a imagem contra o briefing e a marca. Responda SOMENTE JSON:
-{"scores":{"subject":0-10,"style":0-10,"composition":0-10,"color_contrast":0-10,"text":0-10,"defects":0-10,"format":0-10,"binding_count":0-10},
- "veto":[subset de: logo_inventado, watermark, texto_indevido, pessoa_real_sem_referencia, dado_inventado],
- "issues":[problemas objetivos],
- "fix":"UMA mudança curta para o próximo prompt"}
-binding_count = cada cor/objeto/propriedade ligado ao elemento certo, contagens corretas, negações respeitadas.
-Se não houver texto pedido, text=10 desde que não exista texto indevido. Confira o texto letra por letra.
-Seja rigoroso: aspecto lavado, baixo contraste ou foco difuso derrubam color_contrast."""
 
-WEIGHTS = {"subject": 2, "style": 1, "composition": 1, "color_contrast": 2, "text": 2,
-           "defects": 1, "format": 0.5, "binding_count": 1}
+PROFILE_PATH = ROOT.parent / "prompts" / "profiles" / os.environ.get("IMAGE_PROFILE", "openai-gpt-image-2.5.md")
 
 
 def load_system_prompt(client_ctx, agency="Aurea Tech"):
     txt = SYSTEM_PROMPT_PATH.read_text(encoding="utf-8")
+    profile = PROFILE_PATH.read_text(encoding="utf-8")
     return (txt.replace("{{client_context_json}}", json.dumps(client_ctx, ensure_ascii=False, indent=2))
-               .replace("{{agency_name}}", agency))
-
-
-def weighted(scores):
-    tot = sum(WEIGHTS.values())
-    return round(sum(float(scores.get(k, 0)) * w for k, w in WEIGHTS.items()) / tot, 2)
-
-
-def decide(review):
-    """Aprova com nota >= PASS_SCORE e sem veto."""
-    s = weighted(review.get("scores", {}))
-    return s, (s >= PASS_SCORE and not review.get("veto"))
+               .replace("{{agency_name}}", agency)
+               .replace("{{image_tool_profile}}", profile))
 
 
 def naive_prompt(client_ctx, request):
@@ -67,14 +50,9 @@ def save_png(b64, path):
 
 
 def self_test():
-    ok = {"scores": {k: 9 for k in WEIGHTS}, "veto": []}
-    assert decide(ok) == (9.0, True)
-    assert decide({"scores": {k: 10 for k in WEIGHTS}, "veto": ["watermark"]})[1] is False
-    assert decide({"scores": {k: 5 for k in WEIGHTS}, "veto": []})[1] is False
-    assert decide({"scores": {k: 8 for k in WEIGHTS}, "veto": []})[1] is True
-    assert decide({"scores": {}, "veto": []})[0] == 0.0
+    critic.self_test()
     sp = load_system_prompt({"name": "x"})
-    assert "{{client_context_json}}" not in sp and "{{agency_name}}" not in sp, "variável sem preencher"
+    assert all(v not in sp for v in ("{{client_context_json}}", "{{agency_name}}", "{{image_tool_profile}}")), "variável sem preencher"
 
 
 def run_case(client, case, client_ctx, out, args):
@@ -85,6 +63,7 @@ def run_case(client, case, client_ctx, out, args):
     quality = os.getenv("IMAGE_QUALITY", "medium")
     request = case["request"]
     system = load_system_prompt(client_ctx)
+    arms = getattr(args, "arms", "ABC") if args else "ABC"
     res = {"case": case["id"], "request": request, "size": size, "image_model": image_model, "arms": {}}
 
     def gen(prompt):
@@ -92,81 +71,106 @@ def run_case(client, case, client_ctx, out, args):
         r = client.images.generate(model=image_model, prompt=prompt, size=size, quality=quality, n=1)
         return r.data[0].b64_json, round(time.time() - t0, 1)
 
+    vlm = critic.openai_vlm(client, os.getenv("CRITIC_MODEL", text_model))  # trocar de backend = outro adaptador
+
     def review(b64, briefing):
-        r = client.chat.completions.create(model=text_model, response_format={"type": "json_object"}, messages=[
-            {"role": "system", "content": RUBRIC},
-            {"role": "user", "content": [
-                {"type": "text", "text": f"Briefing:\n{briefing}\n\nMarca:\n{json.dumps(client_ctx, ensure_ascii=False)}\n\nCaso: {request}"},
-                {"type": "image_url", "image_url": {"url": "data:image/png;base64," + b64}}]}])
-        return json.loads(r.choices[0].message.content)
+        return critic.review(vlm, briefing, client_ctx, request, [("Imagem avaliada", b64)])
 
-    # ---- A: crua
     pa = naive_prompt(client_ctx, request)
-    b64, secs = gen(pa)
-    rv = review(b64, pa)
-    save_png(b64, out / f"case{case['id']}_A.png")
-    res["arms"]["A"] = {"prompt": pa, "seconds": secs, "score": decide(rv)[0], "veto": rv.get("veto"), "review": rv}
 
-    # ---- B: harness
-    def write_briefing(feedback=None, prev=None):
-        user = f"Pedido: {request}\n"
-        if feedback:
-            user += f"\nA versão anterior foi reprovada. Prompt anterior:\n{prev}\n\nCorrija APENAS isto: {feedback}\nRepita as invariantes."
-        user += '\n\nResponda SOMENTE JSON: {"use_case":"...","role":"hero|cell","prompt":"<prompt final em inglês no schema>"}'
-        r = client.chat.completions.create(model=text_model, messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
-                                           response_format={"type": "json_object"})
-        return json.loads(r.choices[0].message.content)
+    def arm_raw():  # A: Image API crua
+        b64, secs = gen(pa)
+        rv = review(b64, pa)
+        save_png(b64, out / f"case{case['id']}_A.png")
+        return {"prompt": pa, "seconds": secs, "generations": 1, "score": decide(rv)[0], "veto": rv.get("veto"), "review": rv}
 
-    brief = write_briefing()
-    cycles, best, total_secs = [], None, 0.0
-    for cycle in range(MAX_CYCLES + 1):
-        b64, secs = gen(brief["prompt"])
-        total_secs += secs
-        rv = review(b64, brief["prompt"])
-        s, ok = decide(rv)
-        cycles.append({"cycle": cycle, "prompt": brief["prompt"], "score": s, "approved": ok, "seconds": secs, "review": rv})
-        if best is None or s > best[0]:
-            best = (s, b64, rv)
-        if ok or cycle == MAX_CYCLES:
-            break
-        brief = write_briefing(rv.get("fix"), brief["prompt"])
-    save_png(best[1], out / f"case{case['id']}_B.png")
-    res["arms"]["B"] = {"cycles": cycles, "generations": len(cycles), "seconds": round(total_secs, 1),
-                        "score": best[0], "veto": best[2].get("veto"), "review": best[2]}
+    def arm_harness(tag, color_names=False):  # B: harness; N: igual, com cores por nome em vez de hex
+        extra = ("\nNo prompt final descreva as cores pelo NOME (ex.: deep navy blue, warm amber, cream), "
+                 "sem códigos hex.") if color_names else ""
 
-    # ---- C: Responses API (reescrita nativa da OpenAI)
-    t0 = time.time()
-    r = client.responses.create(model=resp_model, input=pa, tools=[{
-        "type": "image_generation", "model": image_model, "quality": quality, "size": size, "action": "generate"}])
-    calls = [o for o in r.output if o.type == "image_generation_call"]
-    if calls:
+        def write_briefing(feedback=None, prev=None):
+            user = f"Pedido: {request}\n{extra}"
+            if feedback:
+                user += f"\nA versão anterior foi reprovada. Prompt anterior:\n{prev}\n\nCorrija APENAS isto: {feedback}\nRepita as invariantes."
+            user += '\n\nResponda SOMENTE JSON: {"use_case":"...","role":"hero|cell","prompt":"<prompt final em inglês no schema>"}'
+            r = client.chat.completions.create(model=text_model, messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
+                                               response_format={"type": "json_object"})
+            return json.loads(r.choices[0].message.content)
+
+        brief = write_briefing()
+        cycles, best, total_secs = [], None, 0.0
+        for cycle in range(MAX_CYCLES + 1):
+            b64, secs = gen(brief["prompt"])
+            total_secs += secs
+            rv = review(b64, brief["prompt"])
+            s, ok = decide(rv)
+            cycles.append({"cycle": cycle, "prompt": brief["prompt"], "score": s, "approved": ok, "seconds": secs, "review": rv})
+            if best is None or s > best[0]:
+                best = (s, b64, rv)
+            if ok or cycle == MAX_CYCLES:
+                break
+            brief = write_briefing(rv.get("fix"), brief["prompt"])
+        save_png(best[1], out / f"case{case['id']}_{tag}.png")
+        return {"cycles": cycles, "generations": len(cycles), "seconds": round(total_secs, 1),
+                "score": best[0], "veto": best[2].get("veto"), "review": best[2]}
+
+    def arm_native():  # C: Responses API (reescrita nativa da OpenAI)
+        t0 = time.time()
+        r = client.responses.create(model=resp_model, input=pa, tools=[{
+            "type": "image_generation", "model": image_model, "quality": quality, "size": size, "action": "generate"}])
+        calls = [o for o in r.output if o.type == "image_generation_call"]
+        if not calls:
+            return {"error": "sem image_generation_call", "text": getattr(r, "output_text", "")}
         b64 = calls[0].result
         rv = review(b64, pa)
         save_png(b64, out / f"case{case['id']}_C.png")
-        res["arms"]["C"] = {"prompt": pa, "revised_prompt": getattr(calls[0], "revised_prompt", None),
-                            "seconds": round(time.time() - t0, 1), "score": decide(rv)[0], "veto": rv.get("veto"), "review": rv}
-    else:
-        res["arms"]["C"] = {"error": "sem image_generation_call", "text": getattr(r, "output_text", "")}
+        return {"prompt": pa, "revised_prompt": getattr(calls[0], "revised_prompt", None), "generations": 1,
+                "seconds": round(time.time() - t0, 1), "score": decide(rv)[0], "veto": rv.get("veto"), "review": rv}
+
+    runners = {"A": arm_raw, "B": lambda: arm_harness("B"), "N": lambda: arm_harness("N", True), "C": arm_native}
+    for tag in arms:
+        try:  # um braço que falha não derruba os outros nem apaga o que já foi gerado
+            res["arms"][tag] = runners[tag]()
+        except Exception as e:
+            res["arms"][tag] = {"error": f"{type(e).__name__}: {e}"}
+            print(f"  braço {tag} do caso {case['id']} falhou: {type(e).__name__}: {e}")
     return res
 
 
 def write_report(out, results):
+    """report.html (com os braços, para você) e blind/ (sem os braços, para a avaliação humana cega)."""
+    import shutil
     rows = []
     for r in results:
         arms = r["arms"]
         figs = "".join(f"<figure><img src='case{r['case']}_{k}.png' width=300><figcaption>{k} nota {arms[k].get('score')} "
-                       f"({arms[k].get('seconds')}s)</figcaption></figure>" for k in "ABC" if k in arms and "score" in arms[k])
+                       f"({arms[k].get('seconds')}s, {arms[k].get('generations')} ger.)</figcaption></figure>"
+                       for k in "ABNC" if k in arms and "score" in arms[k])
         rows.append(f"<h3>Caso {r['case']}: {r['request']}</h3><div style='display:flex;gap:12px'>{figs}</div>")
-    (out / "report.html").write_text("<meta charset=utf-8><h1>A vs B vs C</h1>" + "".join(rows) +
-                                     "<pre>" + json.dumps(results, ensure_ascii=False, indent=2) + "</pre>", encoding="utf-8")
-    # planilha para avaliação humana cega (ordem embaralhada, sem revelar o braço)
-    with open(out / "ratings.csv", "w", newline="", encoding="utf-8") as f:
+    (out / "report.html").write_text("<meta charset=utf-8><h1>Relatório (identifica os braços; não use para a avaliação cega)</h1>"
+                                     + "".join(rows) + "<pre>" + json.dumps(results, ensure_ascii=False, indent=2) + "</pre>",
+                                     encoding="utf-8")
+    blind = out / "blind"
+    blind.mkdir(exist_ok=True)
+    items = [(r["case"], k) for r in results for k in "ABNC" if k in r["arms"] and "score" in r["arms"][k]]
+    random.shuffle(items)
+    key, figs = {}, []
+    for i, (case_id, arm) in enumerate(items, 1):
+        name = f"img{i:03d}.png"
+        shutil.copy(out / f"case{case_id}_{arm}.png", blind / name)
+        key[name] = {"case": case_id, "arm": arm}
+        figs.append(f"<figure><img src='{name}' width=420><figcaption>{name}</figcaption></figure>")
+    (blind / "key.json").write_text(json.dumps(key, indent=2), encoding="utf-8")  # não abra antes de avaliar
+    pedidos = {r["case"]: r["request"] for r in results}
+    (blind / "avaliar.html").write_text("<meta charset=utf-8><h1>Avaliação cega</h1><p>Preencha ratings.csv. Não abra key.json.</p>"
+                                        "<div style='display:flex;flex-wrap:wrap;gap:12px'>" + "".join(figs) + "</div>"
+                                        + "<h3>Pedidos</h3><ul>" + "".join(f"<li>Caso {c}: {t}</li>" for c, t in pedidos.items()) + "</ul>",
+                                        encoding="utf-8")
+    with open(blind / "ratings.csv", "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
-        w.writerow(["arquivo", "nota_humana_0_10", "aprovaria_para_cliente_sim_nao", "comentario"])
-        files = [f"case{r['case']}_{k}.png" for r in results for k in "ABC" if k in r["arms"] and "score" in r["arms"][k]]
-        random.shuffle(files)
-        for name in files:
-            w.writerow([name, "", "", ""])
+        w.writerow(["arquivo", "caso", "nota_humana_0_10", "aprovaria_para_cliente_sim_nao", "comentario"])
+        for name in sorted(key):
+            w.writerow([name, key[name]["case"], "", "", ""])
 
 
 def main():
@@ -177,6 +181,7 @@ def main():
     ap.add_argument("--all", action="store_true")
     ap.add_argument("--repeats", type=int, default=1, help="repetições por caso (mede consistência)")
     ap.add_argument("--out", default=str(ROOT / "out"))
+    ap.add_argument("--arms", default="ABC", help="braços a rodar: A crua, B harness, N harness com cores por nome, C nativo (ex.: AB, ABNC)")
     ap.add_argument("--dry-run", action="store_true")
     a = ap.parse_args()
 

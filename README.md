@@ -10,7 +10,11 @@ Objetivo: levar a geração de imagem dos nossos agentes designer à qualidade d
 | `docs/04-comparativo-fornecedores.md` | OpenAI, Meta, Google, xAI, Mistral, Anthropic: o que absorver e o que não copiar; rubrica de revisão |
 | `docs/05-evidencias-docs-artigos-comunidade.md` | **Documentação oficial, artigos, pesquisa e relatos de quem usa**, com nível de confiança e decisões |
 | `docs/06-rastreabilidade.md` | **Cada ponto analisado × onde foi aplicado (aplicado / parcial / fora / pendente)** |
-| `prompts/designer-imagegen.system.md` | **System prompt consolidado (v0.3) para revisão** |
+| `docs/07-filtro-por-arquivo.md` | **O que saiu de cada arquivo do repositório vazado, onde entrou e o que foi descartado** |
+| `prompts/designer-imagegen.system.md` | **System prompt consolidado (v0.4) para revisão**, independente de fornecedor de imagem |
+| `prompts/critic.system.md`, `prompts/rubric.json` | **Critic nosso** (prompt do revisor) e fonte única da rubrica, pesos, vetos e nota mínima |
+| `test/critic.py`, `test/calibration/` | Código do critic e calibração contra avaliação humana (`python critic.py --calibrate`) |
+| `prompts/profiles/` | Perfil da ferramenta de imagem (modelos, tamanhos, erros): `openai-gpt-image-2.5.md` e `_template.md` para outras ferramentas |
 | `skills/designer-imagegen/SKILL.md`, `agents/designer.md` | Skill e agente |
 | `test/` | Teste A/B/C com 6 casos e planilha de avaliação humana cega |
 

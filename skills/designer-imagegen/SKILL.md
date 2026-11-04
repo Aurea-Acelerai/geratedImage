@@ -5,7 +5,7 @@ description: Gerar ou editar peças visuais de qualidade profissional para clien
 
 # Designer Imagegen
 
-Fonte única das regras: `prompts/designer-imagegen.system.md` (v0.3). Esta skill é o roteiro operacional; a rastreabilidade de cada regra está em `docs/06-rastreabilidade.md`.
+Fonte única das regras: `prompts/designer-imagegen.system.md` (v0.4). Esta skill é o roteiro operacional; a rastreabilidade de cada regra está em `docs/06-rastreabilidade.md`.
 
 ## Fluxo
 
@@ -18,13 +18,13 @@ Fonte única das regras: `prompts/designer-imagegen.system.md` (v0.3). Esta skil
    - entidade real → imagem oficial ou busca;
    - edição de peça aprovada → máscara + composição por código.
 3. **Briefing:** prompt em inglês, autocontido, no schema rotulado, com o guia do `use_case` e o vocabulário de direção de arte. Pedido detalhado: normalizar. Genérico: acrescentar só o que melhora, usando o contexto do cliente.
-4. **Parâmetros:** flare para rascunho, sunburst para final; `quality` low→medium/high; size do contêiner; `n=1` (3 se pedirem opções); transparente só para recorte.
+4. **Parâmetros:** use o perfil da ferramenta de imagem (`prompts/profiles/`): modelo ou nível barato para rascunho e o melhor para o final; tamanho do contêiner; `n=1` (3 se pedirem opções); transparente só para recorte e se a ferramenta suportar.
 5. **Gerar** uma peça por chamada, de forma assíncrona. Série: referências + nome por elemento + prefixo de consistência.
 6. **Compor por código** o texto exato, o logo e os dados sobre a arte sem texto (ou usar underdrawing quando o texto precisa ficar integrado).
 7. **Revisar** com a rubrica (nota ≥ 8, sem veto), conferindo texto letra por letra; uma correção por ciclo, máximo 2.
-8. **Entregar:** salvar sem sobrescrever (`-v2`), registrar no banco (prompt, parâmetros, nota, tentativas, `revised_prompt` se houver), resposta de até duas frases.
+8. **Entregar:** salvar sem sobrescrever (`-v2`), registrar no banco (prompt, parâmetros, nota, tentativas, prompt revisado pela ferramenta, se houver), resposta de até duas frases.
 
-## Rubrica do critic (doc 04, v2)
-Assunto 2 · estilo 1 · composição 1 · cor/contraste/foco 2 · texto 2 · defeitos 1 · formato 0,5 · invariantes/série 0,5 · **vinculação de atributos, contagem e negações 1** · veto: logo inventado, watermark, texto indevido, pessoa real sem referência, dado inventado.
+## Critic
+Critérios, pesos, vetos e nota mínima: `prompts/rubric.json` (fonte única). Prompt do revisor: `prompts/critic.system.md`. O critic roda em chamada separada e não vê o raciocínio do designer.
 
-Saída do critic: JSON `{ "scores": {...}, "veto": [...], "issues": [...], "fix": "uma instrução curta" }`.
+Saída do critic: JSON `{ "issues": [...], "scores": {...}, "veto": [...], "fix": "uma instrução curta" }`.

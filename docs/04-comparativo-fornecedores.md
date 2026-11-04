@@ -109,6 +109,8 @@ Consolidados das fontes (OpenAI validação + Meta anti-lavado + Google consist�
 | 9 | Vinculação de atributos (cor/objeto ligado ao elemento certo), contagem e negações respeitadas | PromptEnhancer (docs/05) | 1 |
 | 10 | Itens proibidos ausentes (logo inventado, watermark, texto indevido, pessoa real sem referência, dado inventado) | OpenAI/Meta | veto |
 
-*Rubrica v2: acrescentou o item 9 (docs/05, seção 6) e ampliou os vetos. Pesos usados no código: ver `test/run_comparison.py`.*
+*Rubrica v2: acrescentou o item 9 (docs/05, seção 6) e ampliou os vetos.*
+
+**Fonte única:** critérios, pesos, vetos, nota mínima e número de ciclos ficam em `prompts/rubric.json`. A tabela acima é a explicação; se divergir, vale o JSON. O critic tem prompt próprio (`prompts/critic.system.md`), roda separado do designer e é calibrado contra avaliação humana (`test/calibration/README.md`). Critérios que não se aplicam (texto não pedido, peça que não é edição nem série) saem do cálculo com `null`.
 
 Nota final = soma ponderada normalizada para 0–10. Aprovar com ≥ 8 e sem veto. Reprovou → feedback focado **em uma mudança por vez** (OpenAI) e regerar (máx. 2 ciclos).

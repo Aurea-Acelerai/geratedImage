@@ -75,7 +75,9 @@ Importante: "aplicado" significa escrito nos documentos. **Nada foi validado com
 | | Cache de prompt | — | **Pendente** (implementação) |
 | | Traces e avaliações desde o início | Arquitetura "Observabilidade" | Aplicado (desenho); implementação pendente |
 | PromptEnhancer | Taxonomia de falhas (vinculação, negação, contagem) | Rubrica v2 (doc 04, prompt §6, teste) | Aplicado |
-| Pesquisa VLM-as-judge | Generate–critique–refine | Etapa 5 (critic) | Aplicado; **eficácia a medir** (critic pode ser leniente) |
+| Pesquisa VLM-as-judge | Generate–critique–refine | Etapa 5 (critic): `prompts/critic.system.md`, `prompts/rubric.json`, `test/critic.py` | Aplicado; **eficácia a medir** (critic pode ser leniente) |
+| | Critic independente do designer; evidência antes da nota; em dúvida a nota menor; falha explícita se o JSON for inválido | `prompts/critic.system.md`, `test/critic.py` | Aplicado (v0.1, sem calibração) |
+| | Calibrar contra avaliação humana e escolher o limiar pela falsa aprovação | `test/critic.py --calibrate`, `test/calibration/` | Aplicado (código); **pendente:** exemplos reais do CEO |
 
 ## 3. O que continua sem prova
 1. Qual parte da diferença chat × API vem do harness e qual vem do serving do app: o teste A/B/C mede isso indiretamente.
