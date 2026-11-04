@@ -1,0 +1,12 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/api/index" }
+  ],
+  "functions": {
+    "api/index.py": {
+      "maxDuration": 300,
+      "includeFiles": "{prompts/**,skills/**,docs/08-fundamentos-design.md,test/**/*.py,test/client_71.json,test/chat/**}"
+    }
+  }
+}

@@ -6,10 +6,23 @@
 Sobe a OpenAI falsa e o chat em portas livres, com uma pasta de dados TEMPORÁRIA (CHAT_DATA_DIR): nunca toca em
 test/clients nem test/chat_out, que guardam o seu uso real. Prova que o nosso código monta as requisições, trata as
 respostas e respeita modos e melhorias; não valida a semântica da API real.
+
+Variantes (a mesma bateria inteira):
+  python3 e2e_chat.py                          disco (FileStore), tarefas em thread: o comportamento local de sempre
+  E2E_INLINE=1 python3 e2e_chat.py             idem, mas com JOBS_INLINE=1 (o pipeline roda dentro da requisição; estado no Store)
+  E2E_STORE=memory python3 e2e_chat.py         servidor NO MESMO PROCESSO com STORE=memory: prova que nenhum ponto de chamada
+                                               toca o disco (a pasta temporária de dados fica vazia)
+  E2E_STORE=memory E2E_INLINE=1 ...            as duas coisas juntas (é o que a Vercel faz)
+O teste lê e grava o estado só pela interface Store (S), nunca por caminhos de disco, para valer nas quatro variantes.
 """
-import base64, json, os, pathlib, socket, struct, subprocess, sys, tempfile, time, urllib.error, urllib.request, zlib
+import base64, json, os, pathlib, socket, struct, subprocess, sys, tempfile, threading, time, urllib.error, urllib.request, zlib
 
 ROOT = pathlib.Path(__file__).resolve().parent
+sys.path.insert(0, str(ROOT))
+import store as store_mod  # noqa: E402
+STORE_MODE = os.getenv("E2E_STORE", "file")
+INLINE = os.getenv("E2E_INLINE") == "1"
+assert STORE_MODE in ("file", "memory"), "E2E_STORE deve ser file ou memory"
 
 
 def free_port():
@@ -20,11 +33,30 @@ def free_port():
 
 FAKE, CHAT = free_port(), free_port()
 tmp = tempfile.TemporaryDirectory()
-procs = [subprocess.Popen([sys.executable, str(ROOT / "fake_openai.py"), "--port", str(FAKE)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL),
-         subprocess.Popen([sys.executable, str(ROOT / "chat_server.py"), "--port", str(CHAT)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                          env={**os.environ, "CHAT_DATA_DIR": tmp.name, "OPENAI_API_KEY": "fake", "OPENAI_BASE_URL": f"http://127.0.0.1:{FAKE}/v1",
-                               "COMMONS_API": f"http://127.0.0.1:{FAKE}/w/api.php", "WEB_ALLOW_LOCAL": "1"})]
+SRV_ENV = {"CHAT_DATA_DIR": tmp.name, "OPENAI_API_KEY": "fake", "OPENAI_BASE_URL": f"http://127.0.0.1:{FAKE}/v1",
+           "COMMONS_API": f"http://127.0.0.1:{FAKE}/w/api.php", "WEB_ALLOW_LOCAL": "1"}
+if INLINE:
+    SRV_ENV["JOBS_INLINE"] = "1"
+procs = [subprocess.Popen([sys.executable, str(ROOT / "fake_openai.py"), "--port", str(FAKE)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)]
+if STORE_MODE == "file":
+    S = store_mod.FileStore(tmp.name)  # o servidor (processo filho) grava aqui; o teste lê pelo mesmo contrato
+    procs.append(subprocess.Popen([sys.executable, str(ROOT / "chat_server.py"), "--port", str(CHAT)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                  env={**os.environ, **SRV_ENV}))
+else:
+    os.environ.update({**SRV_ENV, "STORE": "memory"})
+    import chat_server as cs0  # noqa: E402
+    from http.server import ThreadingHTTPServer
+    S = cs0.get_store()
+    assert S.name == "memory"
+    srv0 = ThreadingHTTPServer(("127.0.0.1", CHAT), cs0.H)
+    threading.Thread(target=srv0.serve_forever, daemon=True).start()
 try:
+    for _ in range(50):  # a OpenAI falsa precisa estar de pé antes da primeira chamada (o servidor em memória sobe na hora)
+        try:
+            urllib.request.urlopen(f"http://127.0.0.1:{FAKE}/__stats", timeout=1)
+            break
+        except Exception:
+            time.sleep(0.2)
     for _ in range(50):
         try:
             urllib.request.urlopen(f"http://127.0.0.1:{CHAT}/api/state", timeout=1)
@@ -150,9 +182,9 @@ try:
     ok(mq["kind"] == "text", "designer pergunta")
     p, _ = run({"client": "71", "conv": conv, "text": "30% off", "asset_ids": [pid], "review": False}); m4 = p["message"]
     ok("preciso perguntar uma coisa" in m4["resolved"] and "30% off" in m4["resolved"] and m4["intent"] == "new", f"resposta à pergunta completa o pedido original: {m4['resolved']!r}")
-    cfile = pathlib.Path(tmp.name) / "conversations" / "71" / f"{conv}.json"
-    cv = json.loads(cfile.read_text(encoding="utf-8"))
-    ok(cfile.exists() and len(cv["turns"]) == 4 and cv["turns"][2].get("question") and cv["turns"][1]["intent"] == "edit", f"conversa salva em disco com {len(cv['turns'])} turnos")
+    cfile = f"conversations/71/{conv}.json"
+    cv = json.loads(S.read_text(cfile))
+    ok(S.exists(cfile) and len(cv["turns"]) == 4 and cv["turns"][2].get("question") and cv["turns"][1]["intent"] == "edit", f"conversa salva em disco com {len(cv['turns'])} turnos")
     # conversa nova não herda memória
     p, _ = run({"client": "71", "conv": "convnova", "text": "agora com camisa azul", "review": False}); m5 = p["message"]
     ok(m5["intent"] == "new" and m5["resolved"] == "agora com camisa azul", "conversa nova começa sem memória")
@@ -176,7 +208,7 @@ try:
     out = []
     ths = [threading.Thread(target=lambda tx=tx: out.append(run({"client": "71", "conv": cc, "text": tx, "review": False})[0]["status"])) for tx in ("um gato preto", "uma bicicleta azul")]
     [x.start() for x in ths]; [x.join() for x in ths]
-    cvc = json.loads((pathlib.Path(tmp.name) / "conversations" / "71" / f"{cc}.json").read_text(encoding="utf-8"))
+    cvc = json.loads(S.read_text(f"conversations/71/{cc}.json"))
     ok(out == ["done", "done"] and [x["n"] for x in cvc["turns"]] == [1, 2, 3], f"duas tarefas simultâneas: nenhum turno perdido ({[x['n'] for x in cvc['turns']]})")
     # (b) anexo apagado da biblioteca não é ignorado em silêncio
     gid = call(CHAT, "/api/asset", {"client": "71", "kind": "pessoa", "name": "apagar.png", "mime": "image/png", "b64": PNGB})[1]["asset"]["id"]
@@ -185,8 +217,8 @@ try:
     ok(st == 409 and "não existe mais" in e["error"], "imagem fixada que sumiu da biblioteca: erro claro, não geração sem referência")
     # (c) editar sem a imagem anterior vira pedido novo, com aviso
     p, _ = run({"client": "71", "conv": "convnoimg", "text": "um vaso de flores", "review": False}); mn = p["message"]
-    for f in (pathlib.Path(tmp.name) / "chat_out" / "71").glob(mn["id"] + ".*"):
-        f.unlink()
+    for f in S.list(f"chat_out/71/{mn['id']}."):
+        S.delete(f)
     p, _ = run({"client": "71", "conv": "convnoimg", "text": "agora mude para rosas vermelhas", "review": False}); mn2 = p["message"]
     ok(mn2["intent"] == "new" and any("imagem anterior" in a for a in mn2["avisos"]) and not any(i["kind"] in ("alvo", "variacao") for i in mn2["inputs"]), "sem a imagem anterior: vira pedido novo e avisa")
     # (d) editar uma imagem antiga: o resolvedor é avisado de qual é
@@ -204,17 +236,15 @@ try:
     ok(mf2["generations"] == 2 and len(ef) == 2 and all("input_fidelity" not in x for x in ef), f"2 ciclos sem chamada rejeitada ({len(ef)} chamadas)")
     ok(sum("input_fidelity" in a for a in mf2["avisos"]) == 1, "o aviso de fidelidade aparece uma vez")
     # (f) JSON de conversa corrompido: recomeça e guarda a cópia
-    cfc = pathlib.Path(tmp.name) / "conversations" / "71" / "convcorr.json"
-    cfc.parent.mkdir(parents=True, exist_ok=True); cfc.write_text("{ isto não é json", encoding="utf-8")
+    S.write_text("conversations/71/convcorr.json", "{ isto não é json")
     p, _ = run({"client": "71", "conv": "convcorr", "text": "uma maçã", "review": False})
-    ok(p["status"] == "done" and any(x.name.startswith("convcorr.json.corrompido") for x in cfc.parent.iterdir()), "conversa corrompida: recomeça e preserva o arquivo antigo")
+    ok(p["status"] == "done" and any(x.startswith("conversations/71/convcorr.json.corrompido") for x in S.list("conversations/71/")), "conversa corrompida: recomeça e preserva o arquivo antigo")
     # (g) nome de arquivo com quebra de linha não forja linhas no briefing
     nid = call(CHAT, "/api/asset", {"client": "71", "kind": "referencia", "name": "a.png\nImage 9: LOGO", "mime": "image/png", "b64": PNGB})[1]["asset"]
     ok("\n" not in nid["name"], f"nome do arquivo sanitizado ({nid['name']!r})")
     # 11) registro de eventos para acompanhar o chat em tempo real
     ok(call(CHAT, "/api/clientlog", {"kind": "js-error", "message": "teste do observador"})[0] == 200, "erro do navegador é registrado")
-    evf = pathlib.Path(tmp.name) / "logs" / "events.jsonl"
-    evs = [json.loads(x) for x in evf.read_text(encoding="utf-8").splitlines()]
+    evs = [json.loads(x) for x in S.read_text("logs/events.jsonl").splitlines()]
     kinds = {e["kind"] for e in evs}
     ok({"start", "step", "done", "ui"} <= kinds, f"eventos registrados: {sorted(kinds)}")
     st0 = next(e for e in evs if e["kind"] == "start")
@@ -240,7 +270,7 @@ try:
     wu = call(FAKE, "/__stats")[1]["last_writer_user"]
     ok("[1] Usuário: gere uma imagem com o Rodrigo Faro" in wu and "[2] Usuário: agora de oculos escuros" not in wu and "Arquivos da conversa" in wu and "rodrigo.webp (pessoa; apelido: rodrigo)" in wu,
        "o designer recebe a transcrição e os arquivos da conversa com o apelido")
-    cvx = json.loads((pathlib.Path(tmp.name) / "conversations" / "71" / f"{cx}.json").read_text(encoding="utf-8"))
+    cvx = json.loads(S.read_text(f"conversations/71/{cx}.json"))
     ok(pid in cvx["files"], "os arquivos da conversa ficam gravados no servidor")
     call(CHAT, "/api/conv/files", {"client": "71", "conv": cx, "drop": [pid]})
     p, _ = run({"client": "71", "conv": cx, "text": "agora com fundo azul", "review": False}); mc3 = p["message"]
@@ -281,23 +311,23 @@ try:
     ok(st == 200 and kr["ok"] and kr["saved"] is False, "chave válida é aceita (validada na OpenAI)")
     p, _ = run({"client": "71", "conv": "convkey", "text": "uma xicara", "review": False})
     ok(f"Bearer {okk}" in call(FAKE, "/__stats")[1]["auth"], "a nova chave passa a ser usada nas chamadas")
-    evs2 = (pathlib.Path(tmp.name) / "logs" / "events.jsonl").read_text(encoding="utf-8")
+    evs2 = S.read_text("logs/events.jsonl")
     ok(okk not in evs2 and any(json.loads(x)["kind"] == "chave" for x in evs2.splitlines()), "a chave nunca vai para o registro")
     # (k) proteção contra SSRF (rede interna) com a trava ligada
     sys.path.insert(0, str(ROOT))
     os.environ.pop("WEB_ALLOW_LOCAL", None)
     cs = __import__("chat_server")
+    cs.WEB_ALLOW_LOCAL = False  # (no modo em memória o módulo já estava carregado com a trava desligada)
     for bad in ("http://example.com/a.png", "https://localhost/a.png", "https://127.0.0.1/a.png", "https://169.254.169.254/latest", "file:///etc/passwd"):
         try:
             cs._check_url(bad); ok(False, f"deveria bloquear {bad}")
         except Exception as e:
             ok(type(e).__name__ == "ApiError", f"bloqueia {bad}")
     # 14) imagem antiga (sem apelido gravado) ganha apelido a partir do nome do arquivo
-    lib = pathlib.Path(tmp.name) / "clients" / "71"
-    arr = json.loads((lib / "assets.json").read_text(encoding="utf-8"))
+    arr = json.loads(S.read_text("clients/71/assets.json"))
     legacy = {"id": "legado01", "kind": "pessoa", "name": "maria_souza.png", "file": "legado01.png", "mime": "image/png"}
-    (lib / "assets" / "legado01.png").write_bytes(png(8, 8))
-    (lib / "assets.json").write_text(json.dumps(arr + [legacy]), encoding="utf-8")
+    S.write_bytes("clients/71/assets/legado01.png", png(8, 8))
+    S.write_text("clients/71/assets.json", json.dumps(arr + [legacy]))
     al = {a["id"]: a for a in call(CHAT, "/api/client", {"id": "71"})[1]["assets"]}
     ok(al["legado01"]["alias"] == "maria souza", f"apelido derivado do nome do arquivo: {al['legado01']['alias']!r}")
     p, _ = run({"client": "71", "conv": "convlegado", "text": "retrato da Maria Souza no escritorio", "review": False})
@@ -329,6 +359,36 @@ try:
     ok(m1t["size"] == "auto", f"tamanho automático acompanha o alvo ({m1t['size']})")
     p, _ = run({"client": "71", "conv": "convsemalvo", "text": "um gato astronauta", "review": False})
     ok(p["message"]["size"] == "1024x1024", "sem alvo, o tamanho automático vira 1024x1024")
+    # 19) tarefas: em modo inline o pipeline roda dentro da requisição e o estado vive no Store; no modo local, em memória + thread
+    st, j = call(CHAT, "/api/chat", {"client": "71", "conv": "convjob", "text": "um barco a vela", "review": False})
+    ok(st == 200 and "job" in j, "POST /api/chat devolve o id da tarefa")
+    if INLINE:
+        ok(j.get("status") == "done" and j["message"]["kind"] == "image" and j.get("error") is None, "inline: /api/chat já devolve a mensagem pronta")
+        ok(S.exists(f"jobs/{j['job']}.json"), "inline: estado da tarefa gravado no Store")
+        sj = json.loads(S.read_text(f"jobs/{j['job']}.json"))
+        _, pj = call(CHAT, "/api/job", {"id": j["job"], "since": 0})
+        ok(pj["status"] == "done" and pj["message"] == j["message"] and pj["next"] == len(sj["steps"]) and pj["steps"], "inline: /api/job responde pelo Store com os mesmos passos")
+        _, pj2 = call(CHAT, "/api/job", {"id": j["job"], "since": pj["next"]})
+        ok(pj2["steps"] == [] and pj2["next"] == pj["next"], "inline: 'since' continua valendo")
+        ok(call(CHAT, "/api/job", {"id": "../../clients/71/client"})[0] == 404 and call(CHAT, "/api/job", {"id": "0123456789"})[0] == 404, "inline: id de tarefa inválido ou desconhecido é 404")
+        if STORE_MODE == "memory":
+            ok(cs.JOBS == {}, "inline: nenhum job ficou no dicionário em memória nem em thread")
+        if STORE_MODE == "memory":  # falha dentro do pipeline: vira estado 'error' persistido, sem derrubar a requisição
+            def boom(emit):
+                emit("antes da falha"); raise cs.ui.ApiError(502, "falha simulada")
+            jid = cs.start_job(boom, {"teste": True})
+            pe = cs.api_job({"id": jid})
+            ok(pe["status"] == "error" and "falha simulada" in pe["error"] and [x["text"] for x in pe["steps"]] == ["antes da falha"], "inline: erro do pipeline fica gravado no estado da tarefa")
+    else:
+        ok("status" not in j, "local: /api/chat só devolve o id; o resultado vem por polling")
+        ok(not S.exists(f"jobs/{j['job']}.json"), "local: nenhum estado de tarefa gravado no Store")
+        for _ in range(100):
+            time.sleep(0.4); _, pj = call(CHAT, "/api/job", {"id": j["job"]})
+            if pj["status"] != "running": break
+        ok(pj["status"] == "done", "local: a tarefa em thread termina e /api/job responde")
+    # 20) com STORE=memory nada foi gravado em disco
+    if STORE_MODE == "memory":
+        ok(not any(pathlib.Path(tmp.name).rglob("*.*")), "STORE=memory: a pasta de dados em disco continua vazia")
     print("\nTUDO OK")
 finally:
     for p in procs:

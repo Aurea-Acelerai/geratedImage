@@ -1,0 +1,21 @@
+# Nada de dados de uso nem segredos no deploy (os dados vivem no Vercel Blob, as chaves nas variáveis do projeto)
+.git
+.env
+.env.*
+.venv
+.playwright-mcp
+__pycache__
+*.pyc
+.DS_Store
+.claude
+test/clients
+test/chat_out
+test/conversations
+test/logs
+test/train_data
+test/train_out
+test/out
+test/results
+test/calibration
+docs/fontes
+node_modules
