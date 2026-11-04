@@ -5,7 +5,12 @@ import http.client, json, os, pathlib, socket, subprocess, sys, tempfile, time
 ROOT = pathlib.Path(__file__).resolve().parent
 with socket.socket() as s:
     s.bind(("127.0.0.1", 0)); PORT = s.getsockname()[1]
+def seed71(data_dir):  # cliente '71' FICTÍCIO criado aqui: o teste nunca lê test/client_71.json nem test/clients do repositório
+    d = pathlib.Path(data_dir) / "clients" / "71"; d.mkdir(parents=True, exist_ok=True)
+    (d / "client.json").write_text('{"id": 71, "name": "Marca Ficticia 71 (teste)", "sector": "praia ficticia", "palette": ["#0B3C5D"], "cpf": "000.111.222-33"}')
+
 tmp = tempfile.TemporaryDirectory(); DATA = pathlib.Path(tmp.name)
+seed71(DATA)
 proc = subprocess.Popen([sys.executable, str(ROOT / "chat_server.py"), "--port", str(PORT), "--mock"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                         env={**os.environ, "CHAT_DATA_DIR": tmp.name, "OPENAI_API_KEY": "fake"})
 

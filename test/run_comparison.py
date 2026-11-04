@@ -28,6 +28,7 @@ sys.path.insert(0, str(ROOT))
 import qa_gates  # gates de QA da fonte 2 sobre a especificação da peça
 import gen_estilos  # catálogo de estilos gerado da fonte
 import skills_router  # skills de design escolhidas por pedido (skills/design-*)
+import client_provider  # lista permitida de campos do cliente (o que pode ir ao prompt)
 import checks  # regras de design (docs/08) e checagens por código
 import critic  # rubrica, limiar e prompt do critic: prompts/rubric.json e prompts/critic.system.md
 from critic import MAX_CYCLES, PASS_SCORE, WEIGHTS, decide, weighted
@@ -47,7 +48,7 @@ BRAND_MODE = ("MODO COM MARCA: o JSON abaixo é a marca do cliente. Use-o **some
 def mode_instructions(client_ctx, mode):
     if mode == "livre":
         return FREE_MODE
-    return BRAND_MODE.format(json=json.dumps(client_ctx, ensure_ascii=False, indent=2))
+    return BRAND_MODE.format(json=json.dumps(client_provider.safe_context(client_ctx), ensure_ascii=False, indent=2))  # só a lista permitida chega ao prompt
 
 
 def load_system_prompt(client_ctx, agency="Aurea Tech", request=None, size=None, has_inputs=False, mode="marca", use_skills=True):

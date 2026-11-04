@@ -69,6 +69,54 @@ GENERIC_ALIAS = {"logo", "foto", "imagem", "image", "img", "screenshot", "captur
                  "copy", "novo", "final", "versao", "whatsapp", "download", "photo", "picture", "untitled"}
 CONV_LOCK = threading.Lock()  # duas tarefas da mesma conversa não podem se sobrescrever
 GENERIC_ERROR = "Não consegui concluir a imagem."
+BODY_TOO_BIG = "Arquivo grande demais para enviar (máx. ~4 MB). Reduza a imagem."
+BAD_BODY = "Corpo da requisição inválido."
+SLOW_MSG = "A geração demorou demais. Tente de novo."
+DEADLINE_MSG = "Entreguei a melhor versão que deu tempo de fazer."
+BAD_BODY_COUNT = 0  # corpos malformados recusados (só contador: não gravamos um evento por requisição ruim)
+SECURITY_HEADERS = {
+    "Content-Security-Policy": ("default-src 'self'; img-src 'self' data: blob: https://upload.wikimedia.org; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; "
+                                "connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'"),
+    "X-Content-Type-Options": "nosniff", "X-Frame-Options": "DENY", "Referrer-Policy": "no-referrer",
+    "Permissions-Policy": "microphone=(self), camera=(), geolocation=(), payment=()",
+}
+IMMUTABLE = "private, max-age=31536000, immutable"  # /files/*: o nome tem id único (imagem gerada: data+aleatório; anexo: uuid), nunca é reescrito; private porque o deploy é protegido
+IMG_MIME = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".svg": "image/svg+xml"}
+
+
+def max_body():
+    """Teto do corpo de um POST. Na Vercel fica abaixo do limite de 4,5 MB da plataforma; local é bem maior (envio de imagens grandes)."""
+    return int(os.getenv("CHAT_MAX_BODY") or (4_400_000 if vercel_mode() else 40_000_000))
+
+
+def max_response():
+    return int(os.getenv("CHAT_MAX_RESPONSE") or 4_300_000)
+
+
+def visible_detail(detail):
+    """O detalhe técnico (nome de exceção) só aparece fora da Vercel ou com CHAT_DEBUG=1."""
+    return detail if (not vercel_mode() or os.getenv("CHAT_DEBUG") == "1") else None
+
+
+def out_mime(key):
+    return IMG_MIME.get(posixpath.splitext(key)[1].lower(), "image/png")
+
+
+def deadline_s():
+    """Prazo total do pipeline (s). Na Vercel 270 s (a função morre aos 300); local sem limite. CHAT_DEADLINE_S sobrescreve; 0 = sem limite."""
+    v = os.getenv("CHAT_DEADLINE_S")
+    return float(v) if v not in (None, "") else (270.0 if vercel_mode() else 0.0)
+
+
+def min_gen_s():
+    """Tempo mínimo restante para começar a 1ª imagem. Na Vercel ~90 s (uma geração média/alta passa de 60 s)."""
+    v = os.getenv("CHAT_MIN_GEN_S")
+    return float(v) if v not in (None, "") else (90.0 if vercel_mode() else 45.0)
+
+
+def max_cycles():
+    v = os.getenv("CHAT_MAX_CYCLES")
+    return int(v) if v else (1 if vercel_mode() else critic.MAX_CYCLES)  # na Vercel, no máximo 1 correção do critic
 PF_NAME = "Cliente (pessoa física)"  # nome genérico gravado no lugar do nome de pessoa física (decisão conservadora: o nome nunca vai para a conversa nem para a lista)
 GERAL = "_geral"  # escopo neutro: conversa que ainda não tem cliente (o cliente é detectado pelo texto)
 PROJECT_LOCK = threading.Lock()  # ordem das travas: PROJECT_LOCK antes de CONV_LOCK
@@ -249,9 +297,30 @@ def write_briefing(ctx, text, size, history, inputs, feedback=None, prev=None, m
     return json.loads(r["choices"][0]["message"]["content"])
 
 
-def make_image(prompt, size, quality, inputs, model, fidelity=None, notes=None, mask=None):
+def pick_output_format(size, quality, has_mask=False):
+    """(formato, compressão) pedidos à OpenAI. PNG grande estoura os 4,5 MB de resposta da Vercel: acima de ~3 MB estimados vai webp.
+    CHAT_IMAGE_FORMAT=png|webp|jpeg força. Com máscara (edição localizada) fica PNG: a recomposição por código exige PNG."""
+    forced = (os.getenv("CHAT_IMAGE_FORMAT") or "auto").lower()
+    if has_mask:
+        return "png", None
+    if forced in ("png", "webp", "jpeg"):
+        return forced, (None if forced == "png" else 85)
+    w, h = (1024, 1024) if size == "auto" else (int(v) for v in size.split("x"))
+    est = w * h * {"high": 2.2, "medium": 1.0, "low": 0.4}.get(quality, 1.5)  # bytes por pixel de um PNG típico
+    return ("webp", 85) if est > 3_000_000 else ("png", None)
+
+
+def mock_wait(seconds, timeout):
+    """Mock de uma chamada lenta: respeita o timeout como o urllib respeitaria (espera o timeout e falha)."""
+    if timeout is not None and seconds > timeout:
+        time.sleep(timeout)
+        raise ui.ApiError(504, SLOW_MSG)
+    time.sleep(seconds)
+
+
+def make_image(prompt, size, quality, inputs, model, fidelity=None, notes=None, mask=None, timeout=None):
     if MOCK:
-        time.sleep(0.8)
+        mock_wait(0.8 + float(os.getenv("CHAT_TEST_SLOW") or 0), timeout)
         w, h = (1024, 1024) if size == "auto" else (int(x) for x in size.split("x"))  # "auto": sem alvo com proporção própria, 1024x1024
         hue = random.randint(0, 360)
         svg = (f"<svg xmlns='http://www.w3.org/2000/svg' width='{w}' height='{h}'><rect width='100%' height='100%' "
@@ -265,6 +334,9 @@ def make_image(prompt, size, quality, inputs, model, fidelity=None, notes=None, 
         if mask:  # a máscara vale para a primeira imagem (o alvo); transparente = onde o modelo pode editar
             files.append(("mask", "mask.png", "image/png", mask))
         fields = {"model": model, "prompt": prompt, "size": size, "quality": quality, "n": 1}
+        fmt, comp = pick_output_format(size, quality, bool(mask))
+        if fmt != "png":
+            fields["output_format"], fields["output_compression"] = fmt, comp
         if fidelity and model in FIDELITY_REJECTED:
             fidelity = None
             if notes is not None and FIDELITY_MSG not in notes:
@@ -272,25 +344,30 @@ def make_image(prompt, size, quality, inputs, model, fidelity=None, notes=None, 
         if fidelity:
             fields["input_fidelity"] = fidelity  # alta fidelidade preserva rosto, logo e produto das imagens de entrada
         try:
-            r = openai_multipart("/images/edits", fields, files)
+            r = openai_multipart("/images/edits", fields, files, **({"timeout": timeout} if timeout else {}))
         except ui.ApiError as e:
             if fidelity and "input_fidelity" in str(e):  # o modelo não aceita o parâmetro: repete sem ele e avisa
                 fields.pop("input_fidelity")
                 FIDELITY_REJECTED.add(model)
                 if notes is not None and FIDELITY_MSG not in notes:
                     notes.append(FIDELITY_MSG)
-                r = openai_multipart("/images/edits", fields, files)
+                r = openai_multipart("/images/edits", fields, files, **({"timeout": timeout} if timeout else {}))
             else:
                 raise
     else:
-        r = ui.openai_post("/images/generations", {"model": model, "prompt": prompt, "size": size, "quality": quality, "n": 1})
-    return r["data"][0]["b64_json"], "png"
+        body = {"model": model, "prompt": prompt, "size": size, "quality": quality, "n": 1}
+        fmt, comp = pick_output_format(size, quality)
+        if fmt != "png":
+            body["output_format"], body["output_compression"] = fmt, comp
+        r = ui.openai_post("/images/generations", body, **({"timeout": timeout} if timeout else {}))
+    b64 = r["data"][0]["b64_json"]
+    return b64, {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp"}[sniff_mime(b64)]  # a extensão vem dos bytes que chegaram, não do que foi pedido
 
 
-def do_review(ctx, text, briefing, b64, ext, size, inputs, model, notes="", packs=None):
+def do_review(ctx, text, briefing, b64, ext, size, inputs, model, notes="", packs=None, timeout=None):
     if MOCK:
-        time.sleep(0.4)
-        rv = {"scores": {k: random.randint(6, 10) for k in critic.weights_for(packs)}, "veto": random.choice([[], [], [], ["logo_inventado"]]),
+        mock_wait(0.4 + float(os.getenv("CHAT_TEST_SLOW") or 0), timeout)
+        rv = {"scores": {k: (1 if os.getenv("CHAT_TEST_REJECT") == "1" else random.randint(6, 10)) for k in critic.weights_for(packs)}, "veto": ["logo_inventado"] if os.getenv("CHAT_TEST_REJECT") == "1" else random.choice([[], [], [], ["logo_inventado"]]),
               "issues": [{"criterion": "composition", "evidence": "(mock) exemplo", "severity": "baixa"}],
               "fix": "(mock) aumentar contraste do primeiro plano"}
     else:
@@ -299,12 +376,15 @@ def do_review(ctx, text, briefing, b64, ext, size, inputs, model, notes="", pack
             for label, im in images:
                 content += [{"type": "text", "text": label}, {"type": "image_url", "image_url": {"url": f"data:{sniff_mime(im)};base64,{im}"}}]
             r = ui.openai_post("/chat/completions", {"model": model, "response_format": {"type": "json_object"},
-                                                     "messages": [{"role": "system", "content": system}, {"role": "user", "content": content}]})
+                                                     "messages": [{"role": "system", "content": system}, {"role": "user", "content": content}]},
+                               **({"timeout": timeout} if timeout else {}))
             return r["choices"][0]["message"]["content"]
         imgs = [("Imagem avaliada", b64)]
         for x in inputs:
             imgs.append((f"Referência fornecida ({x['kind']}): {x['name']}", base64.b64encode(x["bytes"]).decode()))
         rv = critic.review(vlm, briefing, ctx, text, imgs, notes=notes, packs=packs)
+    # RISCO CONHECIDO: as checagens por código (checks.apply, pixels) só rodam em PNG. Imagem webp/jpeg (pedida à OpenAI quando o PNG
+    # estouraria o limite de resposta da Vercel) é avaliada só pelo critic, sem essas checagens.
     if ext == "png":
         rv = checks.apply(rv, b64, size)
     s, ok = critic.decide(rv, packs=packs)
@@ -323,7 +403,7 @@ def collect_inputs(cid, edit_of, asset_ids, scope=None, conv_id=None):
     inputs = []
     if edit_of:
         k = find_out(scope or cid, edit_of)
-        mime = "image/svg+xml" if k.endswith(".svg") else "image/png"
+        mime = out_mime(k)
         inputs.append(dict(kind="alvo", name=posixpath.basename(k), mime=mime, bytes=get_store().read_bytes(k),
                            role_text="ALVO DE EDIÇÃO: peça gerada anteriormente; mude só o que o pedido atual pede e mantenha o resto idêntico"))
     by_id = {a["id"]: a for a in lib_assets(cid, conv_id)}
@@ -404,7 +484,14 @@ def api_asset(b):
         raise ui.ApiError(400, "SVG não é aceito pela API de imagem: converta a logo para PNG (fundo transparente) antes de enviar.")
     if b.get("kind") not in KIND_ROLE:
         raise ui.ApiError(400, f"tipo inválido; use um de {list(KIND_ROLE)}")
-    return {"asset": store_asset(cid, b["kind"], b.get("name"), mime, base64.b64decode(b["b64"]), b.get("alias"), _owner(cid, b))}
+    return {"asset": store_asset(cid, b["kind"], b.get("name"), mime, _b64(b["b64"]), b.get("alias"), _owner(cid, b))}
+
+
+def _b64(v):
+    try:
+        return base64.b64decode(v, validate=True)
+    except (ValueError, TypeError):
+        raise ui.ApiError(400, BAD_BODY)
 
 
 def _owner(cid, b, extra=None):
@@ -539,8 +626,23 @@ def openai_get(path, timeout=30):
         raise ui.ApiError(502, f"Falha de rede: {e.reason}")
 
 
+MODELS_CACHE = {"t": 0.0, "key": None, "val": None}  # por instância (na Vercel cada função tem o seu)
+MODELS_TTL = 600.0
+
+
 def api_models(_):
-    """Confere a chave e os modelos da conta. Nunca derruba a tela: devolve o diagnóstico."""
+    """Confere a chave e os modelos da conta. Nunca derruba a tela: devolve o diagnóstico. Resposta boa fica 10 min em cache."""
+    key = os.getenv("OPENAI_API_KEY") or ""
+    c = MODELS_CACHE
+    if c["val"] is not None and c["key"] == hash(key) and time.time() - c["t"] < MODELS_TTL and not MOCK:
+        return c["val"]
+    out = _api_models()
+    if out.get("ok") and key and not MOCK:
+        c.update(t=time.time(), key=hash(key), val=out)
+    return out
+
+
+def _api_models():
     em = ui.env_models()
     if MOCK:
         return {"ok": True, "image_models": [em["image_model"]], "text_models": [em["text_model"]], "notes": ["modo mock"]}
@@ -585,6 +687,7 @@ def api_setkey(b):
     if not re.fullmatch(r"sk-[A-Za-z0-9_\-]{20,}", key):
         raise ui.ApiError(400, "Isso não parece uma chave da OpenAI (começa com sk- e é longa).")
     old = os.environ.get("OPENAI_API_KEY")
+    MODELS_CACHE["val"] = None  # trocar a chave invalida a lista de modelos em cache
     os.environ["OPENAI_API_KEY"] = key
     try:
         openai_get("/models")
@@ -722,7 +825,7 @@ JOB_ID = re.compile(r"[a-f0-9]{10}")
 
 def start_job(fn, meta=None):
     jid = uuid.uuid4().hex[:10]
-    job = {"id": jid, "status": "running", "steps": [], "message": None, "error": None, "t0": time.time()}
+    job = {"id": jid, "status": "running", "steps": [], "message": None, "error": None, "t0": time.time(), "hb": time.time()}
     if not JOBS_INLINE:
         for old in sorted(JOBS.values(), key=lambda j: j["t0"])[:-40]:
             JOBS.pop(old["id"], None)
@@ -737,6 +840,7 @@ def start_job(fn, meta=None):
                 log_event("erro", job=jid, erro=f"não consegui gravar o estado da tarefa: {type(e).__name__}")
 
     def emit(text, **extra):
+        job["hb"] = time.time()  # batimento: quem consulta vê se a função ainda está viva
         step = {"t": round(time.time() - job["t0"], 1), "text": text, **extra}
         job["steps"].append(step)
         log_event("step", job=jid, t=step["t"], text=text, **{k: v for k, v in extra.items() if k in ("image_url", "prompt")})
@@ -774,17 +878,22 @@ def start_job(fn, meta=None):
 
 def api_job(b):
     jid = b.get("id")
+    try:
+        since = max(0, int(b.get("since") or 0))
+    except (TypeError, ValueError):
+        raise ui.ApiError(400, BAD_BODY)
     if JOBS_INLINE:
         if not isinstance(jid, str) or not JOB_ID.fullmatch(jid) or not get_store().exists(f"jobs/{jid}.json"):
             raise ui.ApiError(404, "tarefa não encontrada")
         job = read_json(f"jobs/{jid}.json")
     else:
-        job = JOBS.get(jid)
+        job = JOBS.get(jid) if isinstance(jid, str) else None
     if not job:
         raise ui.ApiError(404, "tarefa não encontrada (o servidor foi reiniciado?)")
-    since = int(b.get("since") or 0)
+    if JOBS_INLINE and job["status"] == "running" and deadline_s() and time.time() - job.get("hb", job["t0"]) > deadline_s() + 60:
+        job = dict(job, status="error", error=SLOW_MSG, error_detail="função sem batimento além do prazo (provável 504)")  # a função morreu: não deixa 'running' para sempre
     return {"status": job["status"], "steps": job["steps"][since:], "next": len(job["steps"]),
-            "message": job["message"], "error": job["error"], "error_detail": job.get("error_detail"), "elapsed": round(job.get("t1", time.time()) - job["t0"], 1)}
+            "message": job["message"], "error": job["error"], "error_detail": visible_detail(job.get("error_detail")), "elapsed": round(job.get("t1", time.time()) - job["t0"], 1)}
 
 
 def client_providers():
@@ -953,7 +1062,7 @@ def api_chat(b):
     jid = start_job(task, meta)
     if JOBS_INLINE:  # já terminou: devolve o resultado junto; a interface ainda consulta /api/job e recebe o mesmo estado
         j = api_job({"id": jid})
-        return {"job": jid, "status": j["status"], "message": j["message"], "error": j["error"], "error_detail": j.get("error_detail")}
+        return {"job": jid, "status": j["status"], "message": j["message"], "error": j["error"], "error_detail": visible_detail(j.get("error_detail"))}
     return {"job": jid}
 
 
@@ -1450,7 +1559,7 @@ def run_chat(b, emit, cid, text, ctx, inputs, files=None, auto=None, stale=None,
     if resolved["use_last_image"] and lastp and not any(x["kind"] == "alvo" for x in inputs):
         role = ("ALVO DE EDIÇÃO: a última imagem gerada; mude só o que o pedido atual pede e mantenha o resto idêntico" if intent == "edit"
                 else "IMAGEM-BASE da variação: mantenha o conceito, a pessoa/produto/marca e o estilo; mude só o que o pedido indicar")
-        inputs = [dict(kind="alvo" if intent == "edit" else "variacao", name=posixpath.basename(lastp), mime="image/svg+xml" if lastp.endswith(".svg") else "image/png",
+        inputs = [dict(kind="alvo" if intent == "edit" else "variacao", name=posixpath.basename(lastp), mime=out_mime(lastp),
                        bytes=get_store().read_bytes(lastp), role_text=role)] + list(inputs)
     if size == "auto" and not any(x["kind"] in ("alvo", "variacao") for x in inputs):
         size = infer_size(text_eff)  # sem alvo não há proporção a acompanhar: o formato vem do pedido
@@ -1612,11 +1721,25 @@ def run_chat(b, emit, cid, text, ctx, inputs, files=None, auto=None, stale=None,
         brief = {"prompt": text_eff}
         emit("Sem briefing do designer: o seu texto vai direto ao modelo de imagem.")
     do_rev = bool(imp["review"])
-    max_cycle = (1 if region else critic.MAX_CYCLES) if imp["designer"] else 0  # com região, correções por texto quase nunca melhoram: no máximo 2 gerações
+    max_cycle = (1 if region else max_cycles()) if imp["designer"] else 0  # com região, correções por texto quase nunca melhoram: no máximo 2 gerações
     fidelity = "high" if any(x["kind"] in IDENTITY_KINDS + ("alvo", "variacao") for x in inputs) else None
     mid = re.sub(r"[^a-z0-9]", "", time.strftime("%Y%m%d%H%M%S") + uuid.uuid4().hex[:4])
-    cycles, best = [], None
+    cycles, best, cut = [], None, False
+    dl, margin = deadline_s(), float(os.getenv("CHAT_DEADLINE_MARGIN") or 15)
+    left = lambda: (t0 + dl - time.time()) if dl else float("inf")  # prazo total do pipeline (Vercel: a função morre aos 300 s)
+
+    def call_timeout(etapa):
+        """Tempo máximo de UMA chamada à OpenAI: nunca mais que o que resta do prazo (menos a margem). None = sem prazo (padrão da chamada)."""
+        if not dl:
+            return None
+        tm = max(1.0, min(240.0, left() - margin))
+        log_event("timeout", conv=conv["id"], etapa=etapa, s=round(tm, 1), restante=round(left(), 1))
+        return tm
+    if left() < min_gen_s():
+        log_event("prazo", conv=conv["id"], etapa="antes da 1ª imagem", restante=round(left(), 1))
+        raise ui.ApiError(504, SLOW_MSG)  # nem a primeira imagem cabe: erro neutro, a tela oferece "Tentar de novo"
     for cycle in range(max_cycle + 1):
+        tc = time.time()
         how = "editando com as imagens de entrada" if inputs else "gerando"
         emit(f"Tentativa {cycle + 1}: {how} (OpenAI Images, modelo {image_model}, {size}, {quality}" + (", fidelidade alta" if fidelity and image_model not in FIDELITY_REJECTED else "") + ")…")
         tg = time.time()
@@ -1625,7 +1748,7 @@ def run_chat(b, emit, cid, text, ctx, inputs, files=None, auto=None, stale=None,
             mask_png = region["mask"]
             if region["mode"] == "extend":
                 call_inputs = [dict(alvo_in, bytes=region["canvas"], mime="image/png")] + [x for x in inputs if x is not alvo_in]
-        b64, ext = make_image(brief["prompt"], size, quality, call_inputs, image_model, fidelity, avisos, mask=mask_png)
+        b64, ext = make_image(brief["prompt"], size, quality, call_inputs, image_model, fidelity, avisos, mask=mask_png, timeout=call_timeout("imagem"))
         gid = f"{mid}c{cycle}"
         if region:  # guarda o que o modelo gerou e entrega o original recomposto
             raw = base64.b64decode(b64)
@@ -1634,13 +1757,25 @@ def run_chat(b, emit, cid, text, ctx, inputs, files=None, auto=None, stale=None,
                    else regionedit.composite_extend(raw, region["rorig"], region["place"], region["size"]))
             b64, ext = base64.b64encode(fin).decode(), "png"
             emit("Original recolado fora da região editada (pixels idênticos).")
-        get_store().write_bytes(f"chat_out/{slug(scope)}/{gid}.{ext}", base64.b64decode(b64), "image/svg+xml" if ext == "svg" else "image/png")
+        get_store().write_bytes(f"chat_out/{slug(scope)}/{gid}.{ext}", base64.b64decode(b64), IMG_MIME["." + ext])
         url = f"/files/{slug(scope)}/out/{gid}.{ext}"
         emit(f"Imagem da tentativa {cycle + 1} pronta em {round(time.time() - tg)}s.", image_url=url)
         entry = {"cycle": cycle, "prompt": brief["prompt"], "id": gid, "url": url}
-        if do_rev:
+        gen_dur = time.time() - tg
+        review_now = do_rev and left() >= 0.6 * gen_dur + margin
+        if do_rev and not review_now:  # sem tempo para o critic: entrega o que há, sem revisão
+            cut = True
+            log_event("prazo", conv=conv["id"], etapa="antes do critic", restante=round(left(), 1))
+        if review_now:
             emit(f"O critic está revisando ({'OpenAI, modelo ' + (b.get('critic_model') or text_model) if not MOCK else 'DEMONSTRAÇÃO'})…")
-            rv, s, ok = do_review(ctx_critic, text_eff, brief["prompt"], b64, ext, size, inputs, b.get("critic_model") or text_model, notes, packs)
+            try:
+                rv, s, ok = do_review(ctx_critic, text_eff, brief["prompt"], b64, ext, size, inputs, b.get("critic_model") or text_model, notes, packs, timeout=call_timeout("critic"))
+            except ui.ApiError:
+                if not dl:
+                    raise
+                cut, review_now = True, False  # o critic estourou o prazo: a imagem já gerada é entregue sem revisão
+                log_event("prazo", conv=conv["id"], etapa="critic estourou o tempo", restante=round(left(), 1))
+        if review_now:
             entry.update(score=s, approved=ok, veto=rv.get("veto", []), fix=rv.get("fix"), review=rv)
             emit(f"Nota {s}: {'aprovada' if ok else 'reprovada'}" + (f" · vetos: {', '.join(rv.get('veto', []))}" if rv.get("veto") else "")
                  + (f" · correção: {rv.get('fix')}" if not ok and rv.get("fix") else ""))
@@ -1649,7 +1784,11 @@ def run_chat(b, emit, cid, text, ctx, inputs, files=None, auto=None, stale=None,
         cycles.append(entry)
         if best is None or (s or 0) > (best["score"] or 0):
             best = {"score": s, "entry": entry, "rv": rv, "ok": ok}
-        if not do_rev or ok or cycle == max_cycle:
+        if not review_now or ok or cycle == max_cycle:
+            break
+        if left() < (time.time() - tc) * 1.15 + margin:  # a próxima volta (briefing + imagem + critic) não cabe: fica a melhor já gerada
+            cut = True
+            log_event("prazo", conv=conv["id"], etapa="antes da correção", restante=round(left(), 1), melhor=best["score"])
             break
         emit("Corrigindo o briefing com a sugestão do critic…")
         brief = write_briefing(ctx_eff, text_eff, size, history, inputs, feedback=rv.get("fix"), prev=brief["prompt"],
@@ -1657,6 +1796,8 @@ def run_chat(b, emit, cid, text, ctx, inputs, files=None, auto=None, stale=None,
         if brief.get("question"):
             break
     e = best["entry"]
+    if cut:
+        avisos.append(DEADLINE_MSG)
     if "identidade_divergente" in ((best["rv"] or {}).get("veto") or []):
         avisos.append("A imagem NÃO manteve a identidade da referência (pessoa, produto ou logo): não use como se fosse. Confira a foto anexada e o tipo dela; "
                       "a API de imagem pode não preservar o rosto de uma pessoa real.")
@@ -1667,12 +1808,12 @@ def run_chat(b, emit, cid, text, ctx, inputs, files=None, auto=None, stale=None,
            "inputs": [{"kind": x["kind"], "name": x["name"]} for x in inputs]}
     record(briefing=e["prompt"], image_id=e["id"], score=best["score"], approved=bool(best["ok"]),
            inputs=[{"kind": x["kind"], "name": x["name"]} for x in inputs], mode=mode, packs=packs)
-    if imp["compare_raw"]:
+    if imp["compare_raw"] and not cut:
         emit("Gerando a versão do GPT puro (o seu texto, sem a aplicação) para comparar…")
         tr = time.time()
         b64, ext = make_image(text_eff, size, quality, inputs, image_model, fidelity, avisos)
         rid = f"{mid}raw"
-        get_store().write_bytes(f"chat_out/{slug(scope)}/{rid}.{ext}", base64.b64decode(b64), "image/svg+xml" if ext == "svg" else "image/png")
+        get_store().write_bytes(f"chat_out/{slug(scope)}/{rid}.{ext}", base64.b64decode(b64), IMG_MIME["." + ext])
         raw = {"id": rid, "url": f"/files/{slug(scope)}/out/{rid}.{ext}", "prompt": text_eff}
         emit(f"Versão do GPT puro pronta em {round(time.time() - tr)}s.", image_url=raw["url"])
         if do_rev:
@@ -1694,16 +1835,50 @@ POST = {"/api/project": api_project_create, "/api/project/rename": api_project_r
 BRAND_EXT = {".css", ".png"}
 
 
+def shrink_image(data, limit):
+    """Versão reduzida (webp) de uma imagem grande, se o Pillow existir; senão None. Nunca levanta.
+    ATENÇÃO: o Pillow NÃO está em requirements.txt (decisão do Kelvin pendente). Sem ele este resgate não existe e uma resposta
+    acima do limite da Vercel vira 413 em JSON (o formato webp pedido à OpenAI é o que evita o caso comum)."""
+    try:
+        from PIL import Image
+        import io
+        im = Image.open(io.BytesIO(data))
+        im.load()
+        if im.mode not in ("RGB", "RGBA"):
+            im = im.convert("RGB")
+        for scale in (1.0, 0.85, 0.7, 0.55, 0.4):
+            cur = im if scale == 1.0 else im.resize((max(1, int(im.width * scale)), max(1, int(im.height * scale))))
+            for q in (85, 70, 55):
+                buf = io.BytesIO()
+                cur.save(buf, "WEBP", quality=q)
+                if buf.tell() <= limit:
+                    return buf.getvalue(), "image/webp"
+    except Exception:  # noqa: BLE001
+        return None
+    return None
+
+
 class H(BaseHTTPRequestHandler):
-    def _send(self, code, body, ctype="application/json", cache="no-store"):
+    def _send(self, code, body, ctype="application/json", cache="no-store", extra=None):
         data = body if isinstance(body, bytes) else json.dumps(body, ensure_ascii=False).encode()
         self.send_response(code)
         self.send_header("Content-Type", ctype + ("; charset=utf-8" if ctype.startswith("text") or ctype == "application/json" else ""))
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", cache)
+        for k, v in {**SECURITY_HEADERS, **(extra or {})}.items():
+            self.send_header(k, v)
         self.end_headers()
         if not getattr(self, "_head_only", False):
             self.wfile.write(data)
+
+    def send_error(self, code, message=None, explain=None):
+        """Erros do próprio http.server (requisição malformada, método desconhecido) em JSON, nunca em HTML."""
+        self._send(code, {"error": "Requisição inválida." if code < 500 else "Erro interno do servidor."})
+
+    def _not_allowed(self):
+        self._send(405, {"error": "Método não permitido."}, extra={"Allow": "GET, HEAD, POST"})
+
+    do_OPTIONS = do_PUT = do_DELETE = do_PATCH = _not_allowed
 
     def _brand(self, raw_path):
         """GET /brand/<arquivo>: estáticos da marca em chat/brand, só extensões da allowlist, sem sair da pasta."""
@@ -1764,10 +1939,44 @@ class H(BaseHTTPRequestHandler):
                 except FileNotFoundError:
                     data = None
                 if data is not None:
-                    return self._send(200, data, mimetypes.guess_type(m.group(3))[0] or "application/octet-stream")
+                    ctype = IMG_MIME.get(posixpath.splitext(m.group(3))[1].lower()) or mimetypes.guess_type(m.group(3))[0] or "application/octet-stream"
+                    if len(data) > max_response():  # a Vercel recusa respostas > 4,5 MB com uma página HTML: reduz, ou explica em JSON
+                        small = shrink_image(data, max_response())
+                        if small is None:
+                            return self._send(413, {"error": "A imagem é grande demais para ser exibida aqui. Gere de novo em tamanho ou qualidade menores."},
+                                              extra={"X-Image-Too-Large": "1"})
+                        return self._send(200, small[0], small[1], cache=IMMUTABLE, extra={"X-Image-Reduced": "1"})
+                    return self._send(200, data, ctype, cache=IMMUTABLE)
             self._send(404, {"error": "não encontrado"})
         except ui.ApiError as e:
             self._send(e.status, {"error": str(e)})
+        except Exception as e:  # noqa: BLE001
+            log_event("erro", rota=self.path, erro=f"{type(e).__name__}: {e}")
+            self._send(500, {"error": "Erro interno do servidor.", "error_detail": visible_detail(f"{type(e).__name__}: {e}")})
+
+    def _read_json_body(self):
+        """Corpo do POST como objeto JSON. Malformado = 400 (só conta, não grava evento); grande demais = 413, sem ler o corpo."""
+        global BAD_BODY_COUNT
+        raw_len = self.headers.get("Content-Length")
+        try:
+            n = int(raw_len)
+        except (TypeError, ValueError):
+            n = -1
+        if n < 0:
+            BAD_BODY_COUNT += 1
+            raise ui.ApiError(400, BAD_BODY)
+        if n > max_body():
+            BAD_BODY_COUNT += 1
+            self.close_connection = True  # o corpo não será lido
+            raise ui.ApiError(413, BODY_TOO_BIG)
+        try:
+            body = json.loads(self.rfile.read(n) or b"{}")
+        except (ValueError, UnicodeDecodeError):
+            body = None
+        if not isinstance(body, dict):
+            BAD_BODY_COUNT += 1
+            raise ui.ApiError(400, BAD_BODY)
+        return body
 
     def do_POST(self):
         if not self._local_only():
@@ -1776,15 +1985,14 @@ class H(BaseHTTPRequestHandler):
         if not fn:
             return self._send(404, {"error": "não encontrado"})
         try:
-            body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
-            self._send(200, fn(body))
+            self._send(200, fn(self._read_json_body()))
         except ui.ApiError as e:
             self._send(e.status, {"error": str(e)})
         except KeyError as e:
             self._send(400, {"error": f"campo ausente: {e}"})
         except Exception as e:  # noqa: BLE001
             log_event("erro", rota=self.path, erro=f"{type(e).__name__}: {e}")
-            self._send(500, {"error": "Erro interno do servidor.", "error_detail": f"{type(e).__name__}: {e}"})
+            self._send(500, {"error": "Erro interno do servidor.", "error_detail": visible_detail(f"{type(e).__name__}: {e}")})
 
     def log_message(self, fmt, *args):
         sys.stderr.write("  %s\n" % (fmt % args))

@@ -12,3 +12,4 @@ test/logs/
 test/train_data/
 test/train_out/
 .claude/
+test/projects.json

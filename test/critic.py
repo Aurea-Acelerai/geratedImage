@@ -10,6 +10,7 @@ Uso:
   OPENAI_API_KEY=... python critic.py --calibrate calibration/labels.csv
 """
 import argparse, base64, csv, json, os, pathlib, re, sys
+import client_provider  # lista permitida de campos do cliente (o que pode ir ao prompt)
 
 ROOT = pathlib.Path(__file__).resolve().parent
 RUBRIC_PATH = ROOT.parent / "prompts" / "rubric.json"
@@ -104,7 +105,7 @@ def parse_json(text):
 def review(vlm, briefing, client_ctx, request, images, retries=1, notes="", packs=None):
     """images: lista de (rótulo, base64 png). Falha explícita se o JSON for inválido: nunca aprova por omissão."""
     user = (f"Pedido original: {request}\n\nBriefing enviado ao modelo de imagem:\n{briefing}\n\n"
-            f"Contexto da marca:\n{json.dumps(client_ctx, ensure_ascii=False)}")
+            f"Contexto da marca:\n{json.dumps(client_provider.safe_context(client_ctx), ensure_ascii=False)}")
     if notes:  # checagens específicas das skills de design aplicadas a esta peça (skills_router.review_notes)
         user += f"\n\nChecagens específicas desta peça (skills de design aplicadas):\n{notes}"
     last = None
