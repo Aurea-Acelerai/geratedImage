@@ -50,10 +50,12 @@ Envie a logo, peças e referências do cliente (ficam em `test/clients/<id>/`, f
 
 - **Progresso ao vivo:** cada etapa aparece (skills, briefing, tentativa, revisão, correção) com a imagem de cada tentativa; dá para ampliar qualquer imagem. Atualizar a página no meio não perde nada.
 - **Modelos:** a barra lateral lista os modelos da sua conta e um aviso aparece se `IMAGE_MODEL`/`TEXT_MODEL` não existirem nela (o `HANDOFF` pede para confirmar). Troque pelo seletor ou pelas variáveis de ambiente.
-- **Pipeline por mensagem:** designer (com `docs/08` e as skills do pedido) → imagem → checagens por código → critic (rubrica v3) → até 2 correções.
+- **Modo livre (padrão):** qualquer imagem, sem marca: nada do cliente (setor, paleta, estilo) entra no briefing, e o pedido do usuário manda. **Modo com marca:** aplica o cliente só onde o pedido é omisso. Pedido sem assunto ("quero ver a imagem") faz o designer perguntar em vez de inventar.
+- **Melhorias da aplicação (cada uma liga/desliga):** designer reescreve o briefing, skills de design, critic com correção, e "comparar com o GPT puro" (gera também só o seu texto, lado a lado, na mesma régua do critic). Tudo desligado = o GPT sozinho com o seu texto. A resposta mostra "Seu pedido", "O que a aplicação fez" e o briefing enviado ao modelo.
+- **Pipeline por mensagem:** designer (com `docs/08` e as skills do pedido; skills de marketing só em peça de marketing) → imagem → checagens por código → critic (rubrica v3) → até 2 correções.
 - **Sem chave:** só o briefing sai, via CLI `claude`.
 - **Limite:** logo e texto exato ainda não são compostos por código; o critic reprova logo redesenhado (`logo_inventado`).
-- **Teste sem custo do caminho real:** `python3 fake_openai.py --port 9101` e, em outro terminal, `OPENAI_BASE_URL=http://127.0.0.1:9101/v1 OPENAI_API_KEY=fake python3 chat_server.py`. Prova que as requisições são montadas e as respostas tratadas; não valida a API real.
+- **Teste sem custo do caminho real:** `cd test && python3 e2e_chat.py`. Sobe a OpenAI falsa (`fake_openai.py`) e o chat numa pasta temporária (`CHAT_DATA_DIR`), sem tocar em `test/clients` e `test/chat_out` (o seu uso real). Prova que as requisições são montadas, as respostas tratadas e que modos e melhorias se comportam; não valida a API real. **Nunca apague `test/clients` nem `test/chat_out`**: guardam as suas imagens e a biblioteca.
 
 ## Interface rápida para testar o system prompt
 ```bash

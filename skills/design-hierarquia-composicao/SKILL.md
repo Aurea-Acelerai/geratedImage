@@ -7,7 +7,7 @@ order: 20
 
 # Hierarquia e composição (H1 a H6)
 
-Você controla a **imagem**; o texto entra depois, por código. Por isso a hierarquia se constrói em duas camadas: a cena (onde está o peso e o espaço calmo) e o texto composto (escala e posição). Descreva as duas no briefing.
+Os exemplos ilustram forma, não conteúdo: nunca herde deles assunto, cena ou luz. Você controla a **imagem**; quando a peça tem texto, ele entra depois, por código. Por isso a hierarquia se constrói em duas camadas: a cena (onde está o peso e o espaço calmo) e o texto composto (escala e posição). Descreva as duas no briefing.
 
 ### H1 — Três níveis de leitura com salto real
 - **Por quê:** sem salto de escala ou peso, tudo parece igual e o olho não sabe por onde entrar.
@@ -16,18 +16,18 @@ Você controla a **imagem**; o texto entra depois, por código. Por isso a hiera
 - **Falha típica:** título e subtítulo quase do mesmo tamanho; CTA maior que a oferta.
 
 ### H2 — Um único ponto focal
-- **Aplicar:** o foco se cria por **contraste, escala, isolamento, cor, direção e nitidez** (profundidade de campo). Use dois ou três ao mesmo tempo no foco e nenhum nos demais. Direção: o olhar do modelo e as linhas da cena apontam para a oferta ou o CTA. Prompt: "shallow depth of field, subject sharp, background softly blurred, subject's gaze toward the empty space on the right".
+- **Aplicar:** o foco se cria por **contraste, escala, isolamento, cor, direção e nitidez** (profundidade de campo). Use dois ou três ao mesmo tempo no foco e nenhum nos demais. Direção: o olhar do modelo e as linhas da cena apontam para a oferta ou o CTA. Prompt (forma): "shallow depth of field, subject sharp, background softly blurred" e, só se houver texto planejado, "subject looking toward the area reserved for the headline".
 - **Verificar:** onde o olho pousa primeiro (peça borrada)? É o foco declarado?
 - **Falha típica:** dois rostos de tamanho igual; elemento decorativo mais saturado que o assunto.
 
 ### H3 — Zonas
-- **Aplicar:** vertical (4:5, 9:16): topo = marca ou proposta; meio = mensagem e visual; base = CTA. Horizontal (1.91:1, 16:9): leitura em Z (marca no canto superior esquerdo, assunto à direita, CTA embaixo à direita). Combine as zonas com as áreas de risco da interface do canal (skill `design-formato-canal`). Defina no briefing a região do texto em **proporções do quadro**: "upper 30% reserved for headline, calm and uniform".
+- **Aplicar:** vertical (4:5, 9:16): topo = marca ou proposta; meio = mensagem e visual; base = CTA. Horizontal (1.91:1, 16:9): leitura em Z (marca no canto superior esquerdo, assunto à direita, CTA embaixo à direita). Combine as zonas com as áreas de risco da interface do canal (skill `design-formato-canal`). **Só com texto planejado**, defina no briefing a região do texto em **proporções do quadro**: "upper 30% reserved for headline, calm and uniform".
 - **Verificar:** o texto previsto cai numa região calma e fora da área coberta pela interface.
 - **Falha típica:** CTA na faixa inferior que a plataforma cobre com legenda e botões.
 
 ### H4 — Espaço negativo com função
 - **Por quê:** é o que dá respiro e onde o texto vai viver. Sem ele o texto briga com a imagem.
-- **Aplicar:** em `hero`, reserve 30–40% do quadro como área calma: baixa variação de detalhe, gradiente suave, sem rosto nem objeto cortado. Posicione o assunto num terço e o espaço no oposto. Prompt: "negative space in the upper third, smooth out-of-focus sky, no objects, no text". Em `cell` (quadro cheio) o espaço negativo é interno ao design, não reservado.
+- **Aplicar:** **só quando há texto planejado** (peça de marketing, `hero`), reserve 30–40% do quadro como área calma. Em imagem livre **não deixe espaço vazio "para título"**: a composição é toda do assunto. Área calma: baixa variação de detalhe, gradiente suave, sem rosto nem objeto cortado. Posicione o assunto num terço e o espaço no oposto. Prompt: "negative space in the upper third, smooth out-of-focus sky, no objects, no text". Em `cell` (quadro cheio) o espaço negativo é interno ao design, não reservado.
 - **Verificar:** a região reservada é visivelmente uniforme (pouca textura, luminância estável): o contraste do texto (C1) fica previsível.
 - **Falha típica:** espaço "vazio" cheio de textura (folhas, ondas) que derruba a legibilidade.
 

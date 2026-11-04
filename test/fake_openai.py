@@ -16,7 +16,7 @@ import argparse, base64, email, json, re, struct, sys, threading, time, zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 STATS = {"models": 0, "chat_writer": 0, "chat_critic": 0, "generations": 0, "edits": 0, "edit_images": [], "writer_images": [],
-         "critic_images": [], "auth": set(), "edit_fields": [], "last_writer_user": ""}
+         "critic_images": [], "auth": set(), "edit_fields": [], "last_writer_user": "", "writer_systems": [], "image_prompts": []}
 LOCK = threading.Lock()
 CRITIC_KEYS = ["subject", "style", "composition", "hierarchy", "legibility_size", "message_clarity", "craft", "color_contrast",
                "text", "defects", "format", "binding_count", "invariants"]
@@ -71,6 +71,7 @@ class H(BaseHTTPRequestHandler):
                 return self._json(200, {"choices": [{"message": {"content": json.dumps(rv)}}]})
             with LOCK:
                 STATS["chat_writer"] += 1; STATS["writer_images"].append(nimg); STATS["last_writer_user"] = utext
+                STATS["writer_systems"].append({"livre": "MODO LIVRE" in system, "marca": "MODO COM MARCA" in system, "setor_no_prompt": "moda praia" in system})
             if "perguntar" in utext.lower():
                 out = {"question": "Qual é a oferta da peça?"}
             else:
@@ -83,7 +84,7 @@ class H(BaseHTTPRequestHandler):
         if self.path == "/v1/images/generations":
             req = json.loads(body)
             with LOCK:
-                STATS["generations"] += 1
+                STATS["generations"] += 1; STATS["image_prompts"].append(req["prompt"])
             w, h = (512, 512) if "wrongsize" in req["prompt"].lower() else map(int, req["size"].split("x"))
             return self._json(200, {"data": [{"b64_json": base64.b64encode(png(w, h)).decode()}]})
         if self.path == "/v1/images/edits":
@@ -94,6 +95,7 @@ class H(BaseHTTPRequestHandler):
             imgs = sum(1 for p in msg.get_payload() if p.get_param("name", header="content-disposition") == "image[]")
             with LOCK:
                 STATS["edits"] += 1; STATS["edit_images"].append(imgs); STATS["edit_fields"].append(sorted(fields))
+                STATS["image_prompts"].append(fields.get("prompt", b"").decode())
             size = fields.get("size", b"1024x1024").decode()
             w, h = (512, 512) if "wrongsize" in fields.get("prompt", b"").decode().lower() else map(int, size.split("x"))
             return self._json(200, {"data": [{"b64_json": base64.b64encode(png(w, h)).decode()}]})

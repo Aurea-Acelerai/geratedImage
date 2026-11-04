@@ -20,15 +20,15 @@ import run_comparison as rc  # noqa: E402
 TAIL = '\n\nResponda SOMENTE JSON: {"use_case":"...","role":"hero|cell","prompt":"<prompt final em inglês no schema>"}'
 
 
-def briefing(request, client_ctx, model="sonnet", size=None, timeout=240, feedback=None, prev=None):
+def briefing(request, client_ctx, model="sonnet", size=None, timeout=240, feedback=None, prev=None, mode="marca", use_skills=True, tail=None):
     with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False, encoding="utf-8") as f:
-        f.write(rc.load_system_prompt(client_ctx, request=request, size=size))
+        f.write(rc.load_system_prompt(client_ctx, request=request, size=size, mode=mode, use_skills=use_skills))
         sp = f.name
     user = f"Pedido: {request}" + (f"\nTamanho da peça: {size}" if size else "")
     if feedback:
         user += (f"\n\nA versão anterior foi reprovada. Prompt anterior:\n{prev}\n\n"
                  f"Corrija APENAS isto: {feedback}\nRepita as invariantes.")
-    user += TAIL
+    user += TAIL if tail is None else tail
     r = subprocess.run(["claude", "-p", "--model", model, "--system-prompt-file", sp, "--tools", "",
                         "--disable-slash-commands", "--output-format", "text", user],
                        capture_output=True, text=True, timeout=timeout)

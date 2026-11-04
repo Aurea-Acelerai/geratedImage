@@ -126,10 +126,12 @@ def self_test():
     missing = [i for i in doc_rule_ids() if i not in covered]
     assert not missing, f"regras sem aprofundamento em skill: {missing}"
     # roteamento
-    base = {"design-estrategia", "design-hierarquia-composicao", "design-cor-contraste-craft"}
+    base = {"design-hierarquia-composicao", "design-cor-contraste-craft"}  # imagem livre: só composição e craft
     assert set(select("paisagem de praia ao entardecer")) == base
+    assert set(select("um gato astronauta flutuando numa estação espacial, ilustração")) == base
+    assert "design-estrategia" in select("banner de promoção de verão")
     s1 = select("banner de promoção de verão com a nossa logo")
-    assert {"design-tipografia-texto", "design-formato-canal"} <= set(s1) and base <= set(s1)
+    assert {"design-tipografia-texto", "design-formato-canal", "design-estrategia"} <= set(s1) and base <= set(s1)
     assert "design-serie-marca" in select("série de 4 posts da campanha de inverno")
     assert "design-movimento-video" in select("reels em vídeo do lançamento")
     assert "design-formato-canal" in select("paisagem", size="1024x1536")

@@ -34,13 +34,28 @@ from critic import MAX_CYCLES, PASS_SCORE, WEIGHTS, decide, weighted
 PROFILE_PATH = ROOT.parent / "prompts" / "profiles" / os.environ.get("IMAGE_PROFILE", "openai-gpt-image-2.5.md")
 
 
-def load_system_prompt(client_ctx, agency="Aurea Tech", request=None, size=None, has_inputs=False):
+FREE_MODE = ("MODO LIVRE: não há marca neste pedido. Não existem paleta, setor, público, tom nem estilo de cliente: não use nenhum. "
+             "Você faz qualquer tipo de imagem (foto, ilustração, 3D, arte conceitual, retrato, produto, cena, diagrama visual). "
+             "Siga o pedido e decida somente o que ele deixa em aberto.")
+BRAND_MODE = ("MODO COM MARCA: o JSON abaixo é a marca do cliente. Use-o **somente para preencher o que o pedido omite** (paleta, estilo, tom). "
+              "Se o pedido contradiz o estilo da marca, vale o pedido. Nunca troque o assunto ou a cena pedidos pela cena típica do setor. "
+              "Sem marca carregada, diga o que falta em uma frase.\n\nContexto do cliente atual:\n{json}")
+
+
+def mode_instructions(client_ctx, mode):
+    if mode == "livre":
+        return FREE_MODE
+    return BRAND_MODE.format(json=json.dumps(client_ctx, ensure_ascii=False, indent=2))
+
+
+def load_system_prompt(client_ctx, agency="Aurea Tech", request=None, size=None, has_inputs=False, mode="marca", use_skills=True):
     txt = SYSTEM_PROMPT_PATH.read_text(encoding="utf-8")
     profile = PROFILE_PATH.read_text(encoding="utf-8")
-    return (txt.replace("{{client_context_json}}", json.dumps(client_ctx, ensure_ascii=False, indent=2))
+    skills_on = use_skills and os.getenv("DESIGN_SKILLS", "on") != "off"
+    return (txt.replace("{{mode_instructions}}", mode_instructions(client_ctx, mode))
                .replace("{{agency_name}}", agency)
                .replace("{{design_fundamentals}}", checks.design_fundamentals())
-               .replace("{{design_skills}}", skills_router.render(skills_router.select(request, size, has_inputs)) if request and os.getenv("DESIGN_SKILLS", "on") != "off" else "")
+               .replace("{{design_skills}}", skills_router.render(skills_router.select(request, size, has_inputs)) if request and skills_on else "")
                .replace("{{image_tool_profile}}", profile))
 
 
@@ -62,12 +77,16 @@ def self_test():
     sk = load_system_prompt({"name": "x"}, request="banner de promoção para stories", size="1536x1024")
     assert 'skill name="design-tipografia-texto"' in sk and 'skill name="design-formato-canal"' in sk and "{{design_skills}}" not in sk
     assert "<skill" not in sp, "sem pedido não há skills roteadas"
+    free = load_system_prompt({"sector": "moda praia"}, mode="livre")
+    assert "MODO LIVRE" in free and "moda praia" not in free, "modo livre não pode carregar o contexto do cliente"
+    assert "MODO COM MARCA" in sp and '"name": "x"' in sp
+    assert "<skill" not in load_system_prompt({"name": "x"}, request="banner de promoção", size="1536x1024", use_skills=False)
     os.environ["DESIGN_SKILLS"] = "off"
     try:
         assert "<skill" not in load_system_prompt({"name": "x"}, request="banner de promoção", size="1536x1024")
     finally:
         del os.environ["DESIGN_SKILLS"]
-    assert all(v not in sp for v in ("{{client_context_json}}", "{{agency_name}}", "{{image_tool_profile}}", "{{design_fundamentals}}", "{{design_skills}}")), "variável sem preencher"
+    assert all(v not in sp for v in ("{{mode_instructions}}", "{{client_context_json}}", "{{agency_name}}", "{{image_tool_profile}}", "{{design_fundamentals}}", "{{design_skills}}")), "variável sem preencher"
 
 
 def run_case(client, case, client_ctx, out, args):

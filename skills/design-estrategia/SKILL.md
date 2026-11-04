@@ -1,11 +1,14 @@
 ---
 name: design-estrategia
-description: Estratégia antes de gerar qualquer peça: oferta em uma frase, hook, ponto focal único, ângulo e lógica de conjunto (regras E1 a E5). Use em todo pedido de imagem de marketing, anúncio, post ou banner.
-always: true
+description: Estratégia de peças de marketing: oferta em uma frase, hook, ponto focal único, ângulo e lógica de conjunto (regras E1 a E5). Use quando o pedido é anúncio, banner, post de divulgação, flyer ou campanha; não vale para imagem livre (arte, foto, ilustração).
+always: false
+triggers: [anuncio, anúncio, ads, banner, promo, promoção, promocao, oferta, desconto, campanha, post, flyer, panfleto, cartaz, cta, venda, lancamento, lançamento, black friday, story, stories, reels, capa, thumbnail, folder, email, e-mail, divulgacao, divulgação]
 order: 10
 ---
 
 # Estratégia antes da imagem (E1 a E5)
+
+**Escopo:** esta skill vale para **peças de marketing**. Em imagem livre (arte, foto, ilustração, retrato, cena), não invente oferta, hook nem CTA. Os exemplos abaixo ilustram forma, não conteúdo.
 
 Uma peça bonita sem hipótese é só output. Antes de escrever o briefing, registre **quatro linhas**: oferta, hook, ponto focal, ângulo. Se não der para preencher a oferta com o pedido e o contexto do cliente, **pergunte ao usuário** (uma pergunta curta); nunca invente número, preço, prazo ou condição (veto `dado_inventado`).
 

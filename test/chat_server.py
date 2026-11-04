@@ -23,7 +23,9 @@ import checks, critic, skills_router  # noqa: E402
 import run_comparison as rc  # noqa: E402
 import ui_server as ui  # noqa: E402  (openai_post, ApiError, env_models)
 
-CLIENTS, OUT = ROOT / "clients", ROOT / "chat_out"
+# CHAT_DATA_DIR separa os dados do uso real dos dos testes automáticos (nunca apague a pasta de uso)
+DATA = pathlib.Path(os.getenv("CHAT_DATA_DIR") or ROOT)
+CLIENTS, OUT = DATA / "clients", DATA / "chat_out"
 MOCK = False
 MIME_EXT = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/svg+xml": "svg"}
 KIND_ROLE = {
@@ -116,26 +118,29 @@ def build_user(text, size, history, inputs, feedback=None, prev=None):
     if feedback:
         u += (f"\nA versão anterior foi reprovada. Prompt anterior:\n{prev}\n\nCorrija APENAS isto: {feedback}\n"
               "Repita as invariantes.")
-    u += ('\n\nSe faltar informação essencial (por exemplo a oferta, regra E1) e não der para deduzir do cliente e da conversa, '
+    u += ('\n\nO assunto e a cena do **pedido atual** são exigências literais: preserve-os no prompt final e não reaproveite a cena de '
+          'pedidos anteriores (a menos que o pedido atual seja uma edição da imagem anterior).\n'
+          'Se o pedido não disser o que deve aparecer (sem assunto), ou, numa peça de marketing, se faltar a oferta e não der para deduzir, '
           'responda SOMENTE {"question":"<uma pergunta curta em português>"}.\n'
           'Caso contrário responda SOMENTE JSON: {"use_case":"...","role":"hero|cell","prompt":"<prompt final em inglês no schema>"}')
     return u
 
 
-def write_briefing(ctx, text, size, history, inputs, feedback=None, prev=None, model=None, provider="openai"):
+def write_briefing(ctx, text, size, history, inputs, feedback=None, prev=None, model=None, provider="openai", mode="livre", use_skills=True):
     if MOCK:
         time.sleep(0.5)
         if re.search(r"\bperguntar\b", text):
             return {"question": "(mock) Qual é a oferta da peça?"}
         return {"use_case": "ads-marketing", "role": "cell",
-                "prompt": f"Use case: ads-marketing\nPrimary request: {text}\nStyle/medium: {ctx.get('image_style', '')}\n"
-                          f"Input images: {len(inputs)}\nColor palette: {', '.join(ctx.get('palette', []))}"
+                "prompt": f"Use case: ads-marketing\nPrimary request: {text}\n"
+                          + (f"Style/medium: {ctx.get('image_style', '')}\nColor palette: {', '.join(ctx.get('palette', []))}\n" if mode == "marca" else "")
+                          + f"Input images: {len(inputs)}"
                           + (f"\n[mock: corrigido -> {feedback}]" if feedback else "")}
-    system = rc.load_system_prompt(ctx, request=text, size=size, has_inputs=bool(inputs))
+    system = rc.load_system_prompt(ctx, request=text, size=size, has_inputs=bool(inputs), mode=mode, use_skills=use_skills)
     user = build_user(text, size, history, inputs, feedback, prev)
     if provider == "claude":
         import run_briefings_claude as rbc
-        return rbc.briefing(user.split("\n\nSe faltar")[0], ctx, "sonnet", size)
+        return rbc.briefing(user, ctx, "sonnet", size, mode=mode, use_skills=use_skills, tail="")
     # o designer enxerga até 6 imagens de até 5 MB (token e limite); o modelo de imagem recebe todas
     seen = [x for x in inputs if len(x["bytes"]) <= 5 * 1024 * 1024 and x["mime"] in ("image/png", "image/jpeg", "image/webp")][:6]
     skipped = [x["name"] for x in inputs if x not in seen]
@@ -369,25 +374,40 @@ def run_chat(b, emit, cid, text, ctx, inputs):
     text_model, image_model = b.get("text_model") or em["text_model"], b.get("image_model") or em["image_model"]
     history = b.get("history") or []
     provider = "claude" if (not MOCK and not os.getenv("OPENAI_API_KEY")) else "openai"
+    # modo: livre (qualquer imagem, sem marca) ou marca (aplica o cliente onde o pedido é omisso)
+    mode = "marca" if b.get("mode") == "marca" else "livre"
+    imp = {"designer": True, "skills": True, "review": b.get("review", True), "compare_raw": False, **(b.get("improve") or {})}
+    ctx_eff = ctx if mode == "marca" else {}
+    ctx_critic = ctx if mode == "marca" else {"modo": "livre (sem marca do cliente): julgue assunto, estilo e paleta só pelo pedido e pelo briefing"}
     t0 = time.time()
-    used = skills_router.select(text, size, bool(inputs))
+    used = skills_router.select(text, size, bool(inputs)) if (imp["designer"] and imp["skills"]) else []
     notes = skills_router.review_notes(used)
-    emit("Skills de design aplicadas: " + ", ".join(s.replace("design-", "") for s in used))
+    on = [k for k, label in (("designer", "briefing do designer"), ("skills", "skills de design"), ("review", "critic"), ("compare_raw", "comparação com o GPT puro")) if imp.get(k)]
+    emit(f"Modo {'com marca do cliente' if mode == 'marca' else 'livre (sem marca)'} · melhorias ligadas: " + (", ".join(on) or "nenhuma (seu texto vai direto ao modelo)"))
+    if used:
+        emit("Skills de design aplicadas: " + ", ".join(s.replace("design-", "") for s in used))
     if inputs:
         emit("Imagens de entrada: " + ", ".join(f"{x['kind']} {x['name']}" for x in inputs))
-    emit("O designer está escrevendo o briefing…")
-    brief = write_briefing(ctx, text, size, history, inputs, model=text_model, provider=provider)
-    if brief.get("question"):
-        return {"role": "assistant", "kind": "text", "text": brief["question"]}
-    if provider == "claude":
-        return {"role": "assistant", "kind": "text", "briefing_only": True,
-                "text": "Sem OPENAI_API_KEY: gerei só o briefing, sem imagem.\n\n" + brief.get("prompt", "")}
-    emit("Briefing pronto.", prompt=brief["prompt"])
-    do_rev = b.get("review", True)
+    if imp["designer"]:
+        emit("O designer está escrevendo o briefing…")
+        brief = write_briefing(ctx_eff, text, size, history, inputs, model=text_model, provider=provider, mode=mode, use_skills=imp["skills"])
+        if brief.get("question"):
+            return {"role": "assistant", "kind": "text", "text": brief["question"]}
+        if provider == "claude":
+            return {"role": "assistant", "kind": "text", "briefing_only": True,
+                    "text": "Sem OPENAI_API_KEY: gerei só o briefing, sem imagem.\n\n" + brief.get("prompt", "")}
+        emit("Briefing pronto.", prompt=brief["prompt"])
+    else:
+        if provider == "claude":
+            return {"role": "assistant", "kind": "text", "text": "Sem OPENAI_API_KEY não há como gerar a imagem."}
+        brief = {"prompt": text}
+        emit("Sem briefing do designer: o seu texto vai direto ao modelo de imagem.")
+    do_rev = bool(imp["review"])
+    max_cycle = critic.MAX_CYCLES if imp["designer"] else 0  # sem designer não há quem corrija o briefing
     mid = re.sub(r"[^a-z0-9]", "", time.strftime("%Y%m%d%H%M%S") + uuid.uuid4().hex[:4])
     (OUT / slug(cid)).mkdir(parents=True, exist_ok=True)
     cycles, best = [], None
-    for cycle in range(critic.MAX_CYCLES + 1):
+    for cycle in range(max_cycle + 1):
         how = "editando com as imagens de entrada" if inputs else "gerando"
         emit(f"Tentativa {cycle + 1}: {how} ({image_model}, {size}, {quality})…")
         tg = time.time()
@@ -399,7 +419,7 @@ def run_chat(b, emit, cid, text, ctx, inputs):
         entry = {"cycle": cycle, "prompt": brief["prompt"], "id": gid, "url": url}
         if do_rev:
             emit("O critic está revisando…")
-            rv, s, ok = do_review(ctx, text, brief["prompt"], b64, ext, size, inputs, b.get("critic_model") or text_model, notes)
+            rv, s, ok = do_review(ctx_critic, text, brief["prompt"], b64, ext, size, inputs, b.get("critic_model") or text_model, notes)
             entry.update(score=s, approved=ok, veto=rv.get("veto", []), fix=rv.get("fix"), review=rv)
             emit(f"Nota {s}: {'aprovada' if ok else 'reprovada'}" + (f" · vetos: {', '.join(rv.get('veto', []))}" if rv.get("veto") else "")
                  + (f" · correção: {rv.get('fix')}" if not ok and rv.get("fix") else ""))
@@ -408,18 +428,34 @@ def run_chat(b, emit, cid, text, ctx, inputs):
         cycles.append(entry)
         if best is None or (s or 0) > (best["score"] or 0):
             best = {"score": s, "entry": entry, "rv": rv, "ok": ok}
-        if not do_rev or ok or cycle == critic.MAX_CYCLES:
+        if not do_rev or ok or cycle == max_cycle:
             break
         emit("Corrigindo o briefing com a sugestão do critic…")
-        brief = write_briefing(ctx, text, size, history, inputs, feedback=rv.get("fix"), prev=brief["prompt"],
-                               model=text_model, provider=provider)
+        brief = write_briefing(ctx_eff, text, size, history, inputs, feedback=rv.get("fix"), prev=brief["prompt"],
+                               model=text_model, provider=provider, mode=mode, use_skills=imp["skills"])
         if brief.get("question"):
             break
     e = best["entry"]
-    return {"role": "assistant", "kind": "image", "id": e["id"], "url": e["url"], "score": best["score"], "approved": best["ok"],
-            "veto": (best["rv"] or {}).get("veto", []), "review": best["rv"], "prompt": e["prompt"], "cycles": cycles,
-            "skills": used, "generations": len(cycles), "seconds": round(time.time() - t0, 1), "size": size,
-            "inputs": [{"kind": x["kind"], "name": x["name"]} for x in inputs]}
+    msg = {"role": "assistant", "kind": "image", "id": e["id"], "url": e["url"], "score": best["score"], "approved": best["ok"],
+           "veto": (best["rv"] or {}).get("veto", []), "review": best["rv"], "prompt": e["prompt"], "request": text, "cycles": cycles,
+           "skills": used, "mode": mode, "improve": imp, "generations": len(cycles), "seconds": round(time.time() - t0, 1), "size": size,
+           "inputs": [{"kind": x["kind"], "name": x["name"]} for x in inputs]}
+    if imp["compare_raw"]:
+        # o mesmo pedido, sem nada da aplicação: serve para ver o que as melhorias acrescentam
+        emit("Gerando a versão do GPT puro (o seu texto, sem a aplicação) para comparar…")
+        tr = time.time()
+        b64, ext = make_image(text, size, quality, inputs, image_model)
+        rid = f"{mid}raw"
+        (OUT / slug(cid) / f"{rid}.{ext}").write_bytes(base64.b64decode(b64))
+        raw = {"id": rid, "url": f"/files/{slug(cid)}/out/{rid}.{ext}", "prompt": text}
+        emit(f"Versão do GPT puro pronta em {round(time.time() - tr)}s.", image_url=raw["url"])
+        if do_rev:
+            emit("O critic está revisando a versão pura (mesma régua)…")
+            rv2, s2, ok2 = do_review(ctx_critic, text, text, b64, ext, size, inputs, b.get("critic_model") or text_model, "")
+            raw.update(score=s2, approved=ok2, veto=rv2.get("veto", []))
+            emit(f"GPT puro: nota {s2}{' · vetos: ' + ', '.join(rv2.get('veto', [])) if rv2.get('veto') else ''}")
+        msg["raw"] = raw
+    return msg
 
 
 POST = {"/api/client": api_client, "/api/client/save": api_client_save, "/api/asset": api_asset,

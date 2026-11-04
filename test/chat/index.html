@@ -56,6 +56,14 @@
   .chip img { width: 28px; height: 28px; object-fit: cover; border-radius: 6px; }
   .chip button { border: none; background: none; cursor: pointer; color: var(--muted); padding: 0 6px; }
   .imgcard img.main { max-width: min(100%, 540px); border-radius: 12px; border: 1px solid var(--line); display: block; cursor: zoom-in; }
+  .cmp { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; max-width: 780px; }
+  .cmp figure { margin: 0; font-size: 12px; color: var(--muted); }
+  .cmp figure img { width: 100%; border-radius: 12px; border: 1px solid var(--line); display: block; cursor: zoom-in; }
+  .cmp figure b { color: var(--ink); }
+  .what { margin-top: 8px; font-size: 12px; color: var(--muted); border-left: 3px solid var(--line); padding-left: 10px; }
+  .what b { color: var(--ink); }
+  .chk { display: flex; gap: 8px; align-items: flex-start; margin-top: 8px; font-size: 13px; }
+  .chk input { margin-top: 3px; flex: none; }
   .tries { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
   .tries figure { margin: 0; font-size: 11px; color: var(--muted); }
   .tries img { width: 88px; height: 88px; object-fit: cover; border-radius: 8px; border: 2px solid var(--line); display: block; cursor: zoom-in; }
@@ -116,8 +124,19 @@
   <div class="row"><span>Qualidade</span><select id="quality" autocomplete="off"><option>low</option><option selected>medium</option><option>high</option></select></div>
   <div class="row"><span>Imagem</span><select id="imageModel" autocomplete="off"></select></div>
   <div class="row"><span>Texto</span><select id="textModel" autocomplete="off"></select></div>
-  <label class="row" style="gap:6px"><input type="checkbox" id="doReview" checked autocomplete="off" style="flex:none"> <span style="min-width:0">Revisar com o critic (até 2 correções)</span></label>
   <p class="hint" id="cfg"></p>
+  <h2>Modo</h2>
+  <select id="mode" autocomplete="off">
+    <option value="livre" selected>Livre: qualquer imagem, sem marca</option>
+    <option value="marca">Com a marca do cliente</option>
+  </select>
+  <p class="hint" id="modeHint"></p>
+  <h2>Melhorias da aplicação</h2>
+  <label class="chk"><input type="checkbox" id="impDesigner" checked autocomplete="off"><span>Designer reescreve o pedido (briefing de direção de arte)</span></label>
+  <label class="chk"><input type="checkbox" id="impSkills" checked autocomplete="off"><span>Skills de design (composição, luz, textura, formato…)</span></label>
+  <label class="chk"><input type="checkbox" id="doReview" checked autocomplete="off"><span>Critic revisa e corrige (até 2 vezes)</span></label>
+  <label class="chk"><input type="checkbox" id="impRaw" autocomplete="off"><span>Comparar com o GPT puro (gera 1 imagem a mais)</span></label>
+  <p class="hint">Desligue tudo para ver o que o GPT faz sozinho com o seu texto. Ligue uma melhoria por vez para ver o efeito de cada uma.</p>
 </aside>
 <main>
   <header>
@@ -131,7 +150,7 @@
   <div id="composer">
     <div class="box2" id="box2">
       <div class="chips" id="chips"></div>
-      <textarea id="text" rows="1" placeholder="Peça uma imagem (ex.: banner de promoção de verão com a nossa logo)"></textarea>
+      <textarea id="text" rows="1" placeholder="Descreva a imagem que você quer"></textarea>
       <div class="bar">
         <button class="btn" id="attach" title="Anexar imagem">＋ Anexar</button>
         <span class="hint" id="status"></span>
@@ -171,6 +190,7 @@ async function init() {
   $('modeBadge').textContent = S.state.mock ? 'MOCK (imagens falsas)' : S.state.has_key ? 'API OpenAI' : S.state.has_claude ? 'sem chave: só briefing (Claude)' : 'sem chave';
   if (!S.state.mock && !S.state.has_key) $('modeBadge').classList.add('warn');
   $('cfg').textContent = `nota mínima ${S.state.pass_score} · até ${S.state.max_cycles} correções`;
+  setModeHint();
   await loadClient($('client').value || '71');
   checkModels();
 }
@@ -233,9 +253,18 @@ function msgHtml(m) {
     const scores = m.review ? Object.entries(m.review.scores || {}).map(([k, v]) => `${k}: ${v}`).join('  ·  ') : '';
     const cyc = (m.cycles || []).map((c) => `tentativa ${c.cycle + 1}: ${c.score ?? '—'}${c.approved ? ' ✓' : ''}${(c.veto || []).length ? ' veto ' + c.veto.join(',') : ''}${c.fix ? '\n   correção pedida: ' + c.fix : ''}`).join('\n');
     const tries = (m.cycles || []).length > 1 ? `<div class="tries">${m.cycles.map((c) => `<figure class="${c.id === m.id ? 'best' : ''}"><img data-zoom="${c.url}" src="${c.url}" alt="">tentativa ${c.cycle + 1}${c.score != null ? ' · ' + c.score : ''}</figure>`).join('')}</div>` : '';
+    const imp = m.improve || {};
+    const did = [`modo ${m.mode === 'marca' ? 'com marca' : 'livre'}`, imp.designer === false ? 'sem designer (texto direto)' : 'designer', ...(imp.designer !== false && imp.skills === false ? ['sem skills'] : (m.skills || []).length ? [`skills (${m.skills.length})`] : []), imp.review === false ? 'sem critic' : 'critic'].join(' · ');
+    const what = `<div class="what"><b>Seu pedido:</b> ${esc(m.request || '')}<br><b>O que a aplicação fez:</b> ${esc(did)}${imp.designer === false ? '' : `<br><b>Enviado ao modelo de imagem:</b> ${esc((m.prompt || '').replace(/\s+/g, ' ').slice(0, 320))}${(m.prompt || '').length > 320 ? '…' : ''}`}</div>`;
+    const rawScore = m.raw && m.raw.score != null ? ` · nota ${m.raw.score}` : '';
+    const hero = m.raw
+      ? `<div class="cmp"><figure><img data-zoom="${m.url}" src="${m.url}" alt="com a aplicação"><b>Com a aplicação</b>${sc != null ? ' · nota ' + sc : ''}</figure>
+         <figure><img data-zoom="${m.raw.url}" src="${m.raw.url}" alt="GPT puro"><b>GPT puro</b> (só o seu texto)${rawScore}${(m.raw.veto || []).length ? ' · vetos: ' + m.raw.veto.map(esc).join(', ') : ''}</figure></div>`
+      : `<img class="main" data-zoom="${m.url}" src="${m.url}" alt="imagem gerada">`;
     return `<div class="msg assistant"><div class="imgcard">
-      <img class="main" data-zoom="${m.url}" src="${m.url}" alt="imagem gerada">
+      ${hero}
       <div class="meta">${scoreHtml}${veto}<span class="hint">${m.generations} geração(ões) · ${m.seconds}s · ${esc(m.size)}</span></div>
+      ${what}
       ${tries}
       <div class="meta"><button class="btn" data-edit="${m.id}">✎ Editar esta imagem</button>
         <a class="btn" href="${m.url}" download="${m.id}">Baixar</a></div>
@@ -260,8 +289,8 @@ function drawLog() {
   const w = $('wrap');
   if (!S.history.length && !S.live) {
     w.innerHTML = `<div class="empty"><h2>O que vamos criar para ${esc(S.client.name || S.clientId)}?</h2>
-      <div>Anexe a logo e referências, descreva o pedido e itere na imagem como no ChatGPT.</div>
-      <div class="sugg">${['Banner de promoção de verão para feed, com a nossa logo', 'Post de lançamento de coleção, fundo solar, espaço para título', 'Story com a modelo ao pôr do sol']
+      <div>Descreva qualquer imagem (foto, ilustração, 3D, produto, retrato, banner), anexe referências se quiser e itere como no ChatGPT.</div>
+      <div class="sugg">${['Um gato astronauta flutuando dentro de uma estação espacial, ilustração digital', 'Foto de produto: garrafa de vidro âmbar sobre mármore preto, luz de estúdio', 'Retrato em preto e branco de uma senhora idosa rindo, luz de janela', 'Banner de Black Friday para loja de eletrônicos (use o modo com marca)']
         .map((s) => `<button class="btn" data-sugg="${esc(s)}">${esc(s)}</button>`).join('')}</div></div>`;
   } else {
     w.innerHTML = S.history.map(msgHtml).join('') + liveHtml();
@@ -283,6 +312,11 @@ async function uploadFiles(files, kind) {
   drawAssets(); drawChips();
 }
 
+function setModeHint() {
+  $('modeHint').textContent = $('mode').value === 'livre'
+    ? 'O seu pedido manda. Nada do cliente (setor, paleta, estilo) entra no briefing.'
+    : 'Aplica paleta, estilo e tom do cliente só onde o pedido não disser. O pedido continua mandando.';
+}
 function setBusy(b) { S.busy = b; $('send').disabled = b; }
 
 async function poll(jobId, since) {
@@ -327,7 +361,8 @@ async function send(textOverride, bodyOverride) {
   if (S.editOf) attached.unshift({ kind: 'imagem anterior', name: 'edição', url: (S.history.find((m) => m.id === S.editOf) || {}).url || '' });
   const history = S.history.map((m) => ({ role: m.role, text: m.text || (m.kind === 'image' ? '[imagem gerada]' : '') }));
   const body = bodyOverride || { client: S.clientId, text, asset_ids: [...S.selected], edit_of: S.editOf, history,
-    size: $('size').value, quality: $('quality').value, review: $('doReview').checked,
+    size: $('size').value, quality: $('quality').value, review: $('doReview').checked, mode: $('mode').value,
+    improve: { designer: $('impDesigner').checked, skills: $('impSkills').checked, compare_raw: $('impRaw').checked },
     image_model: $('imageModel').value, text_model: $('textModel').value };
   S.lastBody = body;
   if (!bodyOverride) { S.history.push({ role: 'user', text, attached }); saveLog(); }  // salva já: atualizar a página no meio não perde o pedido
@@ -364,6 +399,7 @@ $('attach').onclick = () => $('file').click();
 $('addAsset').onclick = () => $('file').click();
 $('file').onchange = async (e) => { await uploadFiles([...e.target.files], $('kind').value); e.target.value = ''; };
 $('client').onchange = () => loadClient($('client').value);
+$('mode').onchange = setModeHint;
 $('newChat').onclick = () => { S.history = []; S.editOf = null; saveLog(); drawLog(); drawChips(); };
 $('saveClient').onclick = async () => {
   try { const c = JSON.parse($('clientJson').value); await api('/api/client/save', { id: S.clientId, client: c }); S.client = c; $('clientName').textContent = c.name || S.clientId; $('status').textContent = 'Dados salvos'; }
