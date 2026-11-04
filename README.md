@@ -25,9 +25,13 @@ cd test
 pip install openai
 python run_comparison.py --dry-run --all     # valida o fluxo sem custo
 export OPENAI_API_KEY=...                     # chave de teste, nunca commitar
-python run_comparison.py --all --repeats 3    # 6 casos x 3 repetições x 3 braços
-# abre out/<timestamp>/report.html e preencha ratings.csv (avaliação humana cega)
+python run_comparison.py --case 5 --arms ABNC # um caso primeiro, para conferir custo e acesso aos modelos
+python run_comparison.py --all --arms ABNC    # 6 casos
+python run_comparison.py --all --repeats 3    # depois, para medir consistência
+# avaliação cega: abra out/<timestamp>/blind/avaliar.html e preencha blind/ratings.csv (não abra key.json antes)
+python analyze.py out/<timestamp>             # tabela por braço: nota humana, aprovação, critic, gerações por peça
 ```
+Braço extra **N**: igual ao B, mas com cores por nome em vez de código hex (testa se o hex atrapalha). `--arms` escolhe quais braços rodar.
 Os modelos padrão (`gpt-image-2.5-sunburst`, `gpt-5.5`) seguem a documentação da OpenAI de nov/2026; confirme na conta e ajuste por variável de ambiente. O critic é um LLM: a decisão final usa a nota humana.
 
 ## Pendências
