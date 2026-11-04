@@ -877,7 +877,7 @@ def run_chat(b, emit, cid, text, ctx, inputs, files=None, auto=None, stale=None)
     cycles, best = [], None
     for cycle in range(max_cycle + 1):
         how = "editando com as imagens de entrada" if inputs else "gerando"
-        emit(f"Tentativa {cycle + 1}: {how} (OpenAI Images, modelo {image_model}, {size}, {quality}" + (", fidelidade alta" if fidelity else "") + ")…")
+        emit(f"Tentativa {cycle + 1}: {how} (OpenAI Images, modelo {image_model}, {size}, {quality}" + (", fidelidade alta" if fidelity and image_model not in FIDELITY_REJECTED else "") + ")…")
         tg = time.time()
         b64, ext = make_image(brief["prompt"], size, quality, inputs, image_model, fidelity, avisos)
         gid = f"{mid}c{cycle}"
