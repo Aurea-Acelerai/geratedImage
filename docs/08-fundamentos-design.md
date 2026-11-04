@@ -18,7 +18,7 @@ Cada regra tem um ID (`H1`, `F2`...) para o designer, o critic e o curador citar
 
 <!-- agent:start -->
 ## 1. Estratégia (antes de gerar) [ESTRATÉGIA]
-- **E1.** Escrever a oferta em **uma frase** antes do briefing de imagem. Sem oferta clara, pedir ao usuário.
+- **E1.** Escrever a oferta em **uma frase** antes do briefing de imagem. Sem oferta clara numa peça de marketing, **gerar a arte sem texto e avisar** (a oferta entra por código depois); nunca inventar número, preço ou prazo.
 - **E2.** Hook em **até 7 palavras**; nunca abrir com logo.
 - **E3.** **Um ponto focal**, declarado antes de desenhar. **Uma ideia por peça**; detalhe vai para a landing page.
 - **E4.** Escolher o **ângulo** (dor, desejo, prova, comparação, urgência, educação) antes do tratamento (foto, tipografia dominante, colagem, 3D). Trocar cor não é variar conceito.

@@ -292,6 +292,19 @@ try:
             cs._check_url(bad); ok(False, f"deveria bloquear {bad}")
         except Exception as e:
             ok(type(e).__name__ == "ApiError", f"bloqueia {bad}")
+    # 14) imagem antiga (sem apelido gravado) ganha apelido a partir do nome do arquivo
+    lib = pathlib.Path(tmp.name) / "clients" / "71"
+    arr = json.loads((lib / "assets.json").read_text(encoding="utf-8"))
+    legacy = {"id": "legado01", "kind": "pessoa", "name": "maria_souza.png", "file": "legado01.png", "mime": "image/png"}
+    (lib / "assets" / "legado01.png").write_bytes(png(8, 8))
+    (lib / "assets.json").write_text(json.dumps(arr + [legacy]), encoding="utf-8")
+    al = {a["id"]: a for a in call(CHAT, "/api/client", {"id": "71"})[1]["assets"]}
+    ok(al["legado01"]["alias"] == "maria souza", f"apelido derivado do nome do arquivo: {al['legado01']['alias']!r}")
+    p, _ = run({"client": "71", "conv": "convlegado", "text": "retrato da Maria Souza no escritorio", "review": False})
+    ok(any(i["name"] == "maria_souza.png" for i in p["message"]["inputs"]), "citar o nome anexa a imagem antiga sozinha")
+    # 15) o botão de fixar só aparece quando a pergunta é sobre imagem
+    p, _ = run({"client": "71", "conv": "convoferta", "text": "preciso perguntar perguntaoferta", "review": False}); mo = p["message"]
+    ok(mo["kind"] == "text" and "foto" not in mo["text"].lower() and mo["suggest"] == [] and mo["suggest_web"] == [], "pergunta sobre a oferta não oferece fixar foto")
     print("\nTUDO OK")
 finally:
     for p in procs:

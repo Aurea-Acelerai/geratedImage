@@ -349,7 +349,7 @@ function drawLog() {
   if (!S.history.length && !S.live) {
     w.innerHTML = `<div class="empty"><h2>O que vamos criar para ${esc(S.client.name || S.clientId)}?</h2>
       <div>Descreva qualquer imagem (foto, ilustração, 3D, produto, retrato, banner), anexe referências se quiser e itere como no ChatGPT.</div>
-      <div class="sugg">${['Um gato astronauta flutuando dentro de uma estação espacial, ilustração digital', 'Foto de produto: garrafa de vidro âmbar sobre mármore preto, luz de estúdio', 'Retrato em preto e branco de uma senhora idosa rindo, luz de janela', 'Banner de Black Friday para loja de eletrônicos (use o modo com marca)']
+      <div class="sugg">${['Um gato astronauta flutuando dentro de uma estação espacial, ilustração digital', 'Foto de produto: garrafa de vidro âmbar sobre mármore preto, luz de estúdio', 'Retrato em preto e branco de uma senhora idosa rindo, luz de janela', 'Banner de Black Friday para loja de eletrônicos, 20% off até domingo']
         .map((s) => `<button class="btn" data-sugg="${esc(s)}">${esc(s)}</button>`).join('')}</div></div>`;
   } else {
     w.innerHTML = S.history.map(msgHtml).join('') + liveHtml();

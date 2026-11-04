@@ -106,7 +106,7 @@ class H(BaseHTTPRequestHandler):
             if "buscarweb" in utext.lower() and "o designer PERGUNTOU" not in utext:
                 return self._json(200, {"choices": [{"message": {"content": json.dumps({"question": "Quer que eu busque o logo na web?", "search": [{"q": "logo CVC", "kind": "logo"}]})}}]})
             if "perguntar" in utext.lower() and "o designer PERGUNTOU" not in utext:  # pergunta uma vez; depois a memória já tem a resposta
-                out = {"question": "Qual é a oferta da peça?"}
+                out = {"question": "Qual é a oferta exata?"} if "perguntaoferta" in utext.lower() else {"question": "Qual é a oferta da peça e qual foto de referência devo usar?"}
             else:
                 m = re.search(r"Pedido atual[^:]*: (.*)", utext)
                 out = {"use_case": "ads-marketing", "role": "cell",

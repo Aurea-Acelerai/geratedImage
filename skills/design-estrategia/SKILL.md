@@ -10,7 +10,7 @@ order: 10
 
 **Escopo:** esta skill vale para **peças de marketing**. Em imagem livre (arte, foto, ilustração, retrato, cena), não invente oferta, hook nem CTA. Os exemplos abaixo ilustram forma, não conteúdo.
 
-Uma peça bonita sem hipótese é só output. Antes de escrever o briefing, registre **quatro linhas**: oferta, hook, ponto focal, ângulo. Se não der para preencher a oferta com o pedido e o contexto do cliente, **pergunte ao usuário** (uma pergunta curta); nunca invente número, preço, prazo ou condição (veto `dado_inventado`).
+Uma peça bonita sem hipótese é só output. Antes de escrever o briefing, registre **quatro linhas**: oferta, hook, ponto focal, ângulo. Se não der para preencher a oferta com o pedido e o contexto do cliente, **não bloqueie**: registre "oferta: não informada", gere a arte **sem texto** (a oferta é composta por código depois) e avise o usuário em `note` ("falta a oferta: me diga para compor o texto"). Nunca invente número, preço, prazo ou condição (veto `dado_inventado`).
 
 ## Ordem de decisão e perguntas
 Ordem: (1) a **única ação** desejada (oferta em uma frase e CTA); (2) **onde** será vista (proporção, safe zone, tempo de leitura); (3) **quem** lê e em que estado; (4) o **estilo** (só se o pedido ou a marca o definem; catálogo na skill `design-estilos`); (5) como provar (métrica, hipótese, uma variável por vez). **Não escolha estilo antes de saber onde a peça aparece.**

@@ -84,7 +84,10 @@ def load_client(cid):
 
 def load_assets(cid):
     p = cdir(cid) / "assets.json"
-    return json.loads(p.read_text(encoding="utf-8")) if p.exists() else []
+    assets = json.loads(p.read_text(encoding="utf-8")) if p.exists() else []
+    for a in assets:  # imagens anteriores aos apelidos ganham um a partir do nome do arquivo ('rodrigo.webp' -> 'rodrigo')
+        a.setdefault("alias", derive_alias(a.get("name", "")))
+    return assets
 
 
 def with_urls(cid, assets):
@@ -154,10 +157,10 @@ def build_user(text, size, history, inputs, feedback=None, prev=None, memory="",
               "Repita as invariantes.")
     u += ('\n\nO assunto e a cena do **pedido atual** são exigências literais: preserve-os no prompt final e não reaproveite a cena de '
           'pedidos anteriores (a menos que o pedido atual seja uma edição da imagem anterior).\n'
-          'Se o pedido não disser o que deve aparecer (sem assunto), ou, numa peça de marketing, se faltar a oferta e não der para deduzir, '
+          'Se o pedido não disser o que deve aparecer (sem assunto), ou se faltar uma referência obrigatória (pessoa nomeada sem foto), '
           'responda SOMENTE {"question":"<uma pergunta curta em português>","search":[{"q":"<consulta curta>","kind":"logo|pessoa|produto|referencia"}]} '
           '(o campo search é opcional: use-o quando a resposta é uma imagem que dá para buscar na web, como um logo ou a foto de uma pessoa pública).\n'
-          'Caso contrário responda SOMENTE JSON: {"use_case":"...","role":"hero|cell","prompt":"<prompt final em inglês no schema>"}')
+          'Caso contrário responda SOMENTE JSON: {"use_case":"...","role":"hero|cell","prompt":"<prompt final em inglês no schema>","note":"<aviso curto ao usuário, opcional: ex. falta a oferta, será composta depois>"}')
     return u
 
 
@@ -852,10 +855,14 @@ def run_chat(b, emit, cid, text, ctx, inputs, files=None, auto=None, stale=None)
             record(question=brief["question"])
             sw = [{"q": str(s["q"])[:120], "kind": s.get("kind") if s.get("kind") in KIND_ROLE else "referencia"}
                   for s in (brief.get("search") or []) if isinstance(s, dict) and s.get("q")][:3]
-            return {"role": "assistant", "kind": "text", "text": brief["question"], "conv": conv["id"], "suggest": suggest, "suggest_web": sw, "files": files}
+            about_image = bool(re.search(r"foto|imagem|refer[eê]ncia|logo|arquivo|anex|pessoa|produto|marca", brief["question"], re.I))
+            return {"role": "assistant", "kind": "text", "text": brief["question"], "conv": conv["id"], "suggest": suggest if about_image else [],
+                    "suggest_web": sw if about_image else [], "files": files}
         if provider == "claude":
             return {"role": "assistant", "kind": "text", "briefing_only": True,
                     "text": "Sem OPENAI_API_KEY: gerei só o briefing, sem imagem.\n\n" + brief.get("prompt", "")}
+        if brief.get("note"):
+            avisos.append(str(brief["note"])[:300])
         emit("Briefing pronto.", prompt=brief["prompt"])
     else:
         if provider == "claude":
