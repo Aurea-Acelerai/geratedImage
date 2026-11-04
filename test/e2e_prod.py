@@ -11,13 +11,14 @@ def free_port():
         s.bind(("127.0.0.1", 0)); return s.getsockname()[1]
 
 
-P1, P2, P3, P4, FC = free_port(), free_port(), free_port(), free_port(), free_port()
-tmps = [tempfile.TemporaryDirectory() for _ in range(4)]
-D1, D2, D3, D4 = (pathlib.Path(t.name) for t in tmps)
+P1, P2, P3, P4, P5, FC = free_port(), free_port(), free_port(), free_port(), free_port(), free_port()
+tmps = [tempfile.TemporaryDirectory() for _ in range(6)]
+D1, D2, D3, D4, D5, NOPIL = (pathlib.Path(t.name) for t in tmps)
+(NOPIL / "PIL").mkdir(); (NOPIL / "PIL" / "__init__.py").write_text("raise ImportError('Pillow bloqueado de propósito pelo teste')\n")  # esconde o Pillow do servidor P5
 def seed71(data_dir):  # cliente '71' FICTÍCIO criado aqui: o teste nunca lê test/client_71.json nem test/clients do repositório
     d = pathlib.Path(data_dir) / "clients" / "71"; d.mkdir(parents=True, exist_ok=True)
     (d / "client.json").write_text('{"id": 71, "name": "Marca Ficticia 71 (teste)", "sector": "praia ficticia", "palette": ["#0B3C5D"], "cpf": "000.111.222-33"}')
-for _d in (D1, D2, D3, D4):
+for _d in (D1, D2, D3, D4, D5):
     seed71(_d)
 base = {k: v for k, v in os.environ.items() if not k.startswith(("CHAT_", "VERCEL", "JOBS_INLINE"))}
 
@@ -47,6 +48,7 @@ fc = ThreadingHTTPServer(("127.0.0.1", FC), FakeCommons); threading.Thread(targe
 procs = [spawn(P1, D1, CHAT_MAX_BODY="200000", CHAT_MAX_RESPONSE="50000", COMMONS_API=f"http://127.0.0.1:{FC}/w/api.php", WEB_ALLOW_LOCAL="1"),
          spawn(P2, D2, JOBS_INLINE="1", CHAT_DEADLINE_S="14", CHAT_TEST_SLOW="5", CHAT_TEST_REJECT="1", CHAT_DEADLINE_MARGIN="1", CHAT_MIN_GEN_S="1"),
          spawn(P3, D3, CHAT_DEADLINE_S="3", CHAT_MIN_GEN_S="30"),
+         spawn(P5, D5, CHAT_MAX_RESPONSE="50000", PYTHONPATH=str(NOPIL)),
          spawn(P4, D4, JOBS_INLINE="1", CHAT_DEADLINE_S="8", CHAT_TEST_SLOW="9", CHAT_DEADLINE_MARGIN="1", CHAT_MIN_GEN_S="1")]
 
 
@@ -67,11 +69,12 @@ def post(port, path, body=None, **kw):
 
 
 def j(resp): return json.loads(resp[2]) if resp[2] else None
+skip = lambda m: print("PULA  ", m)  # visível: um teste que não rodou nunca finge sucesso
 ok = lambda c, m: print(("OK   " if c else "FALHA"), m) or (c or sys.exit(1))
 events = lambda d: [json.loads(l) for l in (d / "logs" / "events.jsonl").read_text().splitlines()] if (d / "logs" / "events.jsonl").exists() else []
 
 try:
-    for port in (P1, P2, P3, P4):
+    for port in (P1, P2, P3, P4, P5):
         for _ in range(50):
             try: raw(port, "GET", "/api/state"); break
             except Exception: time.sleep(0.2)
@@ -92,7 +95,7 @@ try:
         c.endheaders(); r = c.getresponse(); body = json.loads(r.read())
         ok(r.status == 400 and body == {"error": "Corpo da requisição inválido."}, f"Content-Length {label}: 400")
     r = post(P1, "/api/conv", b"x", headers={"Content-Length": "300000"}, send_body=False)
-    ok(r[0] == 413 and j(r)["error"] == "Arquivo grande demais para enviar (máx. ~4 MB). Reduza a imagem.", "Content-Length declarado acima do teto: 413 amigável, sem ler o corpo")
+    ok(r[0] == 413 and j(r)["error"] == "Arquivo grande demais para enviar (máx. ~0,2 MB). Reduza a imagem.", "Content-Length declarado acima do teto: 413 amigável com o teto REAL (0,2 MB neste servidor), sem ler o corpo")
     ok(post(P1, "/api/conv", {"client": "71", "conv": "x"})[0] == 200, "corpo normal segue funcionando")
     ok(post(P1, "/api/job", {"id": "abc", "since": "abc"})[0] == 400, "valor inválido (since) -> 400, não 500")
     ok(post(P1, "/api/asset", {"client": "71", "kind": "referencia", "name": "a.png", "mime": "image/png", "b64": "!!não-é-base64!!"})[0] == 400, "b64 inválido -> 400, não 500")
@@ -105,7 +108,17 @@ try:
     os.environ["CHAT_DEBUG"] = "1"
     ok(cs.visible_detail("ValueError: x") == "ValueError: x", "na Vercel com CHAT_DEBUG=1 aparece")
     os.environ.pop("VERCEL"); os.environ.pop("CHAT_DEBUG")
+    os.environ.pop("CHAT_MAX_BODY", None)
+    ok(cs.body_too_big_msg() == "Arquivo grande demais para enviar (máx. ~40 MB). Reduza a imagem.", "texto do 413 local (teto padrão): ~40 MB")
+    os.environ["VERCEL"] = "1"; ok(cs.body_too_big_msg() == "Arquivo grande demais para enviar (máx. ~4 MB). Reduza a imagem.", "texto do 413 na Vercel: ~4 MB"); os.environ.pop("VERCEL")
     os.environ["VERCEL"] = "1"; ok(cs.max_body() == 4_400_000, "teto de corpo na Vercel: 4,4 MB (abaixo dos 4,5 MB da plataforma)"); os.environ.pop("VERCEL")
+
+    # ================= F2: scope=all =================
+    (D1 / "conversations" / "71").mkdir(parents=True, exist_ok=True)
+    (D1 / "conversations" / "71" / "lista1.json").write_text(json.dumps({"id": "lista1", "client": "71", "turns": [{"n": 1, "request": "oi", "resolved": "oi", "intent": "new"}], "carry": [], "files": []}))
+    g_all = j(raw(P1, "GET", "/api/convs?scope=all")); g_none = j(raw(P1, "GET", "/api/convs"))
+    ok(g_all == g_none and any(c["id"] == "lista1" for c in g_all["convs"]), "GET /api/convs?scope=all equivale à chamada sem parâmetros (todas as conversas)")
+    ok(j(raw(P1, "GET", "/api/convs?client=all"))["convs"] == [], "?client=all continua sendo a pasta de um cliente chamado all (aqui vazia)")
 
     # ================= P2: cabeçalhos de segurança =================
     want = {"Content-Security-Policy": None, "X-Content-Type-Options": "nosniff", "X-Frame-Options": "DENY", "Referrer-Policy": "no-referrer",
@@ -153,7 +166,8 @@ try:
     t = time.time()
     st, h, body = post(P4, "/api/chat", {"client": "71", "conv": "to1", "text": "banner lento", "size": "1024x1024"})
     r = json.loads(body); dur = time.time() - t
-    ok(r["status"] == "error" and r["error"] == "A geração demorou demais. Tente de novo." and dur < 9.3, f"chamada lenta é cortada pelo prazo, não passa dele ({dur:.1f}s < 9,8s sem corte)")
+    # o corte é provado pelo RESULTADO (o mock só falha com SLOW_MSG quando o timeout é menor que a espera), não pelo relógio de parede: sob carga o tempo varia
+    ok(r["status"] == "error" and r["error"] == "A geração demorou demais. Tente de novo.", f"chamada lenta é cortada pelo prazo: job em erro neutro, não 'done' ({dur:.1f}s)")
     ok(any(e["kind"] == "timeout" and e["etapa"] == "imagem" and e["s"] <= 7.1 for e in events(D4)), "timeout da imagem = prazo restante menos a margem")
     os.environ.pop("CHAT_MIN_GEN_S", None); os.environ["VERCEL"] = "1"; ok(cs.min_gen_s() == 90.0, "Vercel: mínimo de 90 s para começar a 1ª imagem"); os.environ.pop("VERCEL"); ok(cs.min_gen_s() == 45.0, "local: 45 s")
 
@@ -197,6 +211,57 @@ try:
     ok(st in (200, 413) and b"<html" not in body[:200].lower() and (h.get("X-Image-Reduced") == "1" if st == 200 else h.get("X-Image-Too-Large") == "1" and "grande demais" in json.loads(body)["error"]),
        f"imagem acima do limite de resposta: versão reduzida ou 413 em JSON, nunca 500/HTML ({st})")
     ok(raw(P1, "GET", "/files/_geral/out/pq.png")[0] == 200, "imagem pequena segue 200")
+    # --- Pillow: resgate por redução; o import é opcional e protegido ---
+    try:
+        from PIL import Image
+        HAVE_PIL = True
+    except ImportError:
+        HAVE_PIL = False
+    big = b"\x89PNG\r\n\x1a\n" + os.urandom(120000)  # grande e NÃO decodificável como imagem
+    (D5 / "chat_out" / "_geral").mkdir(parents=True, exist_ok=True); (D5 / "chat_out" / "_geral" / "grande.png").write_bytes(big)
+    st, h, body = raw(P5, "GET", "/files/_geral/out/grande.png")
+    ok(st == 413 and h.get("X-Image-Too-Large") == "1" and "grande demais" in json.loads(body)["error"] and b"<html" not in body.lower(), "sem Pillow (servidor com o Pillow bloqueado): resposta grande vira 413 JSON, nunca 500/HTML")
+    sys.modules["PIL"] = None  # import falha: shrink_image tem que devolver None sem levantar
+    try:
+        ok(cs.shrink_image(big, 1000) is None, "shrink_image sem Pillow devolve None (não levanta)")
+    finally:
+        del sys.modules["PIL"]
+    if HAVE_PIL:
+        import io, random
+        random.seed(7)
+        im = Image.new("RGB", (900, 900))
+        im.putdata([((x * 255 // 900 + random.randint(0, 6)) % 256, (y * 255 // 900) % 256, ((x + y) * 255 // 1800 + random.randint(0, 6)) % 256) for y in range(900) for x in range(900)])
+        buf = io.BytesIO(); im.save(buf, "PNG"); png_big = buf.getvalue()
+        (D1 / "chat_out" / "_geral" / "gradiente.png").write_bytes(png_big)
+        ok(len(png_big) > 50000, f"imagem de teste grande ({len(png_big)} bytes) passa do limite de 50000")
+        st, h, body = raw(P1, "GET", "/files/_geral/out/gradiente.png")
+        ok(st == 200 and h.get("X-Image-Reduced") == "1" and h["Content-Type"] == "image/webp" and len(body) <= 50000 and body[:4] == b"RIFF" and body[8:12] == b"WEBP", f"com Pillow: resposta grande é reduzida a webp ({len(body)} bytes) com X-Image-Reduced")
+        ok(h.get("Cache-Control") == "private, max-age=31536000, immutable", "a versão reduzida também é imutável")
+        import regionedit
+        ok(regionedit.available(), "com Pillow, regionedit (edição localizada) fica disponível")
+    else:
+        skip("Pillow AUSENTE neste Python: PULADO o teste de redução da imagem grande (X-Image-Reduced) e o de regionedit; rode com um venv que tenha Pillow")
+        import regionedit
+        ok(not regionedit.available(), "sem Pillow, regionedit se declara indisponível (a edição localizada é pulada com aviso)")
+
+    # --- A9: mover conversa x excluir projeto, DETERMINÍSTICO (gancho entre validar e gravar) ---
+    import threading
+    pid = cs.api_project_create({"name": "Corrida"})["id"]
+    cs.save_conv({"id": "hk1", "client": None, "scope": "_geral", "created": "x", "turns": [{"n": 1, "request": "oi", "resolved": "oi", "intent": "new"}], "carry": [], "files": []})
+    deleter = threading.Thread(target=lambda: cs.api_project_delete({"id": pid}), daemon=True)
+    seen = {}
+    def hook():
+        deleter.start(); deleter.join(1.0)  # com a trava, o delete NÃO consegue terminar enquanto o move está entre validar e gravar
+        seen["delete_finished_during_move"] = not deleter.is_alive()
+    cs.TEST_HOOKS["move_validated"] = hook
+    try:
+        cs.api_conv_move({"scope": "_geral", "conv": "hk1", "project": pid})
+    finally:
+        cs.TEST_HOOKS.clear()
+    deleter.join(10)
+    saved = json.loads((D1 / "conversations" / "_geral" / "hk1.json").read_text())
+    ok(seen["delete_finished_during_move"] is False, "a exclusão do projeto espera o move terminar (a trava segura os dois)")
+    ok("project" not in saved and not any(p["id"] == pid for p in cs.read_projects()), "estado final consistente: projeto excluído e a conversa sem apontar para ele")
 
     # ================= P7: prazo do pipeline =================
     t = time.time()

@@ -69,7 +69,6 @@ GENERIC_ALIAS = {"logo", "foto", "imagem", "image", "img", "screenshot", "captur
                  "copy", "novo", "final", "versao", "whatsapp", "download", "photo", "picture", "untitled"}
 CONV_LOCK = threading.Lock()  # duas tarefas da mesma conversa não podem se sobrescrever
 GENERIC_ERROR = "Não consegui concluir a imagem."
-BODY_TOO_BIG = "Arquivo grande demais para enviar (máx. ~4 MB). Reduza a imagem."
 BAD_BODY = "Corpo da requisição inválido."
 SLOW_MSG = "A geração demorou demais. Tente de novo."
 DEADLINE_MSG = "Entreguei a melhor versão que deu tempo de fazer."
@@ -82,6 +81,13 @@ SECURITY_HEADERS = {
 }
 IMMUTABLE = "private, max-age=31536000, immutable"  # /files/*: o nome tem id único (imagem gerada: data+aleatório; anexo: uuid), nunca é reescrito; private porque o deploy é protegido
 IMG_MIME = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".webp": "image/webp", ".svg": "image/svg+xml"}
+
+
+def body_too_big_msg():
+    """Texto do 413 coerente com o teto efetivo: na Vercel ~4 MB; local, o valor real em MB."""
+    mb = 4 if vercel_mode() else round(max_body() / 1e6, 1)
+    txt = f"{mb:g}".replace(".", ",")
+    return f"Arquivo grande demais para enviar (máx. ~{txt} MB). Reduza a imagem."
 
 
 def max_body():
@@ -117,6 +123,7 @@ def min_gen_s():
 def max_cycles():
     v = os.getenv("CHAT_MAX_CYCLES")
     return int(v) if v else (1 if vercel_mode() else critic.MAX_CYCLES)  # na Vercel, no máximo 1 correção do critic
+TEST_HOOKS = {}  # ganchos só para testes (vazio em uso normal)
 PF_NAME = "Cliente (pessoa física)"  # nome genérico gravado no lugar do nome de pessoa física (decisão conservadora: o nome nunca vai para a conversa nem para a lista)
 GERAL = "_geral"  # escopo neutro: conversa que ainda não tem cliente (o cliente é detectado pelo texto)
 PROJECT_LOCK = threading.Lock()  # ordem das travas: PROJECT_LOCK antes de CONV_LOCK
@@ -1516,6 +1523,8 @@ def api_conv_move(b):
             pid = _strict_id(pid, "projeto")
             if not any(p["id"] == pid for p in read_projects()):
                 raise ui.ApiError(404, "projeto não encontrado")
+        if TEST_HOOKS.get("move_validated"):  # só nos testes: ponto determinístico entre validar e gravar (prova que a trava segura a exclusão do projeto)
+            TEST_HOOKS["move_validated"]()
         _edit_conv(b, lambda c: c.update(project=pid) if pid else c.pop("project", None))
     return {"ok": True}
 
@@ -1932,8 +1941,8 @@ BRAND_EXT = {".css", ".png"}
 
 def shrink_image(data, limit):
     """Versão reduzida (webp) de uma imagem grande, se o Pillow existir; senão None. Nunca levanta.
-    ATENÇÃO: o Pillow NÃO está em requirements.txt (decisão do Kelvin pendente). Sem ele este resgate não existe e uma resposta
-    acima do limite da Vercel vira 413 em JSON (o formato webp pedido à OpenAI é o que evita o caso comum)."""
+    O Pillow está em requirements.txt, mas o import é opcional e protegido: se faltar (ambiente local sem Pillow), o resgate não
+    existe e uma resposta acima do limite vira 413 em JSON (o formato webp pedido à OpenAI é o que evita o caso comum)."""
     try:
         from PIL import Image
         import io
@@ -2021,7 +2030,10 @@ class H(BaseHTTPRequestHandler):
                 return self._send(200, api_models({}))
             if path == "/api/convs":
                 q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query, keep_blank_values=True)
-                return self._send(200, list_convs((q.get("client") or q.get("scope") or [""])[0] if ("client" in q or "scope" in q) else None))
+                v = (q.get("client") or q.get("scope") or [""])[0] if ("client" in q or "scope" in q) else None
+                if "client" not in q and v == "all":  # scope=all = todas as pastas, igual a chamar sem parâmetro (um cliente chamado "all" continua acessível por ?client=all)
+                    v = None
+                return self._send(200, list_convs(v))
             if path == "/api/clients":
                 return self._send(200, api_clients((urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query).get("q") or [""])[0]))
             if path == "/api/projects":
@@ -2063,7 +2075,7 @@ class H(BaseHTTPRequestHandler):
         if n > max_body():
             BAD_BODY_COUNT += 1
             self.close_connection = True  # o corpo não será lido
-            raise ui.ApiError(413, BODY_TOO_BIG)
+            raise ui.ApiError(413, body_too_big_msg())
         try:
             body = json.loads(self.rfile.read(n) or b"{}")
         except (ValueError, UnicodeDecodeError):
