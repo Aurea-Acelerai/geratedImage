@@ -16,7 +16,7 @@ import argparse, base64, email, json, re, struct, sys, threading, time, zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 STATS = {"models": 0, "chat_writer": 0, "chat_critic": 0, "generations": 0, "edits": 0, "edit_images": [], "writer_images": [],
-         "critic_images": [], "auth": set(), "edit_fields": [], "last_writer_user": "", "writer_systems": [], "image_prompts": [], "critic_systems": [], "resolver_users": [], "web_queries": []}
+         "critic_images": [], "auth": set(), "edit_fields": [], "last_writer_user": "", "writer_systems": [], "image_prompts": [], "critic_systems": [], "resolver_users": [], "web_queries": [], "locator_calls": 0, "edit_masks": [], "edit_first_sizes": []}
 LOCK = threading.Lock()
 CRITIC_KEYS = ["subject", "style", "composition", "hierarchy", "legibility_size", "message_clarity", "craft", "color_contrast",
                "text", "defects", "format", "binding_count", "invariants", "brand_fit", "style_mechanism", "identity_match"]
@@ -75,6 +75,10 @@ class H(BaseHTTPRequestHandler):
             parts = user if isinstance(user, list) else [{"type": "text", "text": user}]
             utext = "\n".join(p["text"] for p in parts if p["type"] == "text")
             nimg = sum(1 for p in parts if p["type"] == "image_url")
+            if "caixas NORMALIZADAS" in system:
+                with LOCK:
+                    STATS["locator_calls"] += 1
+                return self._json(200, {"choices": [{"message": {"content": json.dumps({"regions": [{"label": "pessoa", "box": [0.4, 0.2, 0.9, 0.8]}]})}}]})
             if "resolve o contexto" in system:
                 msg = re.search(r"Nova mensagem do usuário: (.*)", utext, re.S).group(1).strip()
                 with LOCK:
@@ -86,8 +90,9 @@ class H(BaseHTTPRequestHandler):
                 elif re.search(r"\b(mude|troque|tire|agora|mais|deixe)\b", msg, re.I) and (lasts or re.search(r"refer[eê]ncia", msg, re.I)):
                     ref = re.search(r"([^,;|]+?) \(referencia\) \[id (\w+)\]", utext) if re.search(r"refer[eê]ncia", msg, re.I) else None
                     base = f"{lasts[-1]}; " if lasts else ""
-                    out = ({"intent": "edit", "request": f"{base}{msg}", "use_last_image": False, "edit_target": ref.group(2), "carry": []} if ref
-                           else {"intent": "edit", "request": f"{base}{msg}", "use_last_image": True, "carry": []})
+                    scope = "extend" if re.search(r"story|vertical", msg, re.I) else "local"
+                    out = ({"intent": "edit", "request": f"{base}{msg}", "use_last_image": False, "edit_target": ref.group(2), "scope": scope, "carry": []} if ref
+                           else {"intent": "edit", "request": f"{base}{msg}", "use_last_image": True, "scope": scope, "carry": []})
                 else:
                     out = {"intent": "new", "request": msg, "use_last_image": False, "carry": []}
                 return self._json(200, {"choices": [{"message": {"content": json.dumps(out)}}]})
@@ -129,6 +134,14 @@ class H(BaseHTTPRequestHandler):
             fields = {p.get_param("name", header="content-disposition"): p.get_payload(decode=True) for p in msg.get_payload()
                       if not p.get_filename()}
             imgs = sum(1 for p in msg.get_payload() if p.get_param("name", header="content-disposition") == "image[]")
+            def _psize(p):
+                d = p.get_payload(decode=True)
+                return struct.unpack(">II", d[16:24]) if d[:8] == b"\x89PNG\r\n\x1a\n" else None
+            mk = [p for p in msg.get_payload() if p.get_param("name", header="content-disposition") == "mask"]
+            first = next((p for p in msg.get_payload() if p.get_param("name", header="content-disposition") == "image[]"), None)
+            with LOCK:
+                STATS["edit_masks"].append(_psize(mk[0]) if mk else None)
+                STATS["edit_first_sizes"].append(_psize(first) if first is not None else None)
             with LOCK:
                 STATS["edits"] += 1; STATS["edit_images"].append(imgs); STATS["edit_fields"].append(sorted(fields))
                 STATS["image_prompts"].append(fields.get("prompt", b"").decode())

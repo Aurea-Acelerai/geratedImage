@@ -19,7 +19,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 ROOT = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
-import checks, critic, skills_router  # noqa: E402
+import checks, critic, regionedit, skills_router  # noqa: E402
 import run_comparison as rc  # noqa: E402
 import ui_server as ui  # noqa: E402  (openai_post, ApiError, env_models)
 
@@ -36,6 +36,7 @@ WEB_ALLOW_LOCAL = os.getenv("WEB_ALLOW_LOCAL") == "1"  # só para testes automá
 GENERIC_ALIAS = {"logo", "foto", "imagem", "image", "img", "screenshot", "captura", "tela", "produto", "pessoa", "referencia", "peca",
                  "copy", "novo", "final", "versao", "whatsapp", "download", "photo", "picture", "untitled"}
 CONV_LOCK = threading.Lock()  # duas tarefas da mesma conversa não podem se sobrescrever
+CONV_BUSY = {}  # (cliente, conversa) -> nº de tarefas em andamento; protegido por CONV_LOCK. Excluir uma conversa ocupada seria desfeito pelo record()
 FIDELITY_REJECTED = set()  # modelos que recusaram input_fidelity (não insiste a cada tentativa)
 FIDELITY_MSG = "O modelo de imagem não aceitou input_fidelity=high; usei sem ele. A fidelidade ao rosto, logo ou produto de referência pode cair."
 MIME_EXT = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/svg+xml": "svg"}
@@ -194,7 +195,7 @@ def write_briefing(ctx, text, size, history, inputs, feedback=None, prev=None, m
     return json.loads(r["choices"][0]["message"]["content"])
 
 
-def make_image(prompt, size, quality, inputs, model, fidelity=None, notes=None):
+def make_image(prompt, size, quality, inputs, model, fidelity=None, notes=None, mask=None):
     if MOCK:
         time.sleep(0.8)
         w, h = (int(x) for x in size.split("x"))
@@ -207,6 +208,8 @@ def make_image(prompt, size, quality, inputs, model, fidelity=None, notes=None):
         return base64.b64encode(svg.encode()).decode(), "svg"
     if inputs:
         files = [("image[]", f"in{i}.{MIME_EXT.get(x['mime'], 'png')}", x["mime"], x["bytes"]) for i, x in enumerate(inputs)]
+        if mask:  # a máscara vale para a primeira imagem (o alvo); transparente = onde o modelo pode editar
+            files.append(("mask", "mask.png", "image/png", mask))
         fields = {"model": model, "prompt": prompt, "size": size, "quality": quality, "n": 1}
         if fidelity and model in FIDELITY_REJECTED:
             fidelity = None
@@ -655,7 +658,19 @@ def api_chat(b):
             "melhorias": {"designer": (b.get("improve") or {}).get("designer", True), "skills": (b.get("improve") or {}).get("skills", True),
                           "critic": b.get("review", True), "comparar": (b.get("improve") or {}).get("compare_raw", False)},
             "modelos": {"imagem": b.get("image_model"), "texto": b.get("text_model")}}
-    return {"job": start_job(lambda emit: run_chat(b, emit, cid, text, ctx, inputs, files, auto, stale), meta)}
+    key = (slug(cid), conv["id"])
+    with CONV_LOCK:
+        CONV_BUSY[key] = CONV_BUSY.get(key, 0) + 1
+
+    def task(emit):
+        try:
+            return run_chat(b, emit, cid, text, ctx, inputs, files, auto, stale)
+        finally:
+            with CONV_LOCK:
+                CONV_BUSY[key] -= 1
+                if not CONV_BUSY[key]:
+                    del CONV_BUSY[key]
+    return {"job": start_job(task, meta)}
 
 
 # ---------- memória da conversa (em disco; sobrevive a reinício e a atualizar a página) ----------
@@ -772,6 +787,7 @@ def resolve_turn(conv, text, avail, model, provider, has_files=False):
         return {"intent": out["intent"], "request": str(out["request"]).strip(),
                 "use_last_image": bool(out.get("use_last_image")) and out["intent"] in ("edit", "variation"),
                 "edit_target": (str(out["edit_target"]).strip() if out.get("edit_target") and out["intent"] == "edit" else None),
+                "scope": (out.get("scope") if out["intent"] == "edit" and out.get("scope") in ("local", "extend", "global") else None),
                 "carry": carry or list(conv["carry"])}, None
     except Exception as e:  # noqa: BLE001
         return triv, f"não consegui resolver o contexto ({type(e).__name__}); usei a sua mensagem como está"
@@ -829,23 +845,30 @@ def _existing_conv_path(b):
 
 def api_conv_delete(b):
     with CONV_LOCK:
-        _existing_conv_path(b).unlink()  # só o JSON da conversa; imagens de saída e biblioteca ficam
+        p = _existing_conv_path(b)
+        if CONV_BUSY.get((p.parent.name, p.stem)):
+            raise ui.ApiError(409, "a conversa ainda está gerando uma resposta; espere terminar para excluir")
+        p.unlink()  # só o JSON da conversa; imagens de saída e biblioteca ficam
     return {"ok": True}
 
 
 def api_conv_rename(b):
     title = b["title"]
-    if not isinstance(title, str) or not 1 <= len(title.strip()) <= 120:
-        raise ui.ApiError(400, "título deve ter de 1 a 120 caracteres")
+    if not isinstance(title, str) or not 1 <= len(title.strip()) <= 80:
+        raise ui.ApiError(400, "título deve ter de 1 a 80 caracteres")
     with CONV_LOCK:
         p = _existing_conv_path(b)
         try:
             c = json.loads(p.read_text(encoding="utf-8"))
         except ValueError:
+            c = None
+        if not isinstance(c, dict):
             raise ui.ApiError(422, "conversa ilegível; não dá para renomear")
         st = p.stat()
         c["title"] = title.strip()
-        save_conv(c)
+        tmp = p.with_name(p.name + f".{uuid.uuid4().hex[:6]}.tmp")  # grava no caminho já validado, não no id de dentro do arquivo
+        tmp.write_text(json.dumps(c, ensure_ascii=False, indent=2), encoding="utf-8")
+        tmp.replace(p)
         os.utime(p, (st.st_atime, st.st_mtime))  # renomear não é atividade: não muda a ordem do histórico
     return {"ok": True}
 
@@ -921,12 +944,46 @@ def run_chat(b, emit, cid, text, ctx, inputs, files=None, auto=None, stale=None)
     if intent in ("edit", "variation") and not any(x["kind"] in ("alvo", "variacao") for x in inputs):
         intent = "new"
         avisos.append("Não encontrei a imagem anterior para editar; gerei do zero com o pedido resolvido.")
+    # edição localizada / extensão de fundo: o modelo só mexe numa região e o original volta idêntico por código
+    region, alvo_in = None, next((x for x in inputs if x["kind"] == "alvo"), None)
+    if (alvo_in and intent == "edit" and resolved.get("scope") in ("local", "extend") and imp.get("region", True)
+            and regionedit.available() and not MOCK and provider == "openai"):
+        try:
+            if resolved["scope"] == "extend":
+                out_size = size if size in ("1024x1536", "1536x1024", "1024x1024") else "1024x1536"
+                ow, oh = (int(v) for v in out_size.split("x"))
+                canvas, mask_png, rorig, place = regionedit.make_extend(alvo_in["bytes"], ow, oh)
+                region = {"mode": "extend", "canvas": canvas, "mask": mask_png, "rorig": rorig, "place": place, "size": (ow, oh)}
+                size = out_size
+                emit(f"Extensão de fundo: a peça original fica intacta no centro e o modelo só preenche as faixas novas ({out_size}).")
+            else:
+                def chat_json(system, user_text, data_url):
+                    r = ui.openai_post("/chat/completions", {"model": text_model, "response_format": {"type": "json_object"},
+                                                             "messages": [{"role": "system", "content": system},
+                                                                          {"role": "user", "content": [{"type": "text", "text": user_text},
+                                                                                                       {"type": "image_url", "image_url": {"url": data_url}}]}]})
+                    return r["choices"][0]["message"]["content"]
+                regs = regionedit.locate(chat_json, alvo_in["bytes"], alvo_in["mime"], text_eff)
+                ow, oh = regionedit.open_rgb(alvo_in["bytes"]).size
+                boxes = regionedit.to_px(regs, ow, oh)
+                region = {"mode": "local", "mask": regionedit.local_mask_png((ow, oh), boxes), "boxes": boxes, "orig": alvo_in["bytes"]}
+                emit("Edição localizada: " + "; ".join(f"{lbl or 'região'} {[round(v, 2) for v in box]}" for lbl, box in regs) + ". Fora disso o original volta idêntico.")
+        except Exception as e:  # noqa: BLE001
+            region = None
+            avisos.append(f"Não consegui limitar a edição a uma região ({type(e).__name__}: {str(e)[:90]}); editei a imagem inteira.")
     pinned_ids = {x.get("id") for x in inputs}
     suggest = [{"id": a["id"], "name": a["name"], "kind": a["kind"]} for a in load_assets(cid) if a["kind"] in IDENTITY_KINDS and a["id"] not in pinned_ids]
     library = ", ".join(f"{s['name']} ({s['kind']})" for s in suggest)
     lib = {a["id"]: a for a in load_assets(cid)}
     files_desc = ", ".join(f"{lib[i]['name']} ({lib[i]['kind']}" + (f"; apelido: {lib[i]['alias']}" if lib[i].get("alias") else "") + ")" for i in files if i in lib)
     memory = memory_text(conv, files_desc)
+    if region:
+        memory += ("\n" if memory else "") + (
+            "Modo da edição: LOCALIZADA com máscara. O modelo de imagem só pode alterar a região mascarada (transparente) da Image 1; todo o resto da Image 1 "
+            "volta idêntico por código. Descreva SOMENTE o que deve aparecer dentro dessa região, no mesmo estilo, luz e escala do entorno, e escreva "
+            "'keep everything outside the masked area unchanged'." if region["mode"] == "local" else
+            "Modo da edição: EXTENSÃO DE FUNDO. A peça original está no centro da Image 1 e volta idêntica por código; o modelo só preenche as faixas vazias "
+            "em cima e embaixo. Descreva apenas a continuação natural do fundo (mesma luz, bokeh e cor), SEM objetos, pessoas ou texto novos.")
     if conv["turns"] or text_eff != text:
         emit(f"Memória: entendi como {'edição da imagem anterior' if intent == 'edit' else 'variação' if intent == 'variation' else 'pedido novo'}"
              + (f" · pedido resolvido: «{text_eff[:220]}»" if text_eff != text else ""))
@@ -984,8 +1041,20 @@ def run_chat(b, emit, cid, text, ctx, inputs, files=None, auto=None, stale=None)
         how = "editando com as imagens de entrada" if inputs else "gerando"
         emit(f"Tentativa {cycle + 1}: {how} (OpenAI Images, modelo {image_model}, {size}, {quality}" + (", fidelidade alta" if fidelity and image_model not in FIDELITY_REJECTED else "") + ")…")
         tg = time.time()
-        b64, ext = make_image(brief["prompt"], size, quality, inputs, image_model, fidelity, avisos)
+        call_inputs, mask_png = inputs, None
+        if region:
+            mask_png = region["mask"]
+            if region["mode"] == "extend":
+                call_inputs = [dict(alvo_in, bytes=region["canvas"], mime="image/png")] + [x for x in inputs if x is not alvo_in]
+        b64, ext = make_image(brief["prompt"], size, quality, call_inputs, image_model, fidelity, avisos, mask=mask_png)
         gid = f"{mid}c{cycle}"
+        if region:  # guarda o que o modelo gerou e entrega o original recomposto
+            raw = base64.b64decode(b64)
+            (OUT / slug(cid) / f"{gid}raw.png").write_bytes(raw)
+            fin = (regionedit.composite_local(region["orig"], raw, region["boxes"]) if region["mode"] == "local"
+                   else regionedit.composite_extend(raw, region["rorig"], region["place"], region["size"]))
+            b64, ext = base64.b64encode(fin).decode(), "png"
+            emit("Original recolado fora da região editada (pixels idênticos).")
         (OUT / slug(cid) / f"{gid}.{ext}").write_bytes(base64.b64decode(b64))
         url = f"/files/{slug(cid)}/out/{gid}.{ext}"
         emit(f"Imagem da tentativa {cycle + 1} pronta em {round(time.time() - tg)}s.", image_url=url)

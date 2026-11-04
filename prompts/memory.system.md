@@ -11,8 +11,15 @@ Devolva **somente** JSON:
  "request": "<pedido autossuficiente, em português>",
  "use_last_image": true|false,
  "edit_target": null | "last" | "<nome ou id de um arquivo da conversa>",
+ "scope": null | "local" | "extend" | "global",
  "carry": ["<instrução duradoura>", ...]}
 ```
+
+## Escopo da edição (`scope`, só quando `intent` é `edit`)
+- `"local"`: muda **elementos específicos** e o resto deve ficar idêntico (trocar a pessoa, trocar uma palavra ou um selo, tirar um objeto, mudar a cor de uma peça de roupa).
+- `"extend"`: o usuário quer **outro formato** mantendo a peça (story vertical, mais fundo, mudar a proporção) sem redesenhar os elementos.
+- `"global"`: redesenhar ou reestilizar a imagem inteira (outro estilo, outro clima, outra composição).
+- Fora de `edit`, `scope: null`. Em dúvida entre `local` e `global`, escolha `local` se o usuário disse "mantenha o resto".
 
 ## Primeira mensagem com arquivos anexados
 Se **não há memória** mas há arquivos anexados, decida do mesmo jeito: se o usuário pede para **alterar uma imagem anexada** ("troque a pessoa da foto de referência", "mude o texto da peça anexada", "adapte para story"), é `edit` com `edit_target` = esse arquivo; se pede uma imagem nova usando os anexos como referência, é `new`.

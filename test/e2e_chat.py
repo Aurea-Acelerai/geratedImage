@@ -329,6 +329,38 @@ try:
     ok(m1t["size"] == "auto", f"tamanho automático acompanha o alvo ({m1t['size']})")
     p, _ = run({"client": "71", "conv": "convsemalvo", "text": "um gato astronauta", "review": False})
     ok(p["message"]["size"] == "1024x1024", "sem alvo, o tamanho automático vira 1024x1024")
+    # 19) edição localizada e extensão de fundo: o original volta idêntico fora da região (precisa de Pillow)
+    try:
+        from PIL import Image as PILImage
+    except ImportError:
+        PILImage = None
+    if PILImage is None:
+        print("(pulado: Pillow ausente; rode com test/.venv/bin/python para cobrir a edição localizada)")
+    else:
+        import io
+        def real_png(w, h, rgb):
+            b = io.BytesIO(); PILImage.new("RGB", (w, h), rgb).save(b, "PNG"); return b.getvalue()
+        orig_id = call(CHAT, "/api/asset", {"client": "71", "kind": "referencia", "name": "peca_real.png", "mime": "image/png", "alias": "peca real",
+                                            "b64": base64.b64encode(real_png(200, 250, (200, 30, 30))).decode()})[1]["asset"]["id"]
+        out_dir = pathlib.Path(tmp.name) / "chat_out" / "71"
+        p, steps = run({"client": "71", "conv": "convregion", "text": "troque a pessoa da foto de referencia pela pessoa da foto", "asset_ids": [pid, orig_id], "review": False}); mr = p["message"]
+        s = call(FAKE, "/__stats")[1]
+        ok(any(x["text"].startswith("Edição localizada") for x in steps) and s["locator_calls"] >= 1, "o localizador de regiões foi chamado e o progresso mostra as caixas")
+        ok(s["edit_masks"][-1] == [200, 250] and s["edit_first_sizes"][-1] == [200, 250], f"a máscara tem o tamanho do original ({s['edit_masks'][-1]})")
+        im = PILImage.open(out_dir / f"{mr['id']}.png").convert("RGB")
+        ok(im.size == (200, 250) and im.getpixel((5, 5)) == (200, 30, 30) and im.getpixel((190, 240)) == (200, 30, 30), "fora da região o ORIGINAL volta idêntico (pixels)")
+        ok(im.getpixel((130, 125)) == (128, 128, 128), "dentro da região vale o que o modelo gerou")
+        ok((out_dir / f"{mr['id']}raw.png").exists(), "o que o modelo gerou fica guardado para análise")
+        # extensão para story
+        p, steps = run({"client": "71", "conv": "convextend", "text": "troque o formato da foto de referencia para story vertical", "asset_ids": [orig_id], "review": False}); me = p["message"]
+        s = call(FAKE, "/__stats")[1]
+        im = PILImage.open(out_dir / f"{me['id']}.png").convert("RGB")
+        ok(any(x["text"].startswith("Extensão de fundo") for x in steps) and me["size"] == "1024x1536", f"extensão de fundo para 1024x1536 ({me['size']})")
+        ok(s["edit_first_sizes"][-1] == [1024, 1536] and s["edit_masks"][-1] == [1024, 1536], "o modelo recebe a tela estendida e a máscara do mesmo tamanho")
+        ok(im.size == (1024, 1536) and im.getpixel((500, 10)) == (128, 128, 128) and im.getpixel((500, 768)) == (200, 30, 30), "faixas novas vêm do modelo; a peça original fica idêntica no centro")
+        # sem escopo local/extend (global), edita a imagem inteira como antes
+        p, _ = run({"client": "71", "conv": "convglobal", "text": "agora com camisa azul", "asset_ids": [pid], "review": False})
+        ok(call(FAKE, "/__stats")[1]["edit_masks"][-1] is None or p["message"]["intent"] != "edit", "edição sem região continua sem máscara")
     print("\nTUDO OK")
 finally:
     for p in procs:
