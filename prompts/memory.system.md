@@ -12,6 +12,7 @@ Devolva **somente** JSON:
  "use_last_image": true|false,
  "edit_target": null | "last" | "<nome ou id de um arquivo da conversa>",
  "scope": null | "local" | "extend" | "global",
+ "research": null | "<consulta curta para a busca na web>",
  "carry": ["<instrução duradoura>", ...]}
 ```
 
@@ -20,6 +21,9 @@ Devolva **somente** JSON:
 - `"extend"`: o usuário quer **outro formato** mantendo a peça (story vertical, mais fundo, mudar a proporção) sem redesenhar os elementos.
 - `"global"`: redesenhar ou reestilizar a imagem inteira (outro estilo, outro clima, outra composição).
 - Fora de `edit`, `scope: null`. Em dúvida entre `local` e `global`, escolha `local` se o usuário disse "mantenha o resto".
+
+## Pesquisa na web (`research`)
+Se o pedido é uma peça de marketing (banner, campanha, post de divulgação) que cita uma **marca, empresa, produto, campanha ou pessoa pública reais** e faltam fatos que **não podem ser inventados** (slogan, ofertas e condições vigentes, cores, logo), devolva em `research` uma consulta curta em português para a busca na web (ex.: "CVC Viagens identidade visual slogan oferta de parcelamento atual"). Use `research: null` quando: não há marca real; é imagem livre; o usuário já deu os fatos; ou a memória diz "Pesquisa da marca já feita". Nunca peça pesquisa só para descrever uma pessoa.
 
 ## Primeira mensagem com arquivos anexados
 Se **não há memória** mas há arquivos anexados, decida do mesmo jeito: se o usuário pede para **alterar uma imagem anexada** ("troque a pessoa da foto de referência", "mude o texto da peça anexada", "adapte para story"), é `edit` com `edit_target` = esse arquivo; se pede uma imagem nova usando os anexos como referência, é `new`.

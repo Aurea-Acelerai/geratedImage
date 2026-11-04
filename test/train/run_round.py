@@ -62,7 +62,7 @@ def ensure_assets(port, cid):
 def run_task(port, cid, ids, task, rnd, quality, review):
     conv = f"tr{rnd}{task['id'].lower()}{int(time.time()) % 100000}"
     body = {"client": cid, "conv": conv, "text": task["text"], "asset_ids": [ids[k] for k in task["assets"]], "size": task["size"],
-            "quality": quality, "review": review, "mode": "marca", "improve": {"compare_raw": False}}
+            "quality": quality, "review": review, "mode": task.get("mode", "marca"), "improve": {"compare_raw": False}}
     st, j = call(port, "/api/chat", body)
     if st != 200:
         return {"task": task["id"], "erro": j.get("error", st)}

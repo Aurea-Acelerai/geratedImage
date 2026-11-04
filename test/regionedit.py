@@ -24,8 +24,10 @@ LOCATE_SYSTEM = (
     "Responda SOMENTE JSON: {\"regions\":[{\"label\":\"<o que é>\",\"box\":[x0,y0,x1,y1]}]} com caixas NORMALIZADAS de 0 a 1 "
     "(origem no canto superior esquerdo; x para a direita, y para baixo). As caixas devem cobrir **somente** o que precisa mudar "
     "para cumprir a instrução, com cerca de 2% de margem, e **não** podem incluir elementos vizinhos que devem ficar iguais "
-    "(logo, selos, textos vizinhos, embalagens de produtos, botões). Ex.: para trocar uma pessoa, a caixa cobre a pessoa; para "
-    "trocar duas palavras de um título, uma caixa justa em volta de cada palavra. No máximo 6 caixas."
+    "(logo, selos, textos vizinhos, embalagens de produtos, botões). REGRAS: (1) trocar a pessoa, a identidade ou o rosto: cubra **somente a cabeça e o pescoço** (rosto, cabelo, orelhas), uma única caixa, "
+    "e NÃO o corpo, os braços, as mãos nem a roupa, a menos que a instrução peça mudar roupa, corpo ou pose; (2) trocar palavras de um título ou "
+    "selo: uma caixa justa em volta de cada palavra a mudar, sem tocar nas palavras vizinhas; (3) nunca deixe uma caixa invadir produtos, logo, "
+    "botões ou textos que devem ficar iguais; prefira caixas menores. No máximo 6 caixas."
 )
 
 

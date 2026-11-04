@@ -19,7 +19,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 ROOT = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
-import checks, critic, regionedit, skills_router  # noqa: E402
+import checks, client_provider, critic, regionedit, research, skills_router  # noqa: E402
 import store as store_mod  # noqa: E402  (Store: FileStore/MemoryStore/BlobStore)
 import run_comparison as rc  # noqa: E402
 import ui_server as ui  # noqa: E402  (openai_post, ApiError, env_models)
@@ -68,6 +68,8 @@ WEB_ALLOW_LOCAL = os.getenv("WEB_ALLOW_LOCAL") == "1"  # só para testes automá
 GENERIC_ALIAS = {"logo", "foto", "imagem", "image", "img", "screenshot", "captura", "tela", "produto", "pessoa", "referencia", "peca",
                  "copy", "novo", "final", "versao", "whatsapp", "download", "photo", "picture", "untitled"}
 CONV_LOCK = threading.Lock()  # duas tarefas da mesma conversa não podem se sobrescrever
+GERAL = "_geral"  # escopo neutro: conversa que ainda não tem cliente (o cliente é detectado pelo texto)
+PROJECT_LOCK = threading.Lock()  # ordem das travas: PROJECT_LOCK antes de CONV_LOCK
 CONV_BUSY = {}  # (cliente, conversa) -> nº de tarefas em andamento; protegido por CONV_LOCK. Excluir uma conversa ocupada seria desfeito pelo record()
 FIDELITY_REJECTED = set()  # modelos que recusaram input_fidelity (não insiste a cada tentativa)
 FIDELITY_MSG = "O modelo de imagem não aceitou input_fidelity=high; usei sem ele. A fidelidade ao rosto, logo ou produto de referência pode cair."
@@ -305,10 +307,10 @@ def find_out(cid, mid):
     raise ui.ApiError(404, "imagem a editar não encontrada")
 
 
-def collect_inputs(cid, edit_of, asset_ids):
+def collect_inputs(cid, edit_of, asset_ids, scope=None):
     inputs = []
     if edit_of:
-        k = find_out(cid, edit_of)
+        k = find_out(scope or cid, edit_of)
         mime = "image/svg+xml" if k.endswith(".svg") else "image/png"
         inputs.append(dict(kind="alvo", name=posixpath.basename(k), mime=mime, bytes=get_store().read_bytes(k),
                            role_text="ALVO DE EDIÇÃO: peça gerada anteriormente; mude só o que o pedido atual pede e mantenha o resto idêntico"))
@@ -336,12 +338,16 @@ def api_state(_):
         clients.append({"id": i, "name": read_json(f"clients/{i}/client.json").get("name", i)})
     return {"mock": MOCK, "has_key": bool(os.getenv("OPENAI_API_KEY")), "has_claude": shutil.which("claude") is not None,
             **ui.env_models(), "pass_score": critic.PASS_SCORE, "max_cycles": critic.MAX_CYCLES, "clients": clients,
-            "kinds": list(KIND_ROLE), "sizes": sorted(SIZES), "web_search": True}
+            "client_sources": [p.name for p in client_providers()], "kinds": list(KIND_ROLE), "sizes": sorted(SIZES), "web_search": True}
 
 
 def api_client(b):
     cid = b["id"]
-    return {"id": slug(cid), "client": load_client(cid), "assets": with_urls(cid, load_assets(cid))}
+    if get_store().exists(cdir(cid) + "/client.json"):
+        return {"id": slug(cid), "client": load_client(cid), "assets": with_urls(cid, load_assets(cid))}
+    info = _lookup_client(_strict_id(cid, "cliente"))  # id que vem do banco: contexto pela lista permitida + biblioteca local do cliente
+    ctx = {k: v for k, v in _provider(info["source"]).load(info["id"]).items() if not k.startswith("_")}
+    return {"id": slug(cid), "client": ctx, "assets": with_urls(cid, load_assets(cid)), "source": info["source"]}
 
 
 def api_client_new(b):
@@ -709,31 +715,161 @@ def api_job(b):
             "message": job["message"], "error": job["error"], "elapsed": round(job.get("t1", time.time()) - job["t0"], 1)}
 
 
+def client_providers():
+    """Fontes de cliente. O banco só entra se SUPABASE_URL e SUPABASE_READ_KEY existirem (somente leitura, só no servidor)."""
+    ids = lambda: sorted({k.split("/")[1] for k in get_store().list("clients/") if k.count("/") == 2 and k.endswith("/client.json")} - {GERAL})
+    def read(i):
+        k = f"clients/{slug(i)}/client.json"
+        if not get_store().exists(k):
+            raise FileNotFoundError(k)
+        return read_json(k)
+    ps = [client_provider.LocalClientProvider(ids, read)]
+    db = client_provider.SupabaseClientProvider.from_env()
+    return ps + ([db] if db else [])
+
+
+def _conv_client_id(conv, scope):
+    """Cliente da conversa: o campo 'client' (None = sem cliente); conversa antiga sem o campo usa a pasta onde está."""
+    if "client" in conv:
+        return conv["client"] if isinstance(conv["client"], str) and conv["client"] else None
+    return None if scope == GERAL else scope
+
+
+def _provider(source):
+    return next((p for p in client_providers() if p.name == source), None)
+
+
+def client_ctx(conv, cl):
+    """Contexto do cliente da conversa, SEMPRE pela lista permitida (as chaves '_x' são metadados internos, tiradas antes do prompt).
+    Banco fora do ar é erro explícito, nunca 'sem cliente'. Cliente do banco: o banco prevalece, a edição local só acrescenta o que falta."""
+    src = conv.get("client_source") or "local"
+    pv = _provider(src)
+    if pv is None:
+        raise ui.ApiError(503, f"A fonte de clientes '{src}' não está habilitada neste servidor (CHAT_DB_ENABLED, SUPABASE_URL e SUPABASE_READ_KEY).")
+    try:
+        ctx = pv.load(cl)
+    except client_provider.NotFound:
+        raise ui.ApiError(404, f"cliente {cl} não existe na fonte '{src}'")
+    except client_provider.ProviderError as e:
+        raise ui.ApiError(502, str(e))
+    if src == "banco" and get_store().exists(f"clients/{slug(cl)}/client.json"):
+        meta = {k: v for k, v in ctx.items() if k.startswith("_")}
+        ctx = {**client_provider.merge_local({k: v for k, v in ctx.items() if not k.startswith("_")}, read_json(f"clients/{slug(cl)}/client.json")), **meta}
+    return ctx
+
+
+def _lookup_client(cid):
+    """Acha o cliente nas fontes (local, depois banco). Falha de fonte é erro explícito (502), nunca 'não existe'."""
+    errs = []
+    for pv in client_providers():
+        try:
+            ctx = pv.load(cid)
+            return {"id": cid, "name": ctx.get("name") or ctx.get("_display_name") or cid, "source": pv.name, "compra_id": ctx.get("_compra_id") or None, "name_origin": ctx.get("_name_origin"),
+                    "pessoa_fisica": ctx.get("_pessoa_fisica")}
+        except client_provider.NotFound:
+            continue
+        except client_provider.ProviderError as e:
+            errs.append(str(e))
+    if errs:
+        raise ui.ApiError(502, "; ".join(errs))
+    raise ui.ApiError(404, "cliente não encontrado")
+
+
+def sync_banco_logos(cl):
+    """Traz para a biblioteca local do cliente os logos ativos do banco (bytes pela Edge Function; nunca URL). -> lista de avisos."""
+    pv, warns = _provider("banco"), []
+    if pv is None:
+        return warns
+    try:
+        have = {a.get("db_item_id") for a in load_assets(cl)}
+        for row in pv.logos(cl):
+            if row.get("item_id") in have:
+                continue
+            data, mime = pv.fetch_asset(row["storage_path"])
+            store_asset(cl, "logo", "logo." + client_provider.SupabaseClientProvider.ASSET_MIME[mime], mime, data, alias="logo", extra={"db_item_id": row.get("item_id")})
+    except (client_provider.ProviderError, client_provider.NotFound) as e:
+        warns.append(f"Logo do banco não carregado: {e}")
+    return warns
+
+
+def migrate_assets(src, dst, ids):
+    """Copia (não move) para a biblioteca do cliente as imagens que a conversa anexou antes de o cliente ser conhecido."""
+    if src == dst or not ids:
+        return
+    have = {a["id"] for a in load_assets(dst)}
+    moved = [a for a in load_assets(src) if a["id"] in ids and a["id"] not in have]
+    for a in moved:
+        k = f"{cdir(src)}/assets/{a['file']}"
+        if get_store().exists(k):
+            get_store().write_bytes(f"{cdir(dst)}/assets/{a['file']}", get_store().read_bytes(k), a.get("mime"))
+    ok = [a for a in moved if get_store().exists(f"{cdir(dst)}/assets/{a['file']}")]
+    if ok:
+        write_json(f"{cdir(dst)}/assets.json", load_assets(dst) + ok)
+
+
+def _apply_client(scope, conv_id, info, locked=False):
+    """Grava o cliente na conversa (campos aditivos; a conversa continua na mesma pasta)."""
+    with CONV_LOCK:
+        c = load_conv(scope, conv_id)
+        c.update(client=info["id"] if info else None, client_name=info["name"] if info else None, client_source=info["source"] if info else None)
+        if info and info.get("compra_id"):
+            c["compra_id"] = info["compra_id"]
+        else:
+            c.pop("compra_id", None)
+        if locked:
+            c["client_locked"] = True
+        save_conv(c)
+
+
 def api_chat(b):
     """Valida na hora (falha rápido) e roda o pipeline numa tarefa em segundo plano (ou inline, ver JOBS_INLINE)."""
-    cid, text = b["client"], (b.get("text") or "").strip()
+    text = (b.get("text") or "").strip()
     if not text:
         raise ui.ApiError(400, "mensagem vazia")
-    ctx = load_client(cid)
-    conv = load_conv(cid, b.get("conv") or uuid.uuid4().hex[:10])
+    if b.get("auto_client"):  # a tela diz que a conversa não tem cliente: o 'client' legado que vem junto é ignorado (nunca vale por engano)
+        b = {k: v for k, v in b.items() if k != "client"}
+    scope = _scope_of(b, default=GERAL)
+    conv = load_conv(scope, b.get("conv") or uuid.uuid4().hex[:10])
     b["conv"] = conv["id"]
-    files, auto, stale = resolve_files(cid, conv, b, text)
-    inputs = collect_inputs(cid, b.get("edit_of"), files)
+    cl, detect, ctx, cmeta = _conv_client_id(conv, scope), None, {}, {}
+    explicit = b.get("client")
+    if cl is None and not conv.get("client_locked") and isinstance(explicit, str) and explicit and explicit != GERAL:
+        cl = _strict_id(explicit, "cliente")  # a tela escolheu o cliente (fluxo antigo, ou escolha manual antes do 1º turno)
+        info = _lookup_client(cl)
+        conv["client_source"] = info["source"]
+        detect = {"status": "match", "client": info, "errors": [], "explicit": True}
+    elif cl is None and not conv.get("client_locked"):
+        detect = client_provider.resolve(text, client_providers())
+        if detect["status"] == "match":
+            cl = detect["client"]["id"]
+            conv["client_source"] = detect["client"]["source"]
+    if cl is not None:
+        ctx = client_ctx(conv, cl)
+        cmeta = {k[1:]: ctx.pop(k) for k in [k for k in ctx if k.startswith("_")]}
+        if detect and detect["status"] == "match":
+            detect["client"]["compra_id"] = cmeta.get("compra_id") or None
+            detect["client"]["name_origin"] = cmeta.get("name_origin")
+            detect["client"]["pessoa_fisica"] = cmeta.get("pessoa_fisica")
+        if detect and detect["status"] == "match" and scope != cl:
+            migrate_assets(scope, cl, set(conv.get("files", [])) | set(b.get("asset_ids") or []))
+    lib = cl or scope  # biblioteca de imagens: a do cliente, se já o conhecemos; imagens GERADAS ficam sempre na pasta da conversa
+    files, auto, stale = resolve_files(lib, conv, b, text)
+    inputs = collect_inputs(lib, b.get("edit_of"), files, scope)
     if not MOCK and not os.getenv("OPENAI_API_KEY") and not shutil.which("claude"):
         raise ui.ApiError(400, "Sem OPENAI_API_KEY e sem o CLI claude: nada a executar.")
     provider_now = "mock" if MOCK else ("openai" if os.getenv("OPENAI_API_KEY") else "claude-cli (SEM chave: nenhuma imagem é gerada)")
-    meta = {"provedor": provider_now, "client": cid, "conv": b.get("conv"), "texto": text, "modo": b.get("mode") or "livre", "tamanho": b.get("size"),
+    meta = {"provedor": provider_now, "client": cl, "scope": scope, "conv": b.get("conv"), "texto": text, "modo": b.get("mode") or "livre", "tamanho": b.get("size"),
             "qualidade": b.get("quality"), "anexos": [{"tipo": x["kind"], "nome": x["name"]} for x in inputs], "auto_anexados": [a["name"] for a in auto], "edit_of": b.get("edit_of"),
             "melhorias": {"designer": (b.get("improve") or {}).get("designer", True), "skills": (b.get("improve") or {}).get("skills", True),
                           "critic": b.get("review", True), "comparar": (b.get("improve") or {}).get("compare_raw", False)},
             "modelos": {"imagem": b.get("image_model"), "texto": b.get("text_model")}}
-    key = (slug(cid), conv["id"])
+    key = (scope, conv["id"])
     with CONV_LOCK:
         CONV_BUSY[key] = CONV_BUSY.get(key, 0) + 1
 
     def task(emit):
         try:
-            return run_chat(b, emit, cid, text, ctx, inputs, files, auto, stale)
+            return run_chat(b, emit, lib, text, ctx, inputs, files, auto, stale, scope=scope, detect=detect, client_meta=cmeta)
         finally:
             with CONV_LOCK:
                 CONV_BUSY[key] -= 1
@@ -763,14 +899,15 @@ def load_conv(cid, conv_id):
         try:
             c = read_json(p)
             c.setdefault("files", [])
+            c.setdefault("scope", slug(cid))
             return c
         except json.JSONDecodeError:  # arquivo corrompido: guarda a cópia e recomeça, em vez de travar a conversa
             get_store().rename(p, p + f".corrompido-{int(time.time())}")
-    return {"id": slug(conv_id), "client": slug(cid), "created": time.strftime("%Y-%m-%d %H:%M:%S"), "turns": [], "carry": [], "files": []}
+    return {"id": slug(conv_id), "client": None if slug(cid) == GERAL else slug(cid), "scope": slug(cid), "created": time.strftime("%Y-%m-%d %H:%M:%S"), "turns": [], "carry": [], "files": []}
 
 
 def save_conv(conv):
-    write_json(conv_path(conv["client"], conv["id"]), conv)  # o FileStore troca de forma atômica (arquivo temporário + replace)
+    write_json(conv_path(conv.get("scope") or conv["client"], conv["id"]), conv)  # o FileStore troca de forma atômica (arquivo temporário + replace)
 
 
 def last_image(cid, conv):
@@ -789,7 +926,7 @@ def last_image(cid, conv):
 def memory_text(conv, files_desc=""):
     """O que o designer e o resolvedor 'lembram': a transcrição inteira, os arquivos da conversa e os detalhes recentes."""
     turns = conv["turns"]
-    if not turns and not conv["carry"] and not files_desc:
+    if not turns and not conv["carry"] and not files_desc and not conv.get("brand_brief"):
         return ""
     L = ["Memória da conversa. Tudo o que foi dito, anexado e gerado nesta conversa continua valendo: não peça de novo o que já está aqui."]
     if files_desc:
@@ -813,6 +950,10 @@ def memory_text(conv, files_desc=""):
             else:
                 L.append(f'{t["n"]}. Pedido: {t["resolved"][:lim]} | intenção: {t["intent"]} | resultado: imagem {t["image_id"]} '
                          f'(nota {t["score"]}, {"aprovada" if t["approved"] else "reprovada"}) | briefing final: {t["briefing"][:600]}')
+    if conv.get("brand_brief"):
+        bb = conv["brand_brief"]
+        L.append("Pesquisa da marca já feita nesta conversa (não pesquise de novo; fontes: " + ", ".join(s["url"] for s in bb.get("sources", [])[:4]) + "): "
+                 + json.dumps(bb.get("brief", {}), ensure_ascii=False)[:1500])
     if conv["carry"]:
         L.append("Instruções duradouras do usuário: " + "; ".join(conv["carry"]))
     last = turns[-1] if turns else None
@@ -822,10 +963,31 @@ def memory_text(conv, files_desc=""):
     return "\n".join(L)
 
 
+def infer_size(text):
+    """Formato pelo pedido quando está em 'auto' e não há alvo: banner/capa = horizontal; story/reels = vertical."""
+    t = skills_router.norm(text)
+    if re.search(r"\b(story|stories|reels|vertical|9:16|tiktok)\b", t):
+        return "1024x1536"
+    if re.search(r"\b(banner|banners|capa|youtube|thumbnail|horizontal|paisagem|16:9|cabecalho|outdoor|landscape)\b", t):
+        return "1536x1024"
+    return "1024x1024"
+
+
+def fetch_text(url, limit=2 * 1024 * 1024):
+    """Baixa uma página HTML com as mesmas travas dos downloads de imagem."""
+    _check_url(url)
+    req = urllib.request.Request(url, headers={"User-Agent": WEB_UA, "Accept": "text/html"})
+    try:
+        with urllib.request.build_opener(_SafeRedirect).open(req, timeout=20) as r:
+            return r.read(limit).decode("utf-8", "replace")
+    except urllib.error.URLError as e:
+        raise ui.ApiError(502, f"Não consegui abrir a página: {getattr(e, 'reason', e)}")
+
+
 def resolve_turn(conv, text, avail, model, provider, has_files=False):
     """Entende a mensagem no contexto (como o ChatGPT): devolve intenção e um pedido autossuficiente. Nunca derruba o fluxo."""
     triv = {"intent": "new", "request": text, "use_last_image": False, "carry": list(conv["carry"])}
-    if provider != "openai" or not (conv["turns"] or conv["carry"] or has_files):
+    if provider != "openai":
         return triv, None
     mem = memory_text(conv)
     last = conv["turns"][-1] if conv["turns"] else None
@@ -857,6 +1019,7 @@ def resolve_turn(conv, text, avail, model, provider, has_files=False):
                 "use_last_image": bool(out.get("use_last_image")) and out["intent"] in ("edit", "variation"),
                 "edit_target": (str(out["edit_target"]).strip() if out.get("edit_target") and out["intent"] == "edit" else None),
                 "scope": (out.get("scope") if out["intent"] == "edit" and out.get("scope") in ("local", "extend", "global") else None),
+                "research": (str(out["research"]).strip()[:160] if out.get("research") else None),
                 "carry": carry or list(conv["carry"])}, None
     except Exception as e:  # noqa: BLE001
         return triv, f"não consegui resolver o contexto ({type(e).__name__}); usei a sua mensagem como está"
@@ -884,42 +1047,89 @@ def _conv_title(c):
     return (first[:60].rstrip() + "…") if len(first) > 60 else first
 
 
-def list_convs(cid):
-    """Histórico do cliente, do mais recente ao mais antigo. Arquivo ilegível não derruba a lista: é contado em 'skipped'."""
-    cid = _strict_id(cid, "cliente")
-    convs, skipped = [], 0
-    pre = f"conversations/{cid}/"
+def _scope_of(b, default=None):
+    """Pasta da conversa: 'scope' (qualquer escopo, inclusive _geral) ou 'client' (conversas antigas: pasta = cliente)."""
+    v = b.get("scope") if b.get("scope") is not None else b.get("client")
+    if v is None:
+        if default is not None:
+            return default
+        raise KeyError("scope")
+    return _strict_id(v, "escopo")
+
+
+def _scan_convs(scope=None):
+    """Percorre as conversas de um escopo ou de todos. Arquivo ilegível é contado em 'skipped' (e registrado), nunca engolido."""
+    found, skipped = [], 0
+    pre = f"conversations/{scope}/" if scope else "conversations/"
     for k in get_store().list(pre):
-        name = k[len(pre):]
-        if "/" in name or not name.endswith(".json"):  # só os JSON diretos da pasta (como o antigo glob("*.json"))
+        parts = k[len("conversations/"):].split("/")
+        if len(parts) != 2 or not parts[1].endswith(".json"):  # só os JSON diretos de cada pasta
             continue
         try:
             c = read_json(k)
-            turns = c["turns"]
-            if not isinstance(turns, list):
+            if not isinstance(c.get("turns"), list):
                 raise ValueError("turns")
-            mtime = get_store().mtime(k)
+            found.append((parts[0], parts[1][:-len(".json")], c, get_store().mtime(k)))
         except (OSError, ValueError, KeyError, TypeError, AttributeError):
             skipped += 1
-            log_event("conv_list_skipped", client=cid, file=name)
-            continue
-        if turns:  # conversa sem mensagens não entra no histórico
-            convs.append({"id": name[:-len(".json")], "title": _conv_title(c), "updated": int(mtime), "count": len(turns), "_m": mtime})
+            log_event("conv_list_skipped", scope=parts[0], file=parts[1])
+    return found, skipped
+
+
+def _client_name(cl, cache):
+    if cl not in cache:
+        try:
+            cache[cl] = str(read_json(f"clients/{slug(cl)}/client.json").get("name") or cl)
+        except (OSError, ValueError, ui.ApiError):
+            cache[cl] = cl  # sem nome à mão: mostra o id, não esconde o cliente
+    return cache[cl]
+
+
+def _conv_item(scope, cid, c, mtime, project_ids, names):
+    cl = _conv_client_id(c, scope)
+    name = (c.get("client_name") or _client_name(cl, names)) if cl else None
+    return {"id": cid, "title": _conv_title(c), "updated": int(mtime), "count": len(c["turns"]), "scope": scope, "client": cl, "client_name": name,
+            "project": c.get("project") if c.get("project") in project_ids else None, "_m": mtime}
+
+
+def list_convs(scope=None):
+    """Histórico do mais recente ao mais antigo. Sem escopo: todas as conversas de todas as pastas."""
+    scope = _strict_id(scope, "escopo") if scope is not None else None
+    found, skipped = _scan_convs(scope)
+    pids, names = {p["id"] for p in read_projects()}, {}
+    convs = [_conv_item(sc, cid, c, m, pids, names) for sc, cid, c, m in found if c["turns"]]  # conversa sem mensagens não entra
     convs.sort(key=lambda x: x.pop("_m"), reverse=True)
     return {"convs": convs, "skipped": skipped}
 
 
 def _existing_conv_path(b):
-    p = conv_path(_strict_id(b["client"], "cliente"), _strict_id(b["conv"], "conversa"))
+    p = conv_path(_scope_of(b), _strict_id(b["conv"], "conversa"))
     if not get_store().exists(p):
         raise ui.ApiError(404, "conversa não encontrada")
     return p
 
 
+def _edit_conv(b, mutate):
+    """Altera campos de uma conversa que já existe, no caminho validado, sem mudar a ordem do histórico (mtime preservado)."""
+    with CONV_LOCK:
+        p = _existing_conv_path(b)
+        try:
+            c = read_json(p)
+        except ValueError:
+            c = None
+        if not isinstance(c, dict):
+            raise ui.ApiError(422, "conversa ilegível; não dá para alterar")
+        t0 = get_store().mtime(p)
+        mutate(c)
+        get_store().write_bytes(p, json.dumps(c, ensure_ascii=False, indent=2).encode("utf-8"), "application/json")
+        get_store().set_mtime(p, t0)
+        return c
+
+
 def api_conv_delete(b):
     with CONV_LOCK:
         p = _existing_conv_path(b)
-        if CONV_BUSY.get((slug(b["client"]), slug(b["conv"]))):
+        if CONV_BUSY.get((_scope_of(b), slug(b["conv"]))):
             raise ui.ApiError(409, "a conversa ainda está gerando uma resposta; espere terminar para excluir")
         get_store().delete(p)  # só o JSON da conversa; imagens de saída e biblioteca ficam
     return {"ok": True}
@@ -929,23 +1139,149 @@ def api_conv_rename(b):
     title = b["title"]
     if not isinstance(title, str) or not 1 <= len(title.strip()) <= 80:
         raise ui.ApiError(400, "título deve ter de 1 a 80 caracteres")
-    with CONV_LOCK:
-        p = _existing_conv_path(b)
-        try:
-            c = read_json(p)
-        except ValueError:
-            c = None
-        if not isinstance(c, dict):
-            raise ui.ApiError(422, "conversa ilegível; não dá para renomear")
-        t0 = get_store().mtime(p)
-        c["title"] = title.strip()
-        get_store().write_bytes(p, json.dumps(c, ensure_ascii=False, indent=2).encode("utf-8"), "application/json")  # grava no caminho já validado, não no id de dentro do arquivo
-        get_store().set_mtime(p, t0)  # renomear não é atividade: não muda a ordem do histórico
+    _edit_conv(b, lambda c: c.update(title=title.strip()))
     return {"ok": True}
 
 
+def conv_client_info(c, scope):
+    cl = _conv_client_id(c, scope)
+    if not cl:
+        return None
+    return {"id": cl, "name": c.get("client_name") or _client_name(cl, {}), "source": c.get("client_source") or "local", "compra_id": c.get("compra_id")}
+
+
 def api_conv(b):
-    return load_conv(b["client"], b.get("conv") or "x")
+    scope = _scope_of(b)
+    c = load_conv(scope, b.get("conv") or "x")
+    return dict(c, client=conv_client_info(c, scope), scope=scope, project=c.get("project"))
+
+
+def api_conv_client(b):
+    """O usuário troca ou remove o cliente da conversa; daí em diante a detecção automática não mexe mais nela.
+    Conversa que ainda não existe no servidor (sem turnos): 200 com "pending": true e NADA é gravado; o client_id vale
+    quando o primeiro /api/chat da conversa mandar `client` no body (com o mesmo `scope`)."""
+    scope, cid = _scope_of(b), _strict_id(b["conv"], "conversa")
+    if b.get("compra_id") is not None:
+        raise ui.ApiError(400, "trocar a compra não é suportado pelo contrato do banco (só a compra vigente)")
+    new = b.get("client_id")
+    exists = get_store().exists(conv_path(scope, cid))
+    if new is None:
+        if exists:
+            _edit_conv(b, lambda c: (c.update(client=None, client_name=None, client_source=None, client_locked=True), c.pop("compra_id", None)))
+        return {"ok": True, "client": None, **({} if exists else {"pending": True})}
+    info = _lookup_client(_strict_id(new, "cliente"))
+    out = {"id": info["id"], "name": info["name"], "source": info["source"], "compra_id": info["compra_id"]}
+    if not exists:
+        return {"ok": True, "client": out, "pending": True}
+    c = _edit_conv(b, lambda c: (c.update(client=info["id"], client_name=info["name"], client_source=info["source"], client_locked=True),
+                                 c.update(compra_id=info["compra_id"]) if info["compra_id"] else c.pop("compra_id", None)))
+    migrate_assets(scope, info["id"], set(c.get("files", [])))
+    resp = {"ok": True, "client": out}
+    if info["source"] == "banco":
+        warns = sync_banco_logos(info["id"])
+        if warns:
+            resp["warnings"] = warns
+    return resp
+
+
+def api_clients(q):
+    """GET /api/clients?q=: clientes de todas as fontes (o chip e o seletor manual). Fonte fora do ar vai em 'errors'."""
+    out, errors = [], []
+    for pv in client_providers():
+        try:
+            out += [{"id": c["id"], "name": c["name"], "source": pv.name} for c in pv.find(q or "", 50)]
+        except client_provider.ProviderError as e:
+            errors.append({"source": pv.name, "error": str(e)})
+    out.sort(key=lambda c: client_provider.norm(c["name"]))
+    return {"clients": out[:50], **({"errors": errors} if errors else {})}
+
+
+# ---------- projetos: pastas que agrupam conversas (DATA/projects.json; a conversa guarda só o campo 'project') ----------
+def read_projects():
+    k = "projects.json"
+    if not get_store().exists(k):
+        return []
+    try:
+        ps = read_json(k)["projects"]
+        assert isinstance(ps, list) and all(isinstance(p, dict) and isinstance(p.get("id"), str) and isinstance(p.get("name"), str) for p in ps)
+    except (ValueError, KeyError, TypeError, AssertionError):
+        raise ui.ApiError(500, "projects.json ilegível: não vou tratar como 'nenhum projeto'. Corrija ou restaure o arquivo.")
+    return ps
+
+
+def _project_name(v, taken):
+    if not isinstance(v, str) or not 1 <= len(v.strip()) <= 60:
+        raise ui.ApiError(400, "nome do projeto deve ter de 1 a 60 caracteres")
+    base, name, n = v.strip(), v.strip(), 2
+    low = {t.lower() for t in taken}
+    while name.lower() in low:
+        name, n = f"{base} ({n})", n + 1
+    return name
+
+
+def api_projects(_):
+    projects = read_projects()
+    found, _skipped = _scan_convs()
+    out = []
+    for p in projects:
+        mine = [(c, m) for _, _, c, m in found if c.get("project") == p["id"] and c["turns"]]
+        out.append({"id": p["id"], "name": p["name"], "updated": int(max([p.get("updated", 0)] + [m for _, m in mine])), "count": len(mine)})
+    out.sort(key=lambda x: x["updated"], reverse=True)
+    return {"projects": out}
+
+
+def api_project_create(b):
+    with PROJECT_LOCK:
+        ps = read_projects()
+        p = {"id": "p" + uuid.uuid4().hex[:8], "name": _project_name(b["name"], [x["name"] for x in ps]), "updated": int(time.time())}
+        write_json("projects.json", {"projects": ps + [p]})
+    return {"id": p["id"], "name": p["name"]}
+
+
+def _project_index(ps, pid):
+    pid = _strict_id(pid, "projeto")
+    i = next((i for i, p in enumerate(ps) if p["id"] == pid), None)
+    if i is None:
+        raise ui.ApiError(404, "projeto não encontrado")
+    return pid, i
+
+
+def api_project_rename(b):
+    with PROJECT_LOCK:
+        ps = read_projects()
+        pid, i = _project_index(ps, b["id"])
+        ps[i] = dict(ps[i], name=_project_name(b["name"], [p["name"] for j, p in enumerate(ps) if j != i]), updated=int(time.time()))
+        write_json("projects.json", {"projects": ps})
+    return {"id": pid, "name": ps[i]["name"]}
+
+
+def api_project_delete(b):
+    """Apaga só a pasta: as conversas dela voltam para 'sem projeto'. Nunca apaga conversa."""
+    with PROJECT_LOCK:
+        ps = read_projects()
+        pid, i = _project_index(ps, b["id"])
+        released = 0
+        with CONV_LOCK:
+            for sc, cid, c, _m in _scan_convs()[0]:
+                if c.get("project") == pid:
+                    pass
+                    k = conv_path(sc, cid)
+                    t0 = get_store().mtime(k)
+                    get_store().write_bytes(k, json.dumps(c, ensure_ascii=False, indent=2).encode("utf-8"), "application/json")
+                    get_store().set_mtime(k, t0)
+                    released += 1
+        write_json("projects.json", {"projects": ps[:i] + ps[i + 1:]})
+    return {"ok": True, "released": released}
+
+
+def api_conv_move(b):
+    pid = b.get("project")
+    if pid is not None:
+        pid = _strict_id(pid, "projeto")
+        if not any(p["id"] == pid for p in read_projects()):
+            raise ui.ApiError(404, "projeto não encontrado")
+    _edit_conv(b, lambda c: c.update(project=pid) if pid else c.pop("project", None))
+    return {"ok": True}
 
 
 def api_asset_kind(b):
@@ -961,7 +1297,9 @@ def api_asset_kind(b):
     return {"ok": True}
 
 
-def run_chat(b, emit, cid, text, ctx, inputs, files=None, auto=None, stale=None):
+def run_chat(b, emit, cid, text, ctx, inputs, files=None, auto=None, stale=None, scope=None, detect=None, client_meta=None):
+    """cid = biblioteca de imagens (cliente, ou a pasta da conversa se ainda não há cliente); scope = pasta da conversa e das imagens geradas."""
+    scope = scope or cid
     size = b.get("size") if b.get("size") in SIZES else "auto"
     quality = b.get("quality") or ui.env_models()["quality"]
     em = ui.env_models()
@@ -980,9 +1318,36 @@ def run_chat(b, emit, cid, text, ctx, inputs, files=None, auto=None, stale=None)
     if auto:
         emit("Anexei automaticamente pelo nome: " + ", ".join(f"{a['name']} ({a['kind']})" for a in auto) + ". Para tirar, clique no × do anexo.")
 
+    # --- cliente automático: o que o texto citou (ou o que a tela escolheu) vira o cliente da conversa ---
+    if detect:
+        for e in detect.get("errors", []):
+            emit(f"Fonte de clientes '{e['source']}' fora do ar: {e['error']}. Segui com as outras fontes; o cliente pode não ter sido reconhecido.")
+        if detect["status"] == "match":
+            info = detect["client"]
+            if not detect.get("explicit"):
+                emit(f"Cliente identificado: {info['name']} (fonte: {info['source']})")
+            _apply_client(scope, b["conv"], info)
+            if info["source"] == "banco":
+                if info.get("pessoa_fisica") is True:
+                    avisos.append("Este cliente é pessoa física: o nome dele não foi usado como marca. Descreva a marca no pedido.")
+                elif info.get("pessoa_fisica") is None and info.get("name_origin") == "nome":
+                    avisos.append("O nome deste cliente veio do cadastro civil e pode ser de pessoa física; confira antes de usar como marca.")
+                avisos.extend(sync_banco_logos(info["id"]))
+        elif detect["status"] == "ambiguous":
+            q = detect["question"]
+            with CONV_LOCK:
+                fresh = load_conv(scope, b["conv"])
+                fresh["turns"].append({"n": len(fresh["turns"]) + 1, "t": time.strftime("%H:%M:%S"), "request": text, "resolved": text, "intent": "new", "question": q})
+                save_conv(fresh)
+            return {"role": "assistant", "kind": "text", "text": q, "conv": b["conv"], "suggest": [], "suggest_web": [], "files": files}
+    if (client_meta or {}).get("sem_identidade"):
+        avisos.append("Este cliente ainda não tem identidade de marca cadastrada: paleta, tipografia e estilo estão indisponíveis (não é 'sem cores').")
+    if mode == "marca" and not ctx:
+        avisos.append("Modo marca sem cliente identificado: gerei sem a identidade da marca. Cite o cliente no texto ou escolha-o no chip.")
+
     # --- memória: entender a mensagem no contexto da conversa ---
-    conv = load_conv(cid, b.get("conv") or uuid.uuid4().hex[:10])
-    lastp, last_id = last_image(cid, conv)
+    conv = load_conv(scope, b.get("conv") or uuid.uuid4().hex[:10])
+    lastp, last_id = last_image(scope, conv)
     avail = (f"última imagem gerada (id {last_id}); " if last_id else "nenhuma imagem gerada ainda; ") + \
             ("fixadas na conversa: " + ", ".join(f"{x['name']} ({x['kind']})" + (f" [id {x['id']}]" if x.get("id") else "") for x in inputs if x["kind"] not in ("alvo",)) if inputs else "nenhuma imagem fixada")
     edit_turn = next((t for t in conv["turns"] if t.get("image_id") == b.get("edit_of")), None) if b.get("edit_of") else None
@@ -1011,7 +1376,7 @@ def run_chat(b, emit, cid, text, ctx, inputs, files=None, auto=None, stale=None)
         inputs = [dict(kind="alvo" if intent == "edit" else "variacao", name=posixpath.basename(lastp), mime="image/svg+xml" if lastp.endswith(".svg") else "image/png",
                        bytes=get_store().read_bytes(lastp), role_text=role)] + list(inputs)
     if size == "auto" and not any(x["kind"] in ("alvo", "variacao") for x in inputs):
-        size = "1024x1024"  # sem alvo não há proporção a acompanhar
+        size = infer_size(text_eff)  # sem alvo não há proporção a acompanhar: o formato vem do pedido
     if intent in ("edit", "variation") and not any(x["kind"] in ("alvo", "variacao") for x in inputs):
         intent = "new"
         avisos.append("Não encontrei a imagem anterior para editar; gerei do zero com o pedido resolvido.")
@@ -1045,9 +1410,41 @@ def run_chat(b, emit, cid, text, ctx, inputs, files=None, auto=None, stale=None)
     pinned_ids = {x.get("id") for x in inputs}
     suggest = [{"id": a["id"], "name": a["name"], "kind": a["kind"]} for a in load_assets(cid) if a["kind"] in IDENTITY_KINDS and a["id"] not in pinned_ids]
     library = ", ".join(f"{s['name']} ({s['kind']})" for s in suggest)
+    # pesquisa na web (como o ChatGPT faz antes de desenhar): só com marca real e fatos que não se inventam
+    brand_brief, rq = conv.get("brand_brief"), resolved.get("research")
+    if rq and imp.get("research", True) and provider == "openai" and not MOCK and not (
+            brand_brief and skills_router.norm(brand_brief.get("query", "")) == skills_router.norm(rq)):
+        emit(f"Pesquisando na web: «{rq}» (busca da OpenAI, modelo {text_model})…")
+        tr0 = time.time()
+        try:
+            brief_r, srcs = research.brand_research(ui.openai_post, rq, text_model)
+            brand_brief = {"query": rq, "brief": brief_r, "sources": srcs}
+            emit(f"Pesquisa pronta em {round(time.time() - tr0)}s: slogan «{brief_r.get('slogan')}», {len(brief_r.get('ofertas_vigentes', []))} oferta(s) vigente(s), "
+                 f"{len(srcs)} fonte(s): " + ", ".join(urllib.parse.urlparse(s["url"]).netloc for s in srcs[:4]))
+            brand = str(brief_r.get("marca") or "").strip()
+            if brand and not any(x["kind"] == "logo" for x in inputs):
+                try:
+                    lu = brief_r.get("logo_url")
+                    if not lu and brief_r.get("site_oficial"):
+                        lu = research.find_logo_url(fetch_text(brief_r["site_oficial"]), brief_r["site_oficial"])
+                    if lu:
+                        data, mime = fetch_image(lu)
+                        asset = store_asset(cid, "logo", f"logo {brand}.{MIME_EXT[mime]}", mime, data, brand,
+                                            {"origem": "web", "pagina": str(lu)[:300], "licenca": "da pesquisa na web; confirmar o direito de uso"})
+                        files.append(asset["id"])
+                        inputs.append(dict(id=asset["id"], kind="logo", name=asset["name"], mime=mime, bytes=data,
+                                           role_text=f"{KIND_ROLE['logo']} (arquivo: {asset['name']}; baixado do site da marca)"))
+                        emit(f"Logo da marca baixado do site e anexado: {asset['name']}.")
+                except Exception as e:  # noqa: BLE001
+                    avisos.append(f"Não consegui baixar o logo da marca ({type(e).__name__}: {str(e)[:80]}); envie o logo oficial para ele ficar fiel.")
+        except Exception as e:  # noqa: BLE001
+            brand_brief = conv.get("brand_brief")
+            avisos.append(f"A pesquisa na web não funcionou ({type(e).__name__}: {str(e)[:100]}); segui SEM fatos pesquisados e sem inventar slogan, oferta ou condição.")
     lib = {a["id"]: a for a in load_assets(cid)}
     files_desc = ", ".join(f"{lib[i]['name']} ({lib[i]['kind']}" + (f"; apelido: {lib[i]['alias']}" if lib[i].get("alias") else "") + ")" for i in files if i in lib)
     memory = memory_text(conv, files_desc)
+    if brand_brief and not conv.get("brand_brief"):  # pesquisa feita agora: o texto legível vai ao designer (depois vem da memória)
+        memory += ("\n" if memory else "") + research.brief_text(brand_brief["brief"], brand_brief["sources"])
     if region:
         memory += ("\n" if memory else "") + (
             "Modo da edição: LOCALIZADA com máscara. O modelo de imagem só pode alterar a região mascarada (transparente) da Image 1; todo o resto da Image 1 "
@@ -1073,11 +1470,13 @@ def run_chat(b, emit, cid, text, ctx, inputs, files=None, auto=None, stale=None)
 
     def record(**turn):
         with CONV_LOCK:  # relê do disco: outra tarefa da mesma conversa pode ter gravado um turno enquanto esta rodava
-            fresh = load_conv(cid, conv["id"])
+            fresh = load_conv(scope, conv["id"])
             fresh["turns"].append({"n": len(fresh["turns"]) + 1, "t": time.strftime("%H:%M:%S"), "request": text, "resolved": text_eff,
                                    "intent": intent, **turn})
             fresh["carry"] = resolved["carry"]
             fresh["files"] = files
+            if brand_brief:
+                fresh["brand_brief"] = brand_brief
             save_conv(fresh)
 
     if imp["designer"]:
@@ -1103,7 +1502,7 @@ def run_chat(b, emit, cid, text, ctx, inputs, files=None, auto=None, stale=None)
         brief = {"prompt": text_eff}
         emit("Sem briefing do designer: o seu texto vai direto ao modelo de imagem.")
     do_rev = bool(imp["review"])
-    max_cycle = critic.MAX_CYCLES if imp["designer"] else 0
+    max_cycle = (1 if region else critic.MAX_CYCLES) if imp["designer"] else 0  # com região, correções por texto quase nunca melhoram: no máximo 2 gerações
     fidelity = "high" if any(x["kind"] in IDENTITY_KINDS + ("alvo", "variacao") for x in inputs) else None
     mid = re.sub(r"[^a-z0-9]", "", time.strftime("%Y%m%d%H%M%S") + uuid.uuid4().hex[:4])
     cycles, best = [], None
@@ -1120,13 +1519,13 @@ def run_chat(b, emit, cid, text, ctx, inputs, files=None, auto=None, stale=None)
         gid = f"{mid}c{cycle}"
         if region:  # guarda o que o modelo gerou e entrega o original recomposto
             raw = base64.b64decode(b64)
-            get_store().write_bytes(f"chat_out/{slug(cid)}/{gid}raw.png", raw, "image/png")
+            get_store().write_bytes(f"chat_out/{slug(scope)}/{gid}raw.png", raw, "image/png")
             fin = (regionedit.composite_local(region["orig"], raw, region["boxes"]) if region["mode"] == "local"
                    else regionedit.composite_extend(raw, region["rorig"], region["place"], region["size"]))
             b64, ext = base64.b64encode(fin).decode(), "png"
             emit("Original recolado fora da região editada (pixels idênticos).")
-        get_store().write_bytes(f"chat_out/{slug(cid)}/{gid}.{ext}", base64.b64decode(b64), "image/svg+xml" if ext == "svg" else "image/png")
-        url = f"/files/{slug(cid)}/out/{gid}.{ext}"
+        get_store().write_bytes(f"chat_out/{slug(scope)}/{gid}.{ext}", base64.b64decode(b64), "image/svg+xml" if ext == "svg" else "image/png")
+        url = f"/files/{slug(scope)}/out/{gid}.{ext}"
         emit(f"Imagem da tentativa {cycle + 1} pronta em {round(time.time() - tg)}s.", image_url=url)
         entry = {"cycle": cycle, "prompt": brief["prompt"], "id": gid, "url": url}
         if do_rev:
@@ -1153,7 +1552,7 @@ def run_chat(b, emit, cid, text, ctx, inputs, files=None, auto=None, stale=None)
                       "a API de imagem pode não preservar o rosto de uma pessoa real.")
     msg = {"role": "assistant", "kind": "image", "id": e["id"], "url": e["url"], "score": best["score"], "approved": best["ok"],
            "veto": (best["rv"] or {}).get("veto", []), "review": best["rv"], "prompt": e["prompt"], "request": text, "resolved": text_eff,
-           "intent": intent, "conv": conv["id"], "files": files, "falha_identidade": "identidade_divergente" in ((best["rv"] or {}).get("veto") or []), "avisos": avisos, "cycles": cycles, "skills": used, "packs": packs, "mode": mode, "improve": imp,
+           "intent": intent, "conv": conv["id"], "files": files, "fontes": (brand_brief or {}).get("sources", []), "pesquisa": (brand_brief or {}).get("query"), "falha_identidade": "identidade_divergente" in ((best["rv"] or {}).get("veto") or []), "avisos": avisos, "cycles": cycles, "skills": used, "packs": packs, "mode": mode, "improve": imp,
            "generations": len(cycles), "seconds": round(time.time() - t0, 1), "size": size,
            "inputs": [{"kind": x["kind"], "name": x["name"]} for x in inputs]}
     record(briefing=e["prompt"], image_id=e["id"], score=best["score"], approved=bool(best["ok"]),
@@ -1163,8 +1562,8 @@ def run_chat(b, emit, cid, text, ctx, inputs, files=None, auto=None, stale=None)
         tr = time.time()
         b64, ext = make_image(text_eff, size, quality, inputs, image_model, fidelity, avisos)
         rid = f"{mid}raw"
-        get_store().write_bytes(f"chat_out/{slug(cid)}/{rid}.{ext}", base64.b64decode(b64), "image/svg+xml" if ext == "svg" else "image/png")
-        raw = {"id": rid, "url": f"/files/{slug(cid)}/out/{rid}.{ext}", "prompt": text_eff}
+        get_store().write_bytes(f"chat_out/{slug(scope)}/{rid}.{ext}", base64.b64decode(b64), "image/svg+xml" if ext == "svg" else "image/png")
+        raw = {"id": rid, "url": f"/files/{slug(scope)}/out/{rid}.{ext}", "prompt": text_eff}
         emit(f"Versão do GPT puro pronta em {round(time.time() - tr)}s.", image_url=raw["url"])
         if do_rev:
             emit("O critic está revisando a versão pura (mesma régua)…")
@@ -1175,7 +1574,8 @@ def run_chat(b, emit, cid, text, ctx, inputs, files=None, auto=None, stale=None)
     return msg
 
 
-POST = {"/api/client": api_client, "/api/client/save": api_client_save, "/api/client/new": api_client_new, "/api/asset": api_asset,
+POST = {"/api/project": api_project_create, "/api/project/rename": api_project_rename, "/api/project/delete": api_project_delete,
+        "/api/conv/move": api_conv_move, "/api/conv/client": api_conv_client, "/api/client": api_client, "/api/client/save": api_client_save, "/api/client/new": api_client_new, "/api/asset": api_asset,
         "/api/asset/delete": api_asset_delete, "/api/asset/kind": api_asset_kind, "/api/chat": api_chat, "/api/job": api_job,
         "/api/conv": api_conv, "/api/conv/delete": api_conv_delete, "/api/conv/rename": api_conv_rename, "/api/clientlog": api_clientlog, "/api/conv/files": api_conv_files,
         "/api/asset/alias": api_asset_alias, "/api/setkey": api_setkey, "/api/websearch": api_websearch, "/api/webadd": api_webadd}
@@ -1240,8 +1640,12 @@ class H(BaseHTTPRequestHandler):
             if path == "/api/models":
                 return self._send(200, api_models({}))
             if path == "/api/convs":
-                q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
-                return self._send(200, list_convs((q.get("client") or [""])[0]))
+                q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query, keep_blank_values=True)
+                return self._send(200, list_convs((q.get("client") or q.get("scope") or [""])[0] if ("client" in q or "scope" in q) else None))
+            if path == "/api/clients":
+                return self._send(200, api_clients((urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query).get("q") or [""])[0]))
+            if path == "/api/projects":
+                return self._send(200, api_projects({}))
             m = re.fullmatch(r"/files/([a-z0-9_-]+)/(assets|out)/([A-Za-z0-9._-]+)", path)
             if m and m.group(3) not in (".", ".."):
                 key = f"clients/{m.group(1)}/assets/{m.group(3)}" if m.group(2) == "assets" else f"chat_out/{m.group(1)}/{m.group(3)}"

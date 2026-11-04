@@ -4,15 +4,32 @@
     "sector": "supermercado: cestas de Natal e de alimentos",
     "audience": "famílias que presenteiam com cestas de Natal",
     "tone": "caloroso, festivo, confiável",
-    "palette": ["#0F1A1A", "#D8B04A", "#F1E3C3", "#E2231A"],
+    "palette": [
+      "#0F1A1A",
+      "#D8B04A",
+      "#F1E3C3",
+      "#E2231A"
+    ],
     "typography": "título em serifa elegante creme e dourado; lettering manuscrito dourado para o destaque; botão dourado com texto escuro",
     "image_style": "peça publicitária de campanha: fundo de floresta escura com bokeh de luzes de Natal, cesta de produtos em primeiro plano, pessoa recortada à direita, selo dourado, caixa de pergaminho para o texto",
-    "approved_references": ["superbrilho_natal.jpg"],
+    "approved_references": [
+      "superbrilho_natal.jpg"
+    ],
     "nota": "dados extraídos da peça de referência enviada pelo usuário; confirmar com o cliente"
   },
   "assets": {
-    "ref": {"file": "reference/superbrilho_natal.jpg", "kind": "referencia", "name": "peca de natal super brilho.jpg", "alias": "peca de natal"},
-    "pessoa": {"file": "reference/pessoa.webp", "kind": "pessoa", "name": "rodrigo.webp", "alias": "rodrigo"}
+    "ref": {
+      "file": "reference/superbrilho_natal.jpg",
+      "kind": "referencia",
+      "name": "peca de natal super brilho.jpg",
+      "alias": "peca de natal"
+    },
+    "pessoa": {
+      "file": "reference/pessoa.webp",
+      "kind": "pessoa",
+      "name": "rodrigo.webp",
+      "alias": "rodrigo"
+    }
   },
   "reference_texts": [
     "CESTAS DE NATAL",
@@ -29,9 +46,21 @@
       "id": "T1",
       "title": "Trocar a pessoa da peça pela da foto enviada",
       "text": "troque a pessoa da foto de referência pela pessoa da foto rodrigo.webp, mantendo todo o resto da peça exatamente igual",
-      "assets": ["ref", "pessoa"],
+      "assets": [
+        "ref",
+        "pessoa"
+      ],
       "size": "auto",
-      "expect_texts": ["CESTAS DE NATAL", "Você é o nosso Brilho!", "O brilho do Natal chega até você com FRETE GRÁTIS!", "Surpreenda quem faz parte da sua história com as Cestas de Natal Super Brilho.", "Regiões: SP, RJ, ES, MG, PR, SC, RS, DF, MS, GO e MT", "A PARTIR DE R$500 / FRETE GRÁTIS", "Confira as Cestas", "Super Brilho / CESTAS DE ALIMENTOS"],
+      "expect_texts": [
+        "CESTAS DE NATAL",
+        "Você é o nosso Brilho!",
+        "O brilho do Natal chega até você com FRETE GRÁTIS!",
+        "Surpreenda quem faz parte da sua história com as Cestas de Natal Super Brilho.",
+        "Regiões: SP, RJ, ES, MG, PR, SC, RS, DF, MS, GO e MT",
+        "A PARTIR DE R$500 / FRETE GRÁTIS",
+        "Confira as Cestas",
+        "Super Brilho / CESTAS DE ALIMENTOS"
+      ],
       "must_change": "somente o rosto, o cabelo e os traços da pessoa; a pose, a roupa, as mãos e a luz devem ficar como na peça",
       "must_keep": "todos os textos, o logo, o selo, a cesta de produtos, o fundo, o botão e o layout"
     },
@@ -39,9 +68,20 @@
       "id": "T2",
       "title": "Trocar dois textos mantendo todo o resto",
       "text": "mantenha a peça da foto de referência idêntica, mas troque 'FRETE GRÁTIS!' da frase do título por 'ENTREGA EM 24H!' e o texto 'FRETE GRÁTIS' do selo dourado por 'ENTREGA EM 24H'",
-      "assets": ["ref"],
+      "assets": [
+        "ref"
+      ],
       "size": "auto",
-      "expect_texts": ["CESTAS DE NATAL", "Você é o nosso Brilho!", "O brilho do Natal chega até você com ENTREGA EM 24H!", "Surpreenda quem faz parte da sua história com as Cestas de Natal Super Brilho.", "Regiões: SP, RJ, ES, MG, PR, SC, RS, DF, MS, GO e MT", "A PARTIR DE R$500 / ENTREGA EM 24H", "Confira as Cestas", "Super Brilho / CESTAS DE ALIMENTOS"],
+      "expect_texts": [
+        "CESTAS DE NATAL",
+        "Você é o nosso Brilho!",
+        "O brilho do Natal chega até você com ENTREGA EM 24H!",
+        "Surpreenda quem faz parte da sua história com as Cestas de Natal Super Brilho.",
+        "Regiões: SP, RJ, ES, MG, PR, SC, RS, DF, MS, GO e MT",
+        "A PARTIR DE R$500 / ENTREGA EM 24H",
+        "Confira as Cestas",
+        "Super Brilho / CESTAS DE ALIMENTOS"
+      ],
       "must_change": "somente 'FRETE GRÁTIS!' no título e 'FRETE GRÁTIS' no selo, que passam a 'ENTREGA EM 24H!' e 'ENTREGA EM 24H'",
       "must_keep": "a pessoa, o logo, a cesta, o fundo, o botão, todos os outros textos e o layout"
     },
@@ -49,11 +89,52 @@
       "id": "T3",
       "title": "Adaptar a peça para story vertical",
       "text": "adapte a peça da foto de referência para o formato story vertical, mantendo o logo, todos os textos, o selo, a cesta de produtos, a pessoa e o botão, redistribuindo o layout para o formato vertical",
-      "assets": ["ref"],
+      "assets": [
+        "ref"
+      ],
       "size": "1024x1536",
-      "expect_texts": ["CESTAS DE NATAL", "Você é o nosso Brilho!", "O brilho do Natal chega até você com FRETE GRÁTIS!", "Surpreenda quem faz parte da sua história com as Cestas de Natal Super Brilho.", "Regiões: SP, RJ, ES, MG, PR, SC, RS, DF, MS, GO e MT", "A PARTIR DE R$500 / FRETE GRÁTIS", "Confira as Cestas", "Super Brilho / CESTAS DE ALIMENTOS"],
+      "expect_texts": [
+        "CESTAS DE NATAL",
+        "Você é o nosso Brilho!",
+        "O brilho do Natal chega até você com FRETE GRÁTIS!",
+        "Surpreenda quem faz parte da sua história com as Cestas de Natal Super Brilho.",
+        "Regiões: SP, RJ, ES, MG, PR, SC, RS, DF, MS, GO e MT",
+        "A PARTIR DE R$500 / FRETE GRÁTIS",
+        "Confira as Cestas",
+        "Super Brilho / CESTAS DE ALIMENTOS"
+      ],
       "must_change": "a proporção (vertical) e a distribuição dos elementos",
       "must_keep": "logo, textos, selo, cesta, pessoa, botão e a identidade visual"
+    },
+    {
+      "id": "T4",
+      "title": "Criar uma peça NOVA do zero a partir de um prompt, no estilo da referência",
+      "text": "crie uma peça nova de campanha no mesmo padrão visual da foto de referência (fundo de floresta escura com luzes de Natal em bokeh, lettering dourado, selo dourado, caixa de pergaminho, botão dourado, cesta de produtos embaixo, logo Super Brilho no alto à direita), com o título 'Presenteie quem você ama com as Cestas de Natal Super Brilho', o selo 'FRETE GRÁTIS' e o botão 'Confira as Cestas', usando a pessoa da foto rodrigo.webp à direita",
+      "assets": [
+        "ref",
+        "pessoa"
+      ],
+      "size": "1024x1536",
+      "expect_texts": [
+        "Presenteie quem você ama com as Cestas de Natal Super Brilho",
+        "FRETE GRÁTIS (selo dourado)",
+        "Confira as Cestas (botão)",
+        "Super Brilho / CESTAS DE ALIMENTOS (logo)"
+      ],
+      "must_change": "é uma peça nova: título e composição novos",
+      "must_keep": "o estilo da referência (fundo, lettering dourado, selo, pergaminho, botão), o logo idêntico ao da referência, embalagens reais reconhecíveis da cesta"
+    },
+    {
+      "id": "T5",
+      "title": "Um prompt de uma linha, com pesquisa na web, até o nível do banner do ChatGPT (CVC com pessoa)",
+      "text": "Quero criar um banner para uma campanha da CVC com o Rodrigo Faro, faça isso para mim",
+      "assets": [
+        "pessoa"
+      ],
+      "size": "auto",
+      "mode": "livre",
+      "gold": "reference/chatgpt_cvc_banner.png",
+      "expect_texts": []
     }
   ]
 }
