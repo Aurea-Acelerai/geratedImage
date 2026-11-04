@@ -84,7 +84,9 @@ class H(BaseHTTPRequestHandler):
                 if pend:
                     out = {"intent": pend.group(2), "request": f"{pend.group(1)} {msg}", "use_last_image": pend.group(2) in ("edit", "variation"), "carry": []}
                 elif re.search(r"\b(mude|troque|tire|agora|mais|deixe)\b", msg, re.I) and lasts:
-                    out = {"intent": "edit", "request": f"{lasts[-1]}; {msg}", "use_last_image": True, "carry": []}
+                    ref = re.search(r"([^,;|]+?) \(referencia\) \[id (\w+)\]", utext) if re.search(r"refer[eê]ncia", msg, re.I) else None
+                    out = ({"intent": "edit", "request": f"{lasts[-1]}; {msg}", "use_last_image": False, "edit_target": ref.group(2), "carry": []} if ref
+                           else {"intent": "edit", "request": f"{lasts[-1]}; {msg}", "use_last_image": True, "carry": []})
                 else:
                     out = {"intent": "new", "request": msg, "use_last_image": False, "carry": []}
                 return self._json(200, {"choices": [{"message": {"content": json.dumps(out)}}]})

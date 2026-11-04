@@ -305,6 +305,24 @@ try:
     # 15) o botão de fixar só aparece quando a pergunta é sobre imagem
     p, _ = run({"client": "71", "conv": "convoferta", "text": "preciso perguntar perguntaoferta", "review": False}); mo = p["message"]
     ok(mo["kind"] == "text" and "foto" not in mo["text"].lower() and mo["suggest"] == [] and mo["suggest_web"] == [], "pergunta sobre a oferta não oferece fixar foto")
+    # 16) o alvo da edição pode ser uma imagem ANEXADA (a foto de referência), não só a última gerada
+    rid = call(CHAT, "/api/asset", {"client": "71", "kind": "referencia", "name": "peca_campanha.png", "mime": "image/png", "b64": PNGB})[1]["asset"]["id"]
+    call(CHAT, "/api/asset/kind", {"client": "71", "id": pid, "kind": "pessoa"})
+    run({"client": "71", "conv": "convtarget", "text": "banner de natal", "asset_ids": [pid, rid], "review": False})
+    p, steps = run({"client": "71", "conv": "convtarget", "text": "troque a pessoa da foto de referencia pela pessoa da foto", "asset_ids": [pid, rid], "review": False}); mt = p["message"]
+    ks = [(i["kind"], i["name"]) for i in mt["inputs"]]
+    ok(mt["intent"] == "edit" and ks[0] == ("alvo", "peca_campanha.png"), f"o alvo é a imagem anexada, não a última gerada ({ks})")
+    ok(("pessoa", "rodrigo.webp") in ks and len(ks) == 2, "a foto da pessoa continua como identidade e não é duplicada")
+    ok(any(x["text"].startswith("Alvo da edição: a imagem anexada") for x in steps), "o progresso diz qual é o alvo")
+    # sem citar a imagem anexada, continua editando a última gerada
+    p, _ = run({"client": "71", "conv": "convtarget", "text": "agora mais claro", "asset_ids": [pid, rid], "review": False})
+    ok(p["message"]["inputs"][0]["kind"] == "alvo" and p["message"]["inputs"][0]["name"] != "peca_campanha.png", "sem citar a imagem anexada, o alvo é a última gerada")
+    # 17) novo cliente
+    st, nc = call(CHAT, "/api/client/new", {"name": "Super Brilho", "sector": "supermercado"})
+    ok(st == 200 and nc["id"] == "super-brilho" and nc["client"]["name"] == "Super Brilho", f"cliente novo criado ({nc.get('id')})")
+    st2, nc2 = call(CHAT, "/api/client/new", {"name": "Super Brilho"})
+    ok(nc2["id"] == "super-brilho-2", "nome repetido ganha sufixo")
+    ok(call(CHAT, "/api/client/new", {"name": " "})[0] == 400, "nome vazio é recusado")
     print("\nTUDO OK")
 finally:
     for p in procs:

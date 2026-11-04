@@ -138,7 +138,7 @@ def build_user(text, size, history, inputs, feedback=None, prev=None, memory="",
         u += f"Mensagem original do usuário: {original}\n"
     u += f"Contêiner/tamanho: {size}\n"
     if intent == "edit":
-        u += ("Intenção: EDIÇÃO da Image 1 (a última imagem gerada): escreva 'change only X; keep everything else unchanged' e repita as invariantes "
+        u += ("Intenção: EDIÇÃO da Image 1 (o alvo de edição): escreva 'change only X; keep everything else unchanged' e repita as invariantes "
               "(rosto, pose, enquadramento, fundo, texto).\n")
     elif intent == "variation":
         u += "Intenção: VARIAÇÃO da Image 1: mantenha o conceito, a pessoa/produto/marca e o estilo; mude só o que o pedido indicar.\n"
@@ -299,6 +299,22 @@ def api_state(_):
 def api_client(b):
     cid = b["id"]
     return {"id": slug(cid), "client": load_client(cid), "assets": with_urls(cid, load_assets(cid))}
+
+
+def api_client_new(b):
+    name = str(b.get("name", "")).strip()[:80]
+    if len(name) < 2:
+        raise ui.ApiError(400, "dê um nome ao cliente")
+    base = slug(re.sub(r"\s+", "-", skills_router.norm(name))) if re.search(r"[a-z0-9]", skills_router.norm(name)) else "cliente"
+    cid, n = base, 2
+    while (CLIENTS / cid / "client.json").exists():
+        cid, n = f"{base}-{n}", n + 1
+    d = cdir(cid)
+    ctx = {"id": cid, "name": name, "sector": str(b.get("sector", ""))[:120], "audience": "", "tone": "", "palette": [], "typography": "",
+           "image_style": "", "approved_references": []}
+    (d / "client.json").write_text(json.dumps(ctx, ensure_ascii=False, indent=2), encoding="utf-8")
+    log_event("cliente_novo", id=cid)
+    return {"id": cid, "client": ctx}
 
 
 def api_client_save(b):
@@ -734,6 +750,9 @@ def resolve_turn(conv, text, avail, model, provider):
             li = last.get("intent", "new")
             return {**triv, "intent": li, "request": f'{last["resolved"]} {text}', "use_last_image": li in ("edit", "variation")}, None
         if EDIT_WORDS.search(text):
+            m = re.search(r"([^,;|]+?) \(referencia\) \[id (\w+)\]", avail)
+            if m and "referencia" in skills_router.norm(text):
+                return {**triv, "intent": "edit", "request": f'{last["resolved"]}; {text}', "edit_target": m.group(2)}, None
             return {**triv, "intent": "edit", "request": f'{last["resolved"]}; {text}', "use_last_image": True}, None
         return triv, None
     user = f"{mem}\n\nImagens disponíveis agora: {avail}\n\nNova mensagem do usuário: {text}"
@@ -746,7 +765,9 @@ def resolve_turn(conv, text, avail, model, provider):
             raise ValueError("resposta do resolvedor inválida")
         carry = [str(c)[:160] for c in (out.get("carry") or []) if str(c).strip()][:8]
         return {"intent": out["intent"], "request": str(out["request"]).strip(),
-                "use_last_image": bool(out.get("use_last_image")) and out["intent"] in ("edit", "variation"), "carry": carry or list(conv["carry"])}, None
+                "use_last_image": bool(out.get("use_last_image")) and out["intent"] in ("edit", "variation"),
+                "edit_target": (str(out["edit_target"]).strip() if out.get("edit_target") and out["intent"] == "edit" else None),
+                "carry": carry or list(conv["carry"])}, None
     except Exception as e:  # noqa: BLE001
         return triv, f"não consegui resolver o contexto ({type(e).__name__}); usei a sua mensagem como está"
 
@@ -754,6 +775,73 @@ def resolve_turn(conv, text, avail, model, provider):
 def api_clientlog(b):
     """Erros do navegador (JavaScript, rede) vão para o mesmo registro, para serem vistos e corrigidos."""
     log_event("ui", tipo=str(b.get("kind", ""))[:30], mensagem=str(b.get("message", ""))[:600])
+    return {"ok": True}
+
+
+def _strict_id(v, what):
+    """Id de cliente/conversa para operações que removem ou alteram: aceita só o que o slug() deixaria intacto.
+    O slug() sozinho apagaria os caracteres ruins e acertaria OUTRA conversa ('../abc' viraria 'abc')."""
+    if not isinstance(v, str) or v != slug(v):
+        raise ui.ApiError(400, f"id de {what} inválido")
+    return v
+
+
+def _conv_title(c):
+    t = c.get("title")
+    if isinstance(t, str) and t.strip():
+        return t.strip()
+    first = next((str(x.get("request") or "").strip() for x in c.get("turns", []) if isinstance(x, dict) and x.get("request")), "")
+    return (first[:60].rstrip() + "…") if len(first) > 60 else first
+
+
+def list_convs(cid):
+    """Histórico do cliente, do mais recente ao mais antigo. Arquivo ilegível não derruba a lista: é contado em 'skipped'."""
+    d = CONV_DIR / _strict_id(cid, "cliente")
+    convs, skipped = [], 0
+    for p in (d.glob("*.json") if d.is_dir() else []):
+        try:
+            c = json.loads(p.read_text(encoding="utf-8"))
+            turns = c["turns"]
+            if not isinstance(turns, list):
+                raise ValueError("turns")
+            mtime = p.stat().st_mtime
+        except (OSError, ValueError, KeyError, TypeError, AttributeError):
+            skipped += 1
+            log_event("conv_list_skipped", client=d.name, file=p.name)
+            continue
+        if turns:  # conversa sem mensagens não entra no histórico
+            convs.append({"id": p.stem, "title": _conv_title(c), "updated": int(mtime), "count": len(turns), "_m": mtime})
+    convs.sort(key=lambda x: x.pop("_m"), reverse=True)
+    return {"convs": convs, "skipped": skipped}
+
+
+def _existing_conv_path(b):
+    p = conv_path(_strict_id(b["client"], "cliente"), _strict_id(b["conv"], "conversa"))
+    if not p.is_file():
+        raise ui.ApiError(404, "conversa não encontrada")
+    return p
+
+
+def api_conv_delete(b):
+    with CONV_LOCK:
+        _existing_conv_path(b).unlink()  # só o JSON da conversa; imagens de saída e biblioteca ficam
+    return {"ok": True}
+
+
+def api_conv_rename(b):
+    title = b["title"]
+    if not isinstance(title, str) or not 1 <= len(title.strip()) <= 120:
+        raise ui.ApiError(400, "título deve ter de 1 a 120 caracteres")
+    with CONV_LOCK:
+        p = _existing_conv_path(b)
+        try:
+            c = json.loads(p.read_text(encoding="utf-8"))
+        except ValueError:
+            raise ui.ApiError(422, "conversa ilegível; não dá para renomear")
+        st = p.stat()
+        c["title"] = title.strip()
+        save_conv(c)
+        os.utime(p, (st.st_atime, st.st_mtime))  # renomear não é atividade: não muda a ordem do histórico
     return {"ok": True}
 
 
@@ -797,7 +885,7 @@ def run_chat(b, emit, cid, text, ctx, inputs, files=None, auto=None, stale=None)
     conv = load_conv(cid, b.get("conv") or uuid.uuid4().hex[:10])
     lastp, last_id = last_image(cid, conv)
     avail = (f"última imagem gerada (id {last_id}); " if last_id else "nenhuma imagem gerada ainda; ") + \
-            ("fixadas na conversa: " + ", ".join(f"{x['name']} ({x['kind']})" for x in inputs if x["kind"] not in ("alvo",)) if inputs else "nenhuma imagem fixada")
+            ("fixadas na conversa: " + ", ".join(f"{x['name']} ({x['kind']})" + (f" [id {x['id']}]" if x.get("id") else "") for x in inputs if x["kind"] not in ("alvo",)) if inputs else "nenhuma imagem fixada")
     edit_turn = next((t for t in conv["turns"] if t.get("image_id") == b.get("edit_of")), None) if b.get("edit_of") else None
     if edit_turn:
         avail += (f" | ATENÇÃO: o usuário escolheu EDITAR a imagem do turno {edit_turn['n']} (id {edit_turn['image_id']}), que pode NÃO ser a última; "
@@ -808,6 +896,16 @@ def run_chat(b, emit, cid, text, ctx, inputs, files=None, auto=None, stale=None)
     text_eff, intent = resolved["request"], resolved["intent"]
     if b.get("edit_of") and intent == "new":
         intent = "edit"  # o botão "Editar esta imagem" vale mais que a leitura do resolvedor
+    et = resolved.get("edit_target")
+    if et and str(et).lower() != "last" and not any(x["kind"] == "alvo" for x in inputs):
+        q = skills_router.norm(str(et))
+        hit = next((x for x in inputs if x.get("id") and (x["id"] == et or skills_router.norm(x["name"]) == q or q in skills_router.norm(x["name"]))), None)
+        if hit:  # o usuário falou de uma imagem ANEXADA ("a foto de referência"): ela é o alvo, não a última gerada
+            intent = "edit"
+            tgt = dict(hit, kind="alvo", role_text=f"ALVO DE EDIÇÃO: a imagem anexada '{hit['name']}'; mude só o que o pedido atual pede "
+                                                   "(por exemplo, trocar a pessoa pela da imagem de identidade) e mantenha o resto idêntico: layout, textos, logo, produtos, selos e fundo")
+            inputs = [tgt] + [x for x in inputs if x is not hit]
+            emit(f"Alvo da edição: a imagem anexada «{hit['name']}» (não a última gerada).")
     if resolved["use_last_image"] and lastp and not any(x["kind"] == "alvo" for x in inputs):
         role = ("ALVO DE EDIÇÃO: a última imagem gerada; mude só o que o pedido atual pede e mantenha o resto idêntico" if intent == "edit"
                 else "IMAGEM-BASE da variação: mantenha o conceito, a pessoa/produto/marca e o estilo; mude só o que o pedido indicar")
@@ -931,13 +1029,13 @@ def run_chat(b, emit, cid, text, ctx, inputs, files=None, auto=None, stale=None)
     return msg
 
 
-POST = {"/api/client": api_client, "/api/client/save": api_client_save, "/api/asset": api_asset,
+POST = {"/api/client": api_client, "/api/client/save": api_client_save, "/api/client/new": api_client_new, "/api/asset": api_asset,
         "/api/asset/delete": api_asset_delete, "/api/asset/kind": api_asset_kind, "/api/chat": api_chat, "/api/job": api_job,
-        "/api/conv": api_conv, "/api/clientlog": api_clientlog, "/api/conv/files": api_conv_files,
+        "/api/conv": api_conv, "/api/conv/delete": api_conv_delete, "/api/conv/rename": api_conv_rename, "/api/clientlog": api_clientlog, "/api/conv/files": api_conv_files,
         "/api/asset/alias": api_asset_alias, "/api/setkey": api_setkey, "/api/websearch": api_websearch, "/api/webadd": api_webadd}
 
 
-BRAND_EXT = {".css", ".png", ".svg", ".ico", ".woff2"}
+BRAND_EXT = {".css", ".png"}
 
 
 class H(BaseHTTPRequestHandler):
@@ -955,9 +1053,8 @@ class H(BaseHTTPRequestHandler):
         """GET /brand/<arquivo>: estáticos da marca em chat/brand, só extensões da allowlist, sem sair da pasta."""
         base = (ROOT / "chat" / "brand").resolve()
         name = raw_path[len("/brand/"):]
-        low = raw_path.lower()
-        if (not name or ".." in name or "\0" in raw_path or "%00" in low or "%2e" in low or "%2f" in low or "%5c" in low
-                or not re.fullmatch(r"[A-Za-z0-9._-]+", name) or pathlib.Path(name).suffix.lower() not in BRAND_EXT):
+        # nome simples + extensão da allowlist; resolve()/is_relative_to barra o que sobrar (ex.: link simbólico para fora da pasta)
+        if not re.fullmatch(r"[A-Za-z0-9._-]+", name) or pathlib.Path(name).suffix.lower() not in BRAND_EXT:
             return self._send(404, {"error": "não encontrado"})
         p = (base / name).resolve()
         if not p.is_relative_to(base) or not p.is_file():
@@ -985,12 +1082,15 @@ class H(BaseHTTPRequestHandler):
         try:
             if path in ("/", "/index.html"):
                 return self._send(200, (ROOT / "chat" / "index.html").read_bytes(), "text/html")
-            if self.path.split("?", 1)[0].startswith("/brand/"):
-                return self._brand(self.path.split("?", 1)[0])
+            if path.startswith("/brand/"):
+                return self._brand(path)
             if path == "/api/state":
                 return self._send(200, api_state({}))
             if path == "/api/models":
                 return self._send(200, api_models({}))
+            if path == "/api/convs":
+                q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
+                return self._send(200, list_convs((q.get("client") or [""])[0]))
             m = re.fullmatch(r"/files/([a-z0-9_-]+)/(assets|out)/([A-Za-z0-9._-]+)", path)
             if m:
                 base = (CLIENTS / m.group(1) / "assets") if m.group(2) == "assets" else (OUT / m.group(1))

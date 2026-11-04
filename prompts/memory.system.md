@@ -10,6 +10,7 @@ Devolva **somente** JSON:
 {"intent": "new|edit|variation",
  "request": "<pedido autossuficiente, em português>",
  "use_last_image": true|false,
+ "edit_target": null | "last" | "<nome ou id de um arquivo da conversa>",
  "carry": ["<instrução duradoura>", ...]}
 ```
 
@@ -18,6 +19,12 @@ Devolva **somente** JSON:
 - **intent `variation`:** quer outra imagem do mesmo conceito ("faz outra versão", "mais opções", "tenta de outro ângulo"). `use_last_image: true`.
 - **intent `new`:** assunto novo, sem relação com a última imagem. `use_last_image: false`.
 - **Resposta a uma pergunta do designer** (a memória marca "PERGUNTA PENDENTE", com a "intenção original"): a mensagem completa o pedido original. Una a resposta ao pedido original em um só pedido e **mantenha a intenção original**: se era uma edição, continua sendo edição (`use_last_image: true`); se era um pedido novo, `intent: new`.
+
+## Alvo da edição (`edit_target`)
+- Em `edit`, diga **qual imagem** será editada. `"last"` = a última imagem **gerada**. Se o usuário fala de uma imagem **anexada** ("troque a pessoa da **foto de referência**", "no **banner anexado**", "na imagem do WhatsApp"), o alvo é **esse arquivo anexado**: devolva o nome ou o id dele (a linha de imagens disponíveis traz os nomes e ids).
+- Foto de **pessoa** anexada que o usuário quer **colocar** na imagem (identidade) **não é o alvo**: é a referência da pessoa.
+- Em dúvida entre a última gerada e um arquivo anexado, escolha o que o usuário **nomeou**; sem nome, `"last"`.
+- Fora de `edit`, `edit_target: null`.
 
 ## Como escrever `request`
 - Autossuficiente: quem ler só o `request` entende o que gerar, sem ver a conversa.

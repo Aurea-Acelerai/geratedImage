@@ -349,7 +349,7 @@ function drawLog() {
   if (!S.history.length && !S.live) {
     w.innerHTML = `<div class="empty"><h2>O que vamos criar para ${esc(S.client.name || S.clientId)}?</h2>
       <div>Descreva qualquer imagem (foto, ilustração, 3D, produto, retrato, banner), anexe referências se quiser e itere como no ChatGPT.</div>
-      <div class="sugg">${['Um gato astronauta flutuando dentro de uma estação espacial, ilustração digital', 'Foto de produto: garrafa de vidro âmbar sobre mármore preto, luz de estúdio', 'Retrato em preto e branco de uma senhora idosa rindo, luz de janela', 'Banner de Black Friday para loja de eletrônicos, 20% off até domingo']
+      <div class="sugg">${['Um gato astronauta flutuando dentro de uma estação espacial, ilustração digital', 'Foto de produto: garrafa de vidro âmbar sobre mármore preto, luz de estúdio', 'Retrato em preto e branco de uma senhora idosa rindo, luz de janela', 'Banner de promoção de Natal com frete grátis para supermercado']
         .map((s) => `<button class="btn" data-sugg="${esc(s)}">${esc(s)}</button>`).join('')}</div></div>`;
   } else {
     w.innerHTML = S.history.map(msgHtml).join('') + liveHtml();
@@ -402,7 +402,19 @@ async function setKey() {
     $('modeBadge').textContent = 'API OpenAI'; $('modeBadge').classList.remove('warn');
     $('status').textContent = r.saved ? 'Chave aceita e guardada no Keychain.' : 'Chave aceita (só nesta execução).';
     checkModels();
-  } catch (e) { $('keyErr').textContent = e.message; $('keyErr').style.color = 'var(--bad)'; }
+  } catch (e) { $('keyErr').textContent = e.message; $('keyErr').style.color = 'var(--color-status-danger)'; }
+}
+async function newClient() {
+  const name = prompt('Nome do cliente (ex.: Super Brilho):'); if (!name) return;
+  const sector = prompt('Ramo do cliente (ex.: supermercado, cestas de Natal). Opcional:') || '';
+  try {
+    const r = await api('/api/client/new', { name, sector });
+    S.state = await api('/api/state');
+    $('client').innerHTML = S.state.clients.map((c) => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('');
+    await loadClient(r.id);
+    $('mode').value = 'marca'; setModeHint();
+    $('status').textContent = 'Cliente criado. Envie a logo e preencha os dados da marca em "Dados do cliente".';
+  } catch (e) { $('status').textContent = 'Erro: ' + e.message; }
 }
 function setModeHint() {
   $('modeHint').textContent = $('mode').value === 'livre'
@@ -540,3 +552,4 @@ init().catch((e) => { $('wrap').innerHTML = `<div class="empty err">Falha ao ini
 </script>
 </body>
 </html>
+$('newClient').onclick = newClient;
