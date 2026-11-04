@@ -218,7 +218,7 @@ async function checkModels() {
 
 async function loadClient(id) {
   const r = await api('/api/client', { id });
-  S.clientId = r.id; S.client = r.client; S.assets = r.assets; S.editOf = null; S.live = null;
+  S.clientId = r.id; S.client = r.client; S.assets = r.assets; S.editOf = null; S.live = null; S.lastBody = null;
   S.conv = store.get('conv:' + r.id) || newConv(r.id);
   S.selected = new Set((store.get('sel:' + r.id) || []).filter((id) => r.assets.some((a) => a.id === id)));
   $('client').value = r.id;
@@ -339,7 +339,11 @@ async function loadMem() {
     $('mem').innerHTML = parts.join('') || 'Vazia: a IA ainda não lembra de nada.';
   } catch { /* sem painel: não atrapalha o chat */ }
 }
-function setBusy(b) { S.busy = b; $('send').disabled = b; }
+function setBusy(b) {
+  S.busy = b; $('send').disabled = b;
+  // enquanto gera, não troca de conversa nem de cliente: o resultado cairia na conversa errada
+  $('newChat').disabled = b; $('client').disabled = b;
+}
 
 async function poll(jobId, since) {
   // acompanha a tarefa até terminar; sobrevive a falhas curtas de rede
@@ -430,7 +434,7 @@ $('addAsset').onclick = () => $('file').click();
 $('file').onchange = async (e) => { await uploadFiles([...e.target.files], $('kind').value); e.target.value = ''; };
 $('client').onchange = () => loadClient($('client').value);
 $('mode').onchange = setModeHint;
-$('newChat').onclick = () => { S.history = []; S.editOf = null; S.selected = new Set(); saveSel(); S.conv = newConv(S.clientId); saveLog(); drawLog(); drawAssets(); drawChips(); loadMem(); };
+$('newChat').onclick = () => { S.lastBody = null; S.history = []; S.editOf = null; S.selected = new Set(); saveSel(); S.conv = newConv(S.clientId); saveLog(); drawLog(); drawAssets(); drawChips(); loadMem(); };
 $('saveClient').onclick = async () => {
   try { const c = JSON.parse($('clientJson').value); await api('/api/client/save', { id: S.clientId, client: c }); S.client = c; $('clientName').textContent = c.name || S.clientId; $('status').textContent = 'Dados salvos'; }
   catch (e) { $('status').textContent = 'JSON inválido: ' + e.message; }

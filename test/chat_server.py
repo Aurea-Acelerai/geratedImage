@@ -27,6 +27,9 @@ import ui_server as ui  # noqa: E402  (openai_post, ApiError, env_models)
 DATA = pathlib.Path(os.getenv("CHAT_DATA_DIR") or ROOT)
 CLIENTS, OUT = DATA / "clients", DATA / "chat_out"
 MOCK = False
+CONV_LOCK = threading.Lock()  # duas tarefas da mesma conversa não podem se sobrescrever
+FIDELITY_REJECTED = set()  # modelos que recusaram input_fidelity (não insiste a cada tentativa)
+FIDELITY_MSG = "O modelo de imagem não aceitou input_fidelity=high; usei sem ele. A fidelidade ao rosto, logo ou produto de referência pode cair."
 MIME_EXT = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/svg+xml": "svg"}
 KIND_ROLE = {
     "referencia": "REFERÊNCIA de estilo, cena ou assunto: inspire-se, não copie",
@@ -179,6 +182,10 @@ def make_image(prompt, size, quality, inputs, model, fidelity=None, notes=None):
     if inputs:
         files = [("image[]", f"in{i}.{MIME_EXT.get(x['mime'], 'png')}", x["mime"], x["bytes"]) for i, x in enumerate(inputs)]
         fields = {"model": model, "prompt": prompt, "size": size, "quality": quality, "n": 1}
+        if fidelity and model in FIDELITY_REJECTED:
+            fidelity = None
+            if notes is not None and FIDELITY_MSG not in notes:
+                notes.append(FIDELITY_MSG)
         if fidelity:
             fields["input_fidelity"] = fidelity  # alta fidelidade preserva rosto, logo e produto das imagens de entrada
         try:
@@ -186,8 +193,9 @@ def make_image(prompt, size, quality, inputs, model, fidelity=None, notes=None):
         except ui.ApiError as e:
             if fidelity and "input_fidelity" in str(e):  # o modelo não aceita o parâmetro: repete sem ele e avisa
                 fields.pop("input_fidelity")
-                if notes is not None:
-                    notes.append("O modelo de imagem não aceitou input_fidelity=high; repeti sem ele. A fidelidade ao rosto, logo ou produto de referência pode cair.")
+                FIDELITY_REJECTED.add(model)
+                if notes is not None and FIDELITY_MSG not in notes:
+                    notes.append(FIDELITY_MSG)
                 r = openai_multipart("/images/edits", fields, files)
             else:
                 raise
@@ -235,11 +243,15 @@ def collect_inputs(cid, edit_of, asset_ids):
         inputs.append(dict(kind="alvo", name=p.name, mime=mime, bytes=p.read_bytes(),
                            role_text="ALVO DE EDIÇÃO: peça gerada anteriormente; mude só o que o pedido atual pede e mantenha o resto idêntico"))
     by_id = {a["id"]: a for a in load_assets(cid)}
+    missing = [aid for aid in asset_ids if aid not in by_id]
+    if missing:
+        raise ui.ApiError(409, f"Uma imagem fixada não existe mais na biblioteca ({', '.join(missing)}). Remova-a da conversa (×) e envie de novo: "
+                               "sem ela a imagem sairia sem a referência.")
     for aid in asset_ids:
-        a = by_id.get(aid)
-        if not a:
-            continue
+        a = by_id[aid]
         p = cdir(cid) / "assets" / a["file"]
+        if not p.exists():
+            raise ui.ApiError(409, f"O arquivo de '{a['name']}' sumiu da biblioteca. Envie a imagem de novo.")
         inputs.append(dict(kind=a["kind"], name=a["name"], mime=a["mime"], bytes=p.read_bytes(),
                            role_text=f"{KIND_ROLE.get(a['kind'], 'imagem do cliente')} (arquivo: {a['name']})"))
     return inputs
@@ -281,7 +293,7 @@ def api_asset(b):
     if len(data) > 20 * 1024 * 1024:
         raise ui.ApiError(400, "arquivo maior que 20 MB")
     aid = uuid.uuid4().hex[:8]
-    a = {"id": aid, "kind": b["kind"], "name": os.path.basename(b.get("name") or f"{aid}.{MIME_EXT[mime]}"),
+    a = {"id": aid, "kind": b["kind"], "name": re.sub(r"[\x00-\x1f\x7f]", " ", os.path.basename(b.get("name") or f"{aid}.{MIME_EXT[mime]}"))[:80],
          "file": f"{aid}.{MIME_EXT[mime]}", "mime": mime}
     (cdir(cid) / "assets" / a["file"]).write_bytes(data)
     assets = load_assets(cid) + [a]
@@ -404,14 +416,17 @@ def conv_path(cid, conv_id):
 def load_conv(cid, conv_id):
     p = conv_path(cid, conv_id)
     if p.exists():
-        return json.loads(p.read_text(encoding="utf-8"))
+        try:
+            return json.loads(p.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:  # arquivo corrompido: guarda a cópia e recomeça, em vez de travar a conversa
+            p.rename(p.with_name(p.name + f".corrompido-{int(time.time())}"))
     return {"id": slug(conv_id), "client": slug(cid), "created": time.strftime("%Y-%m-%d %H:%M:%S"), "turns": [], "carry": []}
 
 
 def save_conv(conv):
     p = conv_path(conv["client"], conv["id"])
     p.parent.mkdir(parents=True, exist_ok=True)
-    tmp = p.with_suffix(".tmp")
+    tmp = p.with_name(p.name + f".{uuid.uuid4().hex[:6]}.tmp")
     tmp.write_text(json.dumps(conv, ensure_ascii=False, indent=2), encoding="utf-8")
     tmp.replace(p)
 
@@ -420,7 +435,10 @@ def last_image(cid, conv):
     for t in reversed(conv["turns"]):
         if t.get("image_id"):
             try:
-                return find_out(cid, t["image_id"]), t["image_id"]
+                p = find_out(cid, t["image_id"])
+                if p.suffix == ".svg" and not MOCK:  # imagem falsa de um teste mock: a API real não aceita SVG
+                    return None, None
+                return p, t["image_id"]
             except ui.ApiError:
                 return None, None
     return None, None
@@ -431,18 +449,20 @@ def memory_text(conv):
     if not conv["turns"] and not conv["carry"]:
         return ""
     lines = ["Memória da conversa (mais antigo primeiro):"]
-    for t in conv["turns"][-8:]:
+    recent = conv["turns"][-8:]
+    for i, t in enumerate(recent):
+        lim = 1500 if i == len(recent) - 1 else 500  # o último pedido vai quase inteiro: é dele que o resolvedor parte
         if t.get("question"):
-            lines.append(f'{t["n"]}. Pedido: {t["resolved"][:300]} | o designer PERGUNTOU: "{t["question"]}" (sem imagem)')
+            lines.append(f'{t["n"]}. Pedido: {t["resolved"][:lim]} | o designer PERGUNTOU: "{t["question"]}" (sem imagem)')
         else:
-            lines.append(f'{t["n"]}. Pedido: {t["resolved"][:300]} | intenção: {t["intent"]} | resultado: imagem {t["image_id"]} '
+            lines.append(f'{t["n"]}. Pedido: {t["resolved"][:lim]} | intenção: {t["intent"]} | resultado: imagem {t["image_id"]} '
                          f'(nota {t["score"]}, {"aprovada" if t["approved"] else "reprovada"}) | briefing final: {t["briefing"][:600]}')
     if conv["carry"]:
         lines.append("Instruções duradouras do usuário: " + "; ".join(conv["carry"]))
     last = conv["turns"][-1] if conv["turns"] else None
     if last and last.get("question"):
         lines.append(f'PERGUNTA PENDENTE: o último turno terminou numa pergunta do designer; a nova mensagem provavelmente a responde '
-                     f'(pedido original: {last["resolved"][:300]})')
+                     f'(pedido original: {last["resolved"][:1500]}; intenção original: {last["intent"]})')
     return "\n".join(lines)
 
 
@@ -455,7 +475,8 @@ def resolve_turn(conv, text, avail, model, provider):
     last = conv["turns"][-1]
     if MOCK:
         if last.get("question"):
-            return {**triv, "request": f'{last["resolved"]} {text}'}, None
+            li = last.get("intent", "new")
+            return {**triv, "intent": li, "request": f'{last["resolved"]} {text}', "use_last_image": li in ("edit", "variation")}, None
         if EDIT_WORDS.search(text):
             return {**triv, "intent": "edit", "request": f'{last["resolved"]}; {text}', "use_last_image": True}, None
         return triv, None
@@ -510,6 +531,10 @@ def run_chat(b, emit, cid, text, ctx, inputs):
     lastp, last_id = last_image(cid, conv)
     avail = (f"última imagem gerada (id {last_id}); " if last_id else "nenhuma imagem gerada ainda; ") + \
             ("fixadas na conversa: " + ", ".join(f"{x['name']} ({x['kind']})" for x in inputs if x["kind"] not in ("alvo",)) if inputs else "nenhuma imagem fixada")
+    edit_turn = next((t for t in conv["turns"] if t.get("image_id") == b.get("edit_of")), None) if b.get("edit_of") else None
+    if edit_turn:
+        avail += (f" | ATENÇÃO: o usuário escolheu EDITAR a imagem do turno {edit_turn['n']} (id {edit_turn['image_id']}), que pode NÃO ser a última; "
+                  f"o pedido daquele turno foi: {edit_turn['resolved'][:600]}")
     resolved, warn = resolve_turn(conv, text, avail, text_model, provider)
     if warn:
         avisos.append(warn)
@@ -521,6 +546,9 @@ def run_chat(b, emit, cid, text, ctx, inputs):
                 else "IMAGEM-BASE da variação: mantenha o conceito, a pessoa/produto/marca e o estilo; mude só o que o pedido indicar")
         inputs = [dict(kind="alvo" if intent == "edit" else "variacao", name=lastp.name, mime="image/svg+xml" if lastp.suffix == ".svg" else "image/png",
                        bytes=lastp.read_bytes(), role_text=role)] + list(inputs)
+    if intent in ("edit", "variation") and not any(x["kind"] in ("alvo", "variacao") for x in inputs):
+        intent = "new"
+        avisos.append("Não encontrei a imagem anterior para editar; gerei do zero com o pedido resolvido.")
     memory = memory_text(conv)
     if conv["turns"] or text_eff != text:
         emit(f"Memória: entendi como {'edição da imagem anterior' if intent == 'edit' else 'variação' if intent == 'variation' else 'pedido novo'}"
@@ -539,10 +567,12 @@ def run_chat(b, emit, cid, text, ctx, inputs):
         emit("Imagens de entrada: " + ", ".join(f"{x['kind']} {x['name']}" for x in inputs))
 
     def record(**turn):
-        n = len(conv["turns"]) + 1
-        conv["turns"].append({"n": n, "t": time.strftime("%H:%M:%S"), "request": text, "resolved": text_eff, "intent": intent, **turn})
-        conv["carry"] = resolved["carry"]
-        save_conv(conv)
+        with CONV_LOCK:  # relê do disco: outra tarefa da mesma conversa pode ter gravado um turno enquanto esta rodava
+            fresh = load_conv(cid, conv["id"])
+            fresh["turns"].append({"n": len(fresh["turns"]) + 1, "t": time.strftime("%H:%M:%S"), "request": text, "resolved": text_eff,
+                                   "intent": intent, **turn})
+            fresh["carry"] = resolved["carry"]
+            save_conv(fresh)
 
     if imp["designer"]:
         emit("O designer está escrevendo o briefing…")

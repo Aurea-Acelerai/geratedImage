@@ -66,10 +66,10 @@ class H(BaseHTTPRequestHandler):
                 msg = re.search(r"Nova mensagem do usuário: (.*)", utext, re.S).group(1).strip()
                 with LOCK:
                     STATS["resolver_users"].append(utext)
-                pend = re.search(r"PERGUNTA PENDENTE.*?\(pedido original: (.*?)\)\s*$", utext.split("\n\nImagens disponíveis")[0], re.S | re.M)
+                pend = re.search(r"PERGUNTA PENDENTE.*?\(pedido original: (.*?); intenção original: (\w+)\)\s*$", utext.split("\n\nImagens disponíveis")[0], re.S | re.M)
                 lasts = re.findall(r"Pedido: (.*?) \|", utext.split("\n\nImagens disponíveis")[0])
                 if pend:
-                    out = {"intent": "new", "request": f"{pend.group(1)} {msg}", "use_last_image": False, "carry": []}
+                    out = {"intent": pend.group(2), "request": f"{pend.group(1)} {msg}", "use_last_image": pend.group(2) in ("edit", "variation"), "carry": []}
                 elif re.search(r"\b(mude|troque|tire|agora|mais|deixe)\b", msg, re.I) and lasts:
                     out = {"intent": "edit", "request": f"{lasts[-1]}; {msg}", "use_last_image": True, "carry": []}
                 else:

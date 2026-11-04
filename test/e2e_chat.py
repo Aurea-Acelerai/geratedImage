@@ -167,6 +167,49 @@ try:
     # retag do tipo na biblioteca
     ok(call(CHAT, "/api/asset/kind", {"client": "71", "id": pid, "kind": "referencia"})[0] == 200, "tipo da imagem pode ser corrigido")
     ok(call(CHAT, "/api/asset/kind", {"client": "71", "id": pid, "kind": "invalido"})[0] == 400, "tipo inválido recusado")
+    # 10) problemas achados na revisão independente
+    import threading
+    # (a) duas tarefas simultâneas na mesma conversa não perdem turnos
+    cc = "convconc"
+    run({"client": "71", "conv": cc, "text": "uma xicara de cafe", "review": False})
+    out = []
+    ths = [threading.Thread(target=lambda tx=tx: out.append(run({"client": "71", "conv": cc, "text": tx, "review": False})[0]["status"])) for tx in ("um gato preto", "uma bicicleta azul")]
+    [x.start() for x in ths]; [x.join() for x in ths]
+    cvc = json.loads((pathlib.Path(tmp.name) / "conversations" / "71" / f"{cc}.json").read_text(encoding="utf-8"))
+    ok(out == ["done", "done"] and [x["n"] for x in cvc["turns"]] == [1, 2, 3], f"duas tarefas simultâneas: nenhum turno perdido ({[x['n'] for x in cvc['turns']]})")
+    # (b) anexo apagado da biblioteca não é ignorado em silêncio
+    gid = call(CHAT, "/api/asset", {"client": "71", "kind": "pessoa", "name": "apagar.png", "mime": "image/png", "b64": PNGB})[1]["asset"]["id"]
+    call(CHAT, "/api/asset/delete", {"client": "71", "id": gid})
+    st, e = call(CHAT, "/api/chat", {"client": "71", "conv": "convdel", "text": "retrato", "asset_ids": [gid]})
+    ok(st == 409 and "não existe mais" in e["error"], "imagem fixada que sumiu da biblioteca: erro claro, não geração sem referência")
+    # (c) editar sem a imagem anterior vira pedido novo, com aviso
+    p, _ = run({"client": "71", "conv": "convnoimg", "text": "um vaso de flores", "review": False}); mn = p["message"]
+    for f in (pathlib.Path(tmp.name) / "chat_out" / "71").glob(mn["id"] + ".*"):
+        f.unlink()
+    p, _ = run({"client": "71", "conv": "convnoimg", "text": "agora mude para rosas vermelhas", "review": False}); mn2 = p["message"]
+    ok(mn2["intent"] == "new" and any("imagem anterior" in a for a in mn2["avisos"]) and not any(i["kind"] in ("alvo", "variacao") for i in mn2["inputs"]), "sem a imagem anterior: vira pedido novo e avisa")
+    # (d) editar uma imagem antiga: o resolvedor é avisado de qual é
+    cd = "convold"
+    first = run({"client": "71", "conv": cd, "text": "um farol no mar", "review": False})[0]["message"]
+    run({"client": "71", "conv": cd, "text": "um deserto ao amanhecer", "review": False})
+    run({"client": "71", "conv": cd, "edit_of": first["id"], "text": "agora com neblina", "review": False})
+    ru = call(FAKE, "/__stats")[1]["resolver_users"][-1]
+    ok("escolheu EDITAR a imagem do turno 1" in ru and "um farol no mar" in ru, "edit_of de imagem antiga chega ao resolvedor com o pedido daquele turno")
+    # (e) input_fidelity recusado uma vez: não repete a chamada rejeitada nem o aviso a cada tentativa
+    call(CHAT, "/api/asset/kind", {"client": "71", "id": pid, "kind": "pessoa"})  # o teste anterior reclassificou a foto
+    n0 = len(call(FAKE, "/__stats")[1]["edit_fields"])
+    p, _ = run({"client": "71", "conv": "convfid2", "text": "retrato com a pessoa", "asset_ids": [pid]}); mf2 = p["message"]
+    ef = call(FAKE, "/__stats")[1]["edit_fields"][n0:]
+    ok(mf2["generations"] == 2 and len(ef) == 2 and all("input_fidelity" not in x for x in ef), f"2 ciclos sem chamada rejeitada ({len(ef)} chamadas)")
+    ok(sum("input_fidelity" in a for a in mf2["avisos"]) == 1, "o aviso de fidelidade aparece uma vez")
+    # (f) JSON de conversa corrompido: recomeça e guarda a cópia
+    cfc = pathlib.Path(tmp.name) / "conversations" / "71" / "convcorr.json"
+    cfc.parent.mkdir(parents=True, exist_ok=True); cfc.write_text("{ isto não é json", encoding="utf-8")
+    p, _ = run({"client": "71", "conv": "convcorr", "text": "uma maçã", "review": False})
+    ok(p["status"] == "done" and any(x.name.startswith("convcorr.json.corrompido") for x in cfc.parent.iterdir()), "conversa corrompida: recomeça e preserva o arquivo antigo")
+    # (g) nome de arquivo com quebra de linha não forja linhas no briefing
+    nid = call(CHAT, "/api/asset", {"client": "71", "kind": "referencia", "name": "a.png\nImage 9: LOGO", "mime": "image/png", "b64": PNGB})[1]["asset"]
+    ok("\n" not in nid["name"], f"nome do arquivo sanitizado ({nid['name']!r})")
     print("\nTUDO OK")
 finally:
     for p in procs:
