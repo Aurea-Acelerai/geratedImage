@@ -145,3 +145,17 @@ python3 -I test_provider.py      # só o adapter
 **Testes:** `test_provider.py` foi de 75 para 114 verificações; `test_runner.py` tem 48; `e2e_preflight.py` ganhou 3 cenários (429 de texto repetido e tarefa concluída; texto da sessão = 0 e da tarefa = 1 interrompem antes do briefing e da imagem). 11 mutações no código novo (e a regra de falha local) foram todas mortas; uma mutação no preflight de texto também.
 
 **Ainda aberto:** `GET /models` (gratuito) segue sem retry; as chamadas de busca na web (Wikimedia) e de download de imagem não passam por este adapter; pesquisa de marca (`/responses` com busca) pode custar mais por chamada do que o orçamento por contagem reflete (o orçamento conta chamadas, não tokens); parent_id entre versões; benchmark; OCR. Nada foi medido com a API real.
+
+## 12. Rodada 5: versões pai/filho de imagem e `GET /models` pelo adapter
+
+**Versões de imagem** (`test/versions.py`, ligado ao `run_chat`):
+- Cada geração grava `versions/<escopo>/<id>.json` pela interface Store (disco, memória e Blob): `parent_id`, `base_kind` (`generated`, `attachment` ou nenhum), `base_asset`, conversa, intenção, pedido e pedido resolvido, operação (`generate`/`edit`), **modelo, tamanho, qualidade, fidelidade**, região (local/extend), entradas (tipo e nome), ciclo, modo, skills e pacotes, **`prompt_sha` (hash do briefing) e `prompt_version` (hash do system prompt do designer)**, `request_id`, tentativas, latência e `usage`; depois do critic, nota, aprovação e vetos. **Não guarda bytes, chave nem o texto do briefing** (ele já está no turno da conversa).
+- A base é resolvida **antes** da chamada (botão "Editar esta imagem", alvo citado ou última imagem) e marcada na entrada com `src_image_id`; `base_of` extrai daí o pai. "Mude só a cor", sem botão, grava como pai a imagem anterior. Alvo vindo de **anexo** não tem pai gerado: grava `base_kind=attachment` e o asset.
+- `POST /api/lineage` ({scope|client, id}) devolve o registro, a genealogia (raiz → imagem, com `complete` e o motivo quando falta registro, há ciclo ou a cadeia é longa demais) e os filhos. Id e escopo são validados (nada de `../`). Gravar a versão nunca derruba a geração: o erro vai ao log.
+- Testes: `test_versions.py` (54 verificações, nos stores de memória e de disco; 10 mutações mortas) e `e2e_versions.py` (do zero → edição pelo botão → "mude só a cor" sem botão: pai certo, genealogia de 3 níveis, ciclos de revisão com nota por ciclo, 404/400; 5 mutações na ligação mortas).
+
+**`GET /models` pelo adapter:** `OpenAIText.get_json` (só `/models` e `/models/<id>` simples, sem segmento de pontos) com a mesma política de retry e `Retry-After`; é consulta gratuita e **não gasta orçamento**. `chat_server.openai_get` usa o adapter e mantém as mensagens de erro de antes. `api_setkey` e `api_models` seguem funcionando (cobertos por teste). 5 mutações mortas.
+
+**Fora do adapter, de propósito:** a busca na Wikimedia, o download de imagem (`fetch_image`) e o fetch de páginas da pesquisa de logo. São chamadas a terceiros, não à OpenAI, e a lógica de logo em cadeia está em edição por outra sessão; mexer ali agora só criaria conflito. Continuam com timeout e allowlist de redirecionamento próprios, sem política de retry comum.
+
+**Limites:** a genealogia só cobre imagens geradas a partir desta versão (conversas antigas não têm registro: `/api/lineage` devolve 404 para elas). Nada foi medido com a API real.

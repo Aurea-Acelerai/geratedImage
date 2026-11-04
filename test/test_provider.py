@@ -6,7 +6,7 @@
 Cada caso afirma comportamento observável (o que foi enviado, quantas vezes, quanto esperou, que erro saiu),
 não que um mock foi chamado.
 """
-import base64, calendar, json, pathlib, struct, sys, threading, time, zlib
+import base64, calendar, json, os, pathlib, struct, sys, threading, time, zlib
 from http.server import ThreadingHTTPServer
 
 ROOT = pathlib.Path(__file__).resolve().parent
@@ -49,7 +49,7 @@ class Script:
 
     def __call__(self, method, url, headers, body, timeout):
         with self.lock:
-            self.calls.append({"url": url, "headers": headers, "body": body, "timeout": timeout})
+            self.calls.append({"url": url, "headers": headers, "body": body, "timeout": timeout, "method": method})
             r = self.responses.pop(0) if len(self.responses) > 1 else self.responses[0]
         if isinstance(r, Exception):
             raise r
@@ -437,9 +437,68 @@ def test_text_adapter():
     ui._TEXT = None
 
 
+def test_get_models():
+    models = (200, {}, json.dumps({"data": [{"id": "gpt-5.5"}, {"id": "gpt-image-2.5-sunburst"}]}).encode())
+    sess, task = pv.Budget("texto da sessão", 1), pv.Budget("texto da tarefa", 1)
+    p, t, _ = make_text(models, budgets=[sess])
+    with pv.task_scope(text=task):
+        for _ in range(3):
+            r = p.get_json("/models")
+    c = t.calls[0]
+    ok(c["method"] == "GET" and c["url"] == "http://x/v1/models" and c["body"] is None and "Content-Type" not in c["headers"] and c["headers"]["Authorization"] == "Bearer k-test",
+       "get_json: GET sem corpo e sem Content-Type, com a chave")
+    ok(len(r["data"]) == 2 and sess.calls == 0 and task.calls == 0 and len(t.calls) == 3, "consulta gratuita não gasta orçamento de sessão nem de tarefa (3 consultas, 0 reservas)")
+    p, t, sleeps = make_text(err(429, "slow", "rate_limit_exceeded", {"retry-after": "2"}), err(503), models)
+    p.get_json("/models")
+    ok(len(t.calls) == 3 and sleeps == [2.0, 2.0], "get_json: 429 respeita o Retry-After e 503 faz backoff; a 3ª tentativa funciona")
+    p, t, _ = make_text(err(401, "bad key"))
+    e = raises(lambda: p.get_json("/models"), "auth")
+    ok(e is not None and len(t.calls) == 1 and "OpenAI 401" in str(e), "get_json: 401 não repete e mantém a mensagem")
+    p, t, _ = make_text(pv.TransportError("timeout", "t"))
+    ok(raises(lambda: p.get_json("/models"), "timeout") is not None and len(t.calls) == 1, "get_json: timeout de leitura não repete (política única)")
+    for bad in ("/chat/completions", "/models/../x", "/models/..", "/models/a/b", "models", "", "/models?x=1", "/files"):
+        p2, t2, _ = make_text(models)
+        ok(raises(lambda: p2.get_json(bad), "validation") is not None and t2.calls == [], f"get_json recusa caminho fora de /models antes de enviar ({bad!r})")
+    p2, t2, _ = make_text(models)
+    p2.get_json("/models/gpt-5.5")
+    ok(t2.calls[0]["url"].endswith("/models/gpt-5.5"), "get_json aceita /models/<id> simples")
+    ok(raises(lambda: make_text(models, key=None)[0].get_json("/models"), "auth") is not None, "get_json sem chave: erro antes do transporte")
+    events = []
+    p, t, _ = make_text(models, on_event=events.append)
+    p.get_json("/models")
+    ok(events and events[0]["op"] == "get" and events[0]["status"] == 200 and "gpt-5.5" not in json.dumps(events), "trace de get_json: operação get, sem o corpo")
+    import chat_server as cs
+    import ui_server as ui
+    old = os.environ.get("OPENAI_API_KEY")
+    os.environ["OPENAI_API_KEY"] = "k-test"
+    try:
+        ui._TEXT = pv.OpenAIText("http://x/v1", "k-test", transport=Script(models), sleep=lambda s: None)
+        ok([m["id"] for m in cs.openai_get("/models")["data"]] == ["gpt-5.5", "gpt-image-2.5-sunburst"], "chat_server.openai_get usa o adapter e devolve o JSON de sempre")
+        ui._TEXT = pv.OpenAIText("http://x/v1", "k-test", transport=Script(err(500)), sleep=lambda s: None)
+        try:
+            cs.openai_get("/models")
+            ok(False, "deveria levantar ApiError")
+        except ui.ApiError as e:
+            ok(e.status == 502 and "OpenAI 500" in str(e), "openai_get: 500 persistente vira ApiError 502 depois das repetições")
+        am = cs.api_models({})
+        ok(am["ok"] is False and any("OpenAI 500" in n for n in am["notes"]), "api_models devolve o diagnóstico em vez de derrubar a tela")
+        os.environ.pop("OPENAI_API_KEY")
+        try:
+            cs.openai_get("/models")
+            ok(False, "deveria levantar ApiError")
+        except ui.ApiError as e:
+            ok(e.status == 400 and "Sem OPENAI_API_KEY" in str(e), "openai_get sem chave: a mesma mensagem de antes")
+    finally:
+        ui._TEXT = None
+        if old is None:
+            os.environ.pop("OPENAI_API_KEY", None)
+        else:
+            os.environ["OPENAI_API_KEY"] = old
+
+
 def main():
     for fn in (test_validation, test_invalid_never_sent, test_success_and_response_checks, test_edit_request, test_retry, test_budget,
-               test_cancel_key_trace_concurrency, test_http_against_fake, test_make_image_wiring, test_text_adapter):
+               test_cancel_key_trace_concurrency, test_http_against_fake, test_make_image_wiring, test_text_adapter, test_get_models):
         print(f"== {fn.__name__}")
         fn()
     print(f"\nTUDO OK ({N['ok']} verificações)")

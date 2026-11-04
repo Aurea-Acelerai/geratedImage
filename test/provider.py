@@ -188,20 +188,22 @@ class OpenAIClient:
         else:
             time.sleep(seconds)
 
-    def _call(self, op, path, body, ctype, model, size, quality, finalize, cancel, extra_budgets, prompt_chars, timeout=None):
+    def _call(self, op, path, body, ctype, model, size, quality, finalize, cancel, extra_budgets, prompt_chars, timeout=None, method="POST", paid=True):
         timeout = timeout or self.timeout
         key = self._api_key() if callable(self._api_key) else self._api_key
         if not key:
             raise ProviderError("auth", "Defina OPENAI_API_KEY antes de iniciar o servidor (ou use --mock).", status=400)
         client_id = uuid.uuid4().hex
-        headers = {"Authorization": f"Bearer {key}", "Content-Type": ctype, "X-Client-Request-Id": client_id}
+        headers = {"Authorization": f"Bearer {key}", "X-Client-Request-Id": client_id}
+        if ctype:
+            headers["Content-Type"] = ctype
         attempt, last = 0, None
         with self._sem:
             while True:
                 attempt += 1
                 if cancel is not None and cancel.is_set():
                     raise ProviderError("cancelled", "Cancelado antes de enviar.", attempts=attempt - 1)
-                for b in self.budgets + list(extra_budgets) + current_task_budgets(self.budget_kind):
+                for b in (self.budgets + list(extra_budgets) + current_task_budgets(self.budget_kind)) if paid else []:  # consulta gratuita não gasta orçamento
                     try:
                         b.reserve()
                     except ProviderError as e:
@@ -209,7 +211,7 @@ class OpenAIClient:
                         raise
                 t0 = time.time()
                 try:
-                    status, rh, raw = self._transport("POST", self.base_url + path, headers, body, timeout)
+                    status, rh, raw = self._transport(method, self.base_url + path, headers, body, timeout)
                 except TransportError as e:
                     self._event(kind="provider_call", op=op, model=model, size=size, quality=quality, attempt=attempt,
                                 client_request_id=client_id, error=e.kind, ms=round((time.time() - t0) * 1000), prompt_chars=prompt_chars)
@@ -452,6 +454,15 @@ class OpenAIText(OpenAIClient):
         body = json.dumps(payload).encode()
         return self._call("text", path, body, "application/json", payload["model"], None, None,
                           lambda raw, rid, cid, att, ms: self._parse_json(path, raw, rid, att), cancel, extra_budgets, len(body), timeout)
+
+    GET_PATH = re.compile(r"/models(/(?!\.+$)[A-Za-z0-9._:-]{1,100})?")  # sem segmento só de pontos (..)
+
+    def get_json(self, path, timeout=None, cancel=None):
+        """Consulta GRATUITA (lista de modelos): mesma política de retry e Retry-After, sem gastar orçamento de chamadas pagas."""
+        if not self.GET_PATH.fullmatch(path or ""):
+            raise ProviderError("validation", f"Requisição inválida, nada foi enviado: consulta {path!r} não suportada (só /models)")
+        return self._call("get", path, None, None, None, None, None, lambda raw, rid, cid, att, ms: self._parse_json(path, raw, rid, att),
+                          cancel, (), 0, timeout, method="GET", paid=False)
 
     def _parse_json(self, path, raw, rid, attempts):
         ctx = dict(request_id=rid, attempts=attempts)

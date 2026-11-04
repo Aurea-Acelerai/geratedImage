@@ -19,7 +19,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 ROOT = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
-import checks, client_provider, critic, provider as provider_mod, regionedit, research, runner as runner_mod, skills_router  # noqa: E402
+import checks, client_provider, critic, provider as provider_mod, regionedit, research, runner as runner_mod, skills_router, versions as versions_mod  # noqa: E402
 import store as store_mod  # noqa: E402  (Store: FileStore/MemoryStore/BlobStore)
 import run_comparison as rc  # noqa: E402
 import ui_server as ui  # noqa: E402  (openai_post, ApiError, env_models)
@@ -176,6 +176,32 @@ def _storage_probe():
     except Exception as e:  # noqa: BLE001
         return f"{type(e).__name__}"
     return None
+
+
+VERSIONS = versions_mod.VersionLog(lambda: get_store())
+_PROMPT_VERSION = None
+
+
+def prompt_version():
+    """Versão do system prompt do designer (hash do arquivo): muda quando o prompt muda, para comparar gerações no tempo."""
+    global _PROMPT_VERSION
+    if _PROMPT_VERSION is None:
+        try:
+            _PROMPT_VERSION = versions_mod.sha12(rc.SYSTEM_PROMPT_PATH.read_text(encoding="utf-8"))
+        except OSError:
+            _PROMPT_VERSION = "indisponivel"
+    return _PROMPT_VERSION
+
+
+def record_version(scope, rec, update=False):
+    """Observabilidade: gravar a genealogia nunca derruba a geração (o erro vai para o log)."""
+    try:
+        if update:
+            VERSIONS.update(slug(scope), rec.pop("id"), **rec)
+        else:
+            VERSIONS.add(slug(scope), rec)
+    except Exception as e:  # noqa: BLE001
+        log_event("erro", erro=f"versão de imagem não gravada: {type(e).__name__}: {str(e)[:120]}")
 
 
 def get_runner():
@@ -340,7 +366,7 @@ def collect_inputs(cid, edit_of, asset_ids, scope=None, conv_id=None):
     if edit_of:
         k = find_out(scope or cid, edit_of)
         mime = "image/svg+xml" if k.endswith(".svg") else "image/png"
-        inputs.append(dict(kind="alvo", name=posixpath.basename(k), mime=mime, bytes=get_store().read_bytes(k),
+        inputs.append(dict(kind="alvo", name=posixpath.basename(k), src_image_id=posixpath.basename(k).rsplit(".", 1)[0], mime=mime, bytes=get_store().read_bytes(k),
                            role_text="ALVO DE EDIÇÃO: peça gerada anteriormente; mude só o que o pedido atual pede e mantenha o resto idêntico"))
     by_id = {a["id"]: a for a in lib_assets(cid, conv_id)}
     missing = [aid for aid in asset_ids if aid not in by_id]
@@ -537,22 +563,13 @@ def api_asset_delete(b):
 
 
 def openai_get(path, timeout=30):
-    key = os.getenv("OPENAI_API_KEY")
-    if not key:
+    """Consulta gratuita à OpenAI (só /models) pelo adapter: retry seguro e Retry-After; não gasta orçamento pago."""
+    if not os.getenv("OPENAI_API_KEY"):
         raise ui.ApiError(400, "Sem OPENAI_API_KEY.")
-    req = urllib.request.Request(ui.OPENAI + path, headers={"Authorization": f"Bearer {key}"})
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            return json.loads(r.read())
-    except urllib.error.HTTPError as e:
-        raw = e.read().decode("utf-8", "replace")
-        try:
-            msg = json.loads(raw)["error"]["message"]
-        except Exception:
-            msg = raw[:300]
-        raise ui.ApiError(502, f"OpenAI {e.code}: {msg}")
-    except urllib.error.URLError as e:
-        raise ui.ApiError(502, f"Falha de rede: {e.reason}")
+        return ui.text_client().get_json(path, timeout=timeout)
+    except provider_mod.ProviderError as e:
+        raise ui.api_error(e)
 
 
 def api_models(_):
@@ -1124,6 +1141,18 @@ def resolve_turn(conv, text, avail, model, provider, has_files=False):
         return triv, f"não consegui resolver o contexto ({type(e).__name__}); usei a sua mensagem como está"
 
 
+def api_lineage(b):
+    """Genealogia de uma imagem: {"record", "lineage": {chain, complete, reason}, "children"}. Só leitura."""
+    scope = _scope_of(b, GERAL)
+    iid = b.get("id")
+    if not isinstance(iid, str) or not versions_mod.ID.fullmatch(iid):
+        raise ui.ApiError(400, "id de imagem inválido")
+    rec = VERSIONS.get(slug(scope), iid)
+    if rec is None:
+        raise ui.ApiError(404, "versão não encontrada")
+    return {"record": rec, "lineage": VERSIONS.lineage(slug(scope), iid), "children": VERSIONS.children(slug(scope), iid)}
+
+
 def api_clientlog(b):
     """Erros do navegador (JavaScript, rede) vão para o mesmo registro, para serem vistos e corrigidos."""
     log_event("ui", tipo=str(b.get("kind", ""))[:30], mensagem=str(b.get("message", ""))[:600])
@@ -1480,7 +1509,7 @@ def _run_chat(b, emit, cid, text, ctx, inputs, files=None, auto=None, stale=None
     if resolved["use_last_image"] and lastp and not any(x["kind"] == "alvo" for x in inputs):
         role = ("ALVO DE EDIÇÃO: a última imagem gerada; mude só o que o pedido atual pede e mantenha o resto idêntico" if intent == "edit"
                 else "IMAGEM-BASE da variação: mantenha o conceito, a pessoa/produto/marca e o estilo; mude só o que o pedido indicar")
-        inputs = [dict(kind="alvo" if intent == "edit" else "variacao", name=posixpath.basename(lastp), mime="image/svg+xml" if lastp.endswith(".svg") else "image/png",
+        inputs = [dict(kind="alvo" if intent == "edit" else "variacao", name=posixpath.basename(lastp), src_image_id=last_id, mime="image/svg+xml" if lastp.endswith(".svg") else "image/png",
                        bytes=get_store().read_bytes(lastp), role_text=role)] + list(inputs)
     if size == "auto" and not any(x["kind"] in ("alvo", "variacao") for x in inputs):
         size = infer_size(text_eff)  # sem alvo não há proporção a acompanhar: o formato vem do pedido
@@ -1623,6 +1652,7 @@ def _run_chat(b, emit, cid, text, ctx, inputs, files=None, auto=None, stale=None
         mask_png = region["mask"]
         if region["mode"] == "extend":
             call_inputs = [dict(alvo_in, bytes=region["canvas"], mime="image/png")] + [x for x in inputs if x is not alvo_in]
+    base_info = versions_mod.base_of(inputs)
     runner = get_runner()
     pf = {"checks": ["pulado: sem API real (demonstração ou sem chave)"], "allowed_calls": max_cycle + 1, "warnings": []}
     limit_reason = None
@@ -1694,6 +1724,12 @@ def _run_chat(b, emit, cid, text, ctx, inputs, files=None, auto=None, stale=None
         url = f"/files/{slug(scope)}/out/{gid}.{ext}"
         emit(f"Imagem da tentativa {cycle + 1} pronta em {round(time.time() - tg)}s.", image_url=url)
         held[gid] = (b64, ext)
+        record_version(scope, dict(
+            id=gid, parent_id=base_info["image_id"], base_kind=base_info["kind"], base_asset=base_info["asset_id"], conv=conv["id"], intent=intent,
+            request=text, resolved=text_eff, op="edit" if call_inputs else "generate", model=image_model, size=size, quality=quality, fidelity=fidelity,
+            region=region["mode"] if region else None, inputs=[{"kind": x["kind"], "name": x["name"]} for x in inputs], cycle=cycle, mode=mode,
+            prompt_sha=versions_mod.sha12(brief["prompt"]), prompt_version=prompt_version(), skills=used, packs=packs, mid=mid,
+            request_id=meta.get("request_id"), attempts=meta.get("attempts"), ms=meta.get("ms"), usage=meta.get("usage")))
         return {"cycle": cycle, "prompt": brief["prompt"], "id": gid, "url": url, "meta": meta}
 
     def review_cb(entry, brief):
@@ -1702,6 +1738,7 @@ def _run_chat(b, emit, cid, text, ctx, inputs, files=None, auto=None, stale=None
         rv, s, ok = do_review(ctx_critic, text_eff, brief["prompt"], b64, ext, size, inputs, b.get("critic_model") or text_model, notes, packs)
         emit(f"Nota {s}: {'aprovada' if ok else 'reprovada'}" + (f" · vetos: {', '.join(rv.get('veto', []))}" if rv.get("veto") else "")
              + (f" · correção: {rv.get('fix')}" if not ok and rv.get("fix") else ""))
+        record_version(scope, dict(id=entry["id"], score=s, approved=bool(ok), veto=rv.get("veto", [])), update=True)
         return rv, s, ok
 
     def revise_cb(brief, rv):
@@ -1720,7 +1757,7 @@ def _run_chat(b, emit, cid, text, ctx, inputs, files=None, auto=None, stale=None
     msg = {"role": "assistant", "kind": "image", "id": e["id"], "url": e["url"], "score": best["score"], "approved": best["ok"],
            "veto": (best["rv"] or {}).get("veto", []), "review": best["rv"], "prompt": e["prompt"], "request": text, "resolved": text_eff,
            "intent": intent, "conv": conv["id"], "files": files, "fontes": (brand_brief or {}).get("sources", []), "pesquisa": (brand_brief or {}).get("query"), "falha_identidade": "identidade_divergente" in ((best["rv"] or {}).get("veto") or []), "avisos": avisos, "cycles": cycles, "skills": used, "packs": packs, "mode": mode, "improve": imp,
-           "generations": len(cycles), "seconds": round(time.time() - t0, 1), "size": size, "trace": trace, "preflight": pf["checks"],
+           "generations": len(cycles), "seconds": round(time.time() - t0, 1), "size": size, "trace": trace, "preflight": pf["checks"], "parent_id": base_info["image_id"],
            "inputs": [{"kind": x["kind"], "name": x["name"]} for x in inputs]}
     record(briefing=e["prompt"], image_id=e["id"], score=best["score"], approved=bool(best["ok"]),
            inputs=[{"kind": x["kind"], "name": x["name"]} for x in inputs], mode=mode, packs=packs, trace=trace)
@@ -1731,6 +1768,9 @@ def _run_chat(b, emit, cid, text, ctx, inputs, files=None, auto=None, stale=None
         rid = f"{mid}raw"
         get_store().write_bytes(f"chat_out/{slug(scope)}/{rid}.{ext}", base64.b64decode(b64), "image/svg+xml" if ext == "svg" else "image/png")
         raw = {"id": rid, "url": f"/files/{slug(scope)}/out/{rid}.{ext}", "prompt": text_eff}
+        record_version(scope, dict(id=rid, parent_id=base_info["image_id"], base_kind=base_info["kind"], base_asset=base_info["asset_id"], conv=conv["id"],
+                                   intent=intent, request=text, resolved=text_eff, op="edit" if inputs else "generate", model=image_model, size=size,
+                                   quality=quality, fidelity=fidelity, variant="gpt_puro", prompt_sha=versions_mod.sha12(text_eff), prompt_version=None, mid=mid))
         emit(f"Versão do GPT puro pronta em {round(time.time() - tr)}s.", image_url=raw["url"])
         if do_rev:
             emit("O critic está revisando a versão pura (mesma régua)…")
@@ -1743,7 +1783,7 @@ def _run_chat(b, emit, cid, text, ctx, inputs, files=None, auto=None, stale=None
 
 POST = {"/api/project": api_project_create, "/api/project/rename": api_project_rename, "/api/project/delete": api_project_delete,
         "/api/conv/move": api_conv_move, "/api/conv/client": api_conv_client, "/api/client": api_client, "/api/client/save": api_client_save, "/api/client/new": api_client_new, "/api/asset": api_asset,
-        "/api/asset/delete": api_asset_delete, "/api/asset/kind": api_asset_kind, "/api/chat": api_chat, "/api/job": api_job,
+        "/api/asset/delete": api_asset_delete, "/api/asset/kind": api_asset_kind, "/api/chat": api_chat, "/api/job": api_job, "/api/lineage": api_lineage,
         "/api/conv": api_conv, "/api/conv/delete": api_conv_delete, "/api/conv/rename": api_conv_rename, "/api/clientlog": api_clientlog, "/api/conv/files": api_conv_files,
         "/api/asset/alias": api_asset_alias, "/api/setkey": api_setkey, "/api/websearch": api_websearch, "/api/webadd": api_webadd}
 
