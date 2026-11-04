@@ -43,10 +43,17 @@ Os modelos padrão (`gpt-image-2.5-sunburst`, `gpt-5.5`) seguem a documentação
 ## Chat estilo ChatGPT (cliente, logo, referências e iteração)
 ```bash
 cd test
-read -s "OPENAI_API_KEY?Chave: "; echo; export OPENAI_API_KEY
-python3 chat_server.py            # http://127.0.0.1:8766   (--mock para ver sem API)
+./run_chat.sh                 # pede a chave (sem eco), sobe o servidor e abre http://127.0.0.1:8766
+./run_chat.sh --mock          # sem API: imagens falsas, só para ver a interface
 ```
-Envie a logo, peças e referências do cliente (ficam em `test/clients/<id>/`, fora do git), clique nelas para anexar ao pedido e converse. "Editar esta imagem" usa a imagem anterior como alvo (`/images/edits`). Cada resposta passa pelo designer (com `docs/08`), checagens por código e critic, com até 2 correções. Limite: logo e texto exato ainda não são compostos por código; o critic reprova logo redesenhado (`logo_inventado`).
+Envie a logo, peças e referências do cliente (ficam em `test/clients/<id>/`, fora do git; logo em **PNG**), clique nelas para anexar ao pedido (ou arraste e cole na caixa de mensagem) e converse. "Editar esta imagem" usa a imagem anterior como alvo (`/images/edits`).
+
+- **Progresso ao vivo:** cada etapa aparece (skills, briefing, tentativa, revisão, correção) com a imagem de cada tentativa; dá para ampliar qualquer imagem. Atualizar a página no meio não perde nada.
+- **Modelos:** a barra lateral lista os modelos da sua conta e um aviso aparece se `IMAGE_MODEL`/`TEXT_MODEL` não existirem nela (o `HANDOFF` pede para confirmar). Troque pelo seletor ou pelas variáveis de ambiente.
+- **Pipeline por mensagem:** designer (com `docs/08` e as skills do pedido) → imagem → checagens por código → critic (rubrica v3) → até 2 correções.
+- **Sem chave:** só o briefing sai, via CLI `claude`.
+- **Limite:** logo e texto exato ainda não são compostos por código; o critic reprova logo redesenhado (`logo_inventado`).
+- **Teste sem custo do caminho real:** `python3 fake_openai.py --port 9101` e, em outro terminal, `OPENAI_BASE_URL=http://127.0.0.1:9101/v1 OPENAI_API_KEY=fake python3 chat_server.py`. Prova que as requisições são montadas e as respostas tratadas; não valida a API real.
 
 ## Interface rápida para testar o system prompt
 ```bash

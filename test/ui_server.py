@@ -16,7 +16,7 @@ sys.path.insert(0, str(ROOT))
 import run_comparison as rc  # noqa: E402
 
 MOCK = False
-OPENAI = "https://api.openai.com/v1"
+OPENAI = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
 
 
 class ApiError(Exception):

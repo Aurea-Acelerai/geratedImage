@@ -14,7 +14,7 @@ critic (rubrica v3) -> até 2 correções. Sem OPENAI_API_KEY, se o CLI `claude`
 Limite conhecido: logo e texto exato deveriam ser compostos por código (compose_text_overlay, ainda não existe).
 Aqui o logo vai como imagem de entrada e o critic reprova se for redesenhado (veto logo_inventado).
 """
-import argparse, base64, json, mimetypes, os, pathlib, random, re, shutil, sys, time, urllib.error, urllib.parse, urllib.request, uuid
+import argparse, base64, json, mimetypes, os, pathlib, random, re, shutil, sys, threading, time, urllib.error, urllib.parse, urllib.request, uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 ROOT = pathlib.Path(__file__).resolve().parent
@@ -136,8 +136,13 @@ def write_briefing(ctx, text, size, history, inputs, feedback=None, prev=None, m
     if provider == "claude":
         import run_briefings_claude as rbc
         return rbc.briefing(user.split("\n\nSe faltar")[0], ctx, "sonnet", size)
+    # o designer enxerga até 6 imagens de até 5 MB (token e limite); o modelo de imagem recebe todas
+    seen = [x for x in inputs if len(x["bytes"]) <= 5 * 1024 * 1024 and x["mime"] in ("image/png", "image/jpeg", "image/webp")][:6]
+    skipped = [x["name"] for x in inputs if x not in seen]
+    if skipped:
+        user += "\n(Imagens não anexadas a este briefing por tamanho ou formato, mas enviadas ao modelo de imagem: " + ", ".join(skipped) + ")"
     content = [{"type": "text", "text": user}]
-    for x in inputs:
+    for x in seen:
         content.append({"type": "image_url", "image_url": {"url": data_url(x)}})
     r = ui.openai_post("/chat/completions", {
         "model": model or ui.env_models()["text_model"], "response_format": {"type": "json_object"},
@@ -240,6 +245,8 @@ def api_asset(b):
     cid, mime = b["client"], b.get("mime", "")
     if mime not in MIME_EXT:
         raise ui.ApiError(400, "formato não suportado (use PNG, JPG, WEBP ou SVG)")
+    if mime == "image/svg+xml" and not MOCK:
+        raise ui.ApiError(400, "SVG não é aceito pela API de imagem: converta a logo para PNG (fundo transparente) antes de enviar.")
     if b.get("kind") not in KIND_ROLE:
         raise ui.ApiError(400, f"tipo inválido; use um de {list(KIND_ROLE)}")
     data = base64.b64decode(b["b64"])
@@ -264,63 +271,159 @@ def api_asset_delete(b):
     return {"ok": True}
 
 
+def openai_get(path, timeout=30):
+    key = os.getenv("OPENAI_API_KEY")
+    if not key:
+        raise ui.ApiError(400, "Sem OPENAI_API_KEY.")
+    req = urllib.request.Request(ui.OPENAI + path, headers={"Authorization": f"Bearer {key}"})
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        raw = e.read().decode("utf-8", "replace")
+        try:
+            msg = json.loads(raw)["error"]["message"]
+        except Exception:
+            msg = raw[:300]
+        raise ui.ApiError(502, f"OpenAI {e.code}: {msg}")
+    except urllib.error.URLError as e:
+        raise ui.ApiError(502, f"Falha de rede: {e.reason}")
+
+
+def api_models(_):
+    """Confere a chave e os modelos da conta. Nunca derruba a tela: devolve o diagnóstico."""
+    em = ui.env_models()
+    if MOCK:
+        return {"ok": True, "image_models": [em["image_model"]], "text_models": [em["text_model"]], "notes": ["modo mock"]}
+    if not os.getenv("OPENAI_API_KEY"):
+        return {"ok": False, "image_models": [], "text_models": [], "notes": ["Sem OPENAI_API_KEY: só o briefing sai (via Claude, se instalado)."]}
+    try:
+        ids = sorted(m["id"] for m in openai_get("/models").get("data", []))
+    except ui.ApiError as e:
+        return {"ok": False, "image_models": [], "text_models": [], "notes": [str(e)]}
+    image = [i for i in ids if "image" in i]
+    text = [i for i in ids if i.startswith(("gpt-", "o1", "o3", "o4", "chatgpt")) and "image" not in i and "audio" not in i
+            and "realtime" not in i and "tts" not in i and "transcribe" not in i]
+    notes = []
+    if em["image_model"] not in ids:
+        notes.append(f"O modelo de imagem '{em['image_model']}' não aparece na sua conta. Escolha outro na lista ou defina IMAGE_MODEL.")
+    if em["text_model"] not in ids:
+        notes.append(f"O modelo de texto '{em['text_model']}' não aparece na sua conta. Escolha outro na lista ou defina TEXT_MODEL.")
+    if not image:
+        notes.append("Nenhum modelo de imagem listado: a organização pode precisar de verificação para gerar imagens.")
+    return {"ok": not notes, "image_models": image, "text_models": text, "notes": notes}
+
+
+# ---------- jobs (a geração leva minutos: o navegador acompanha por polling) ----------
+JOBS = {}
+
+
+def start_job(fn):
+    jid = uuid.uuid4().hex[:10]
+    job = {"id": jid, "status": "running", "steps": [], "message": None, "error": None, "t0": time.time()}
+    for old in sorted(JOBS.values(), key=lambda j: j["t0"])[:-40]:
+        JOBS.pop(old["id"], None)
+    JOBS[jid] = job
+
+    def emit(text, **extra):
+        job["steps"].append({"t": round(time.time() - job["t0"], 1), "text": text, **extra})
+
+    def runner():
+        try:
+            job["message"] = fn(emit)
+            job["status"] = "done"
+        except ui.ApiError as e:
+            job["status"], job["error"] = "error", str(e)
+        except Exception as e:  # noqa: BLE001
+            job["status"], job["error"] = "error", f"{type(e).__name__}: {e}"
+
+    threading.Thread(target=runner, daemon=True).start()
+    return jid
+
+
+def api_job(b):
+    job = JOBS.get(b.get("id"))
+    if not job:
+        raise ui.ApiError(404, "tarefa não encontrada (o servidor foi reiniciado?)")
+    since = int(b.get("since") or 0)
+    return {"status": job["status"], "steps": job["steps"][since:], "next": len(job["steps"]),
+            "message": job["message"], "error": job["error"], "elapsed": round(time.time() - job["t0"], 1)}
+
+
 def api_chat(b):
+    """Valida na hora (falha rápido) e roda o pipeline numa tarefa em segundo plano."""
     cid, text = b["client"], (b.get("text") or "").strip()
     if not text:
         raise ui.ApiError(400, "mensagem vazia")
     ctx = load_client(cid)
+    inputs = collect_inputs(cid, b.get("edit_of"), b.get("asset_ids") or [])
+    if not MOCK and not os.getenv("OPENAI_API_KEY") and not shutil.which("claude"):
+        raise ui.ApiError(400, "Sem OPENAI_API_KEY e sem o CLI claude: nada a executar.")
+    return {"job": start_job(lambda emit: run_chat(b, emit, cid, text, ctx, inputs))}
+
+
+def run_chat(b, emit, cid, text, ctx, inputs):
     size = b.get("size") if b.get("size") in SIZES else "1024x1024"
     quality = b.get("quality") or ui.env_models()["quality"]
     em = ui.env_models()
     text_model, image_model = b.get("text_model") or em["text_model"], b.get("image_model") or em["image_model"]
-    inputs = collect_inputs(cid, b.get("edit_of"), b.get("asset_ids") or [])
     history = b.get("history") or []
-    provider = "openai"
-    if not MOCK and not os.getenv("OPENAI_API_KEY"):
-        if not shutil.which("claude"):
-            raise ui.ApiError(400, "Sem OPENAI_API_KEY e sem o CLI claude: nada a executar.")
-        provider = "claude"
+    provider = "claude" if (not MOCK and not os.getenv("OPENAI_API_KEY")) else "openai"
     t0 = time.time()
-    brief = write_briefing(ctx, text, size, history, inputs, model=text_model, provider=provider)
-    if brief.get("question"):
-        return {"message": {"role": "assistant", "kind": "text", "text": brief["question"]}}
-    if provider == "claude":
-        return {"message": {"role": "assistant", "kind": "text", "briefing_only": True,
-                            "text": "Sem OPENAI_API_KEY: gerei só o briefing, sem imagem.\n\n" + brief.get("prompt", "")}}
-    do_rev = b.get("review", True)
     used = skills_router.select(text, size, bool(inputs))
     notes = skills_router.review_notes(used)
+    emit("Skills de design aplicadas: " + ", ".join(s.replace("design-", "") for s in used))
+    if inputs:
+        emit("Imagens de entrada: " + ", ".join(f"{x['kind']} {x['name']}" for x in inputs))
+    emit("O designer está escrevendo o briefing…")
+    brief = write_briefing(ctx, text, size, history, inputs, model=text_model, provider=provider)
+    if brief.get("question"):
+        return {"role": "assistant", "kind": "text", "text": brief["question"]}
+    if provider == "claude":
+        return {"role": "assistant", "kind": "text", "briefing_only": True,
+                "text": "Sem OPENAI_API_KEY: gerei só o briefing, sem imagem.\n\n" + brief.get("prompt", "")}
+    emit("Briefing pronto.", prompt=brief["prompt"])
+    do_rev = b.get("review", True)
+    mid = re.sub(r"[^a-z0-9]", "", time.strftime("%Y%m%d%H%M%S") + uuid.uuid4().hex[:4])
+    (OUT / slug(cid)).mkdir(parents=True, exist_ok=True)
     cycles, best = [], None
     for cycle in range(critic.MAX_CYCLES + 1):
+        how = "editando com as imagens de entrada" if inputs else "gerando"
+        emit(f"Tentativa {cycle + 1}: {how} ({image_model}, {size}, {quality})…")
+        tg = time.time()
         b64, ext = make_image(brief["prompt"], size, quality, inputs, image_model)
-        entry = {"cycle": cycle, "prompt": brief["prompt"]}
+        gid = f"{mid}c{cycle}"
+        (OUT / slug(cid) / f"{gid}.{ext}").write_bytes(base64.b64decode(b64))
+        url = f"/files/{slug(cid)}/out/{gid}.{ext}"
+        emit(f"Imagem da tentativa {cycle + 1} pronta em {round(time.time() - tg)}s.", image_url=url)
+        entry = {"cycle": cycle, "prompt": brief["prompt"], "id": gid, "url": url}
         if do_rev:
+            emit("O critic está revisando…")
             rv, s, ok = do_review(ctx, text, brief["prompt"], b64, ext, size, inputs, b.get("critic_model") or text_model, notes)
             entry.update(score=s, approved=ok, veto=rv.get("veto", []), fix=rv.get("fix"), review=rv)
+            emit(f"Nota {s}: {'aprovada' if ok else 'reprovada'}" + (f" · vetos: {', '.join(rv.get('veto', []))}" if rv.get("veto") else "")
+                 + (f" · correção: {rv.get('fix')}" if not ok and rv.get("fix") else ""))
         else:
             rv, s, ok = None, None, None
         cycles.append(entry)
-        if best is None or (s or 0) > (best[0] or 0):
-            best = (s, b64, ext, rv, ok, brief["prompt"])
+        if best is None or (s or 0) > (best["score"] or 0):
+            best = {"score": s, "entry": entry, "rv": rv, "ok": ok}
         if not do_rev or ok or cycle == critic.MAX_CYCLES:
             break
+        emit("Corrigindo o briefing com a sugestão do critic…")
         brief = write_briefing(ctx, text, size, history, inputs, feedback=rv.get("fix"), prev=brief["prompt"],
                                model=text_model, provider=provider)
         if brief.get("question"):
             break
-    s, b64, ext, rv, ok, prompt = best
-    mid = time.strftime("%Y%m%d-%H%M%S") + uuid.uuid4().hex[:4]
-    mid = re.sub(r"[^a-z0-9]", "", mid)
-    (OUT / slug(cid)).mkdir(parents=True, exist_ok=True)
-    (OUT / slug(cid) / f"{mid}.{ext}").write_bytes(base64.b64decode(b64))
-    return {"message": {"role": "assistant", "kind": "image", "id": mid, "url": f"/files/{slug(cid)}/out/{mid}.{ext}",
-                        "score": s, "approved": ok, "veto": (rv or {}).get("veto", []), "review": rv, "prompt": prompt,
-                        "cycles": cycles, "skills": used, "generations": len(cycles), "seconds": round(time.time() - t0, 1), "size": size,
-                        "inputs": [{"kind": x["kind"], "name": x["name"]} for x in inputs]}}
+    e = best["entry"]
+    return {"role": "assistant", "kind": "image", "id": e["id"], "url": e["url"], "score": best["score"], "approved": best["ok"],
+            "veto": (best["rv"] or {}).get("veto", []), "review": best["rv"], "prompt": e["prompt"], "cycles": cycles,
+            "skills": used, "generations": len(cycles), "seconds": round(time.time() - t0, 1), "size": size,
+            "inputs": [{"kind": x["kind"], "name": x["name"]} for x in inputs]}
 
 
 POST = {"/api/client": api_client, "/api/client/save": api_client_save, "/api/asset": api_asset,
-        "/api/asset/delete": api_asset_delete, "/api/chat": api_chat}
+        "/api/asset/delete": api_asset_delete, "/api/chat": api_chat, "/api/job": api_job}
 
 
 class H(BaseHTTPRequestHandler):
@@ -340,6 +443,8 @@ class H(BaseHTTPRequestHandler):
                 return self._send(200, (ROOT / "chat" / "index.html").read_bytes(), "text/html")
             if path == "/api/state":
                 return self._send(200, api_state({}))
+            if path == "/api/models":
+                return self._send(200, api_models({}))
             m = re.fullmatch(r"/files/([a-z0-9_-]+)/(assets|out)/([A-Za-z0-9._-]+)", path)
             if m:
                 base = (CLIENTS / m.group(1) / "assets") if m.group(2) == "assets" else (OUT / m.group(1))
@@ -378,7 +483,11 @@ def main():
     rc.self_test()
     cdir("71")
     print(f"Chat em http://127.0.0.1:{a.port}  ({'MOCK' if MOCK else 'OPENAI_API_KEY ' + ('definida' if os.getenv('OPENAI_API_KEY') else 'NÃO definida')})")
-    ThreadingHTTPServer(("127.0.0.1", a.port), H).serve_forever()
+    try:
+        srv = ThreadingHTTPServer(("127.0.0.1", a.port), H)
+    except OSError as e:
+        sys.exit(f"Não consegui abrir a porta {a.port} ({e.strerror}). Já tem um chat rodando? Feche-o ou use --port {a.port + 1}.")
+    srv.serve_forever()
 
 
 if __name__ == "__main__":

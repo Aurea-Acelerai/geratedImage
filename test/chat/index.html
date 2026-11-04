@@ -7,11 +7,11 @@
 <style>
   :root {
     --bg: #ffffff; --panel: #f7f7f8; --ink: #1d1d1f; --muted: #6e6e73; --line: #e3e3e6;
-    --user: #ececf0; --accent: #10a37f; --accent-ink: #ffffff; --bad: #c0392b; --ok: #10a37f; --warn: #b7791f;
+    --user: #ececf0; --accent: #10a37f; --accent-ink: #ffffff; --bad: #c0392b; --ok: #0e8f6e; --warn: #9a6700; --warnbg: #fff6dd;
   }
   @media (prefers-color-scheme: dark) {
     :root { --bg: #212121; --panel: #171717; --ink: #ececec; --muted: #9a9a9f; --line: #333336;
-            --user: #2f2f32; --accent: #10a37f; --bad: #ff6b5e; --ok: #3ccf9c; --warn: #e0b04a; }
+            --user: #2f2f32; --accent: #10a37f; --bad: #ff6b5e; --ok: #3ccf9c; --warn: #e0b04a; --warnbg: #3a321b; }
   }
   * { box-sizing: border-box; }
   html, body { height: 100%; margin: 0; }
@@ -20,14 +20,13 @@
   aside { width: 300px; background: var(--panel); border-right: 1px solid var(--line); padding: 16px; overflow-y: auto; flex: none; }
   aside h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 18px 0 8px; font-weight: 600; }
   aside h1 { font-size: 16px; margin: 0 0 12px; }
-  select, textarea.box, input.box { width: 100%; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px; }
+  select, textarea.box { width: 100%; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px; }
   textarea.box { font: 12px/1.45 ui-monospace, Menlo, monospace; min-height: 150px; resize: vertical; }
   .row { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
   .row > * { flex: 1; }
-  .btn { border: 1px solid var(--line); background: var(--bg); border-radius: 8px; padding: 6px 10px; cursor: pointer; }
+  .row > span { flex: none; min-width: 64px; }
+  .btn { border: 1px solid var(--line); background: var(--bg); border-radius: 8px; padding: 6px 10px; cursor: pointer; text-decoration: none; display: inline-block; }
   .btn:hover { border-color: var(--muted); }
-  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
-  .btn:disabled { opacity: .5; cursor: default; }
   .assets { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 8px; }
   .asset { position: relative; border: 2px solid transparent; border-radius: 8px; overflow: hidden; background: var(--bg); cursor: pointer; aspect-ratio: 1; }
   .asset.sel { border-color: var(--accent); }
@@ -41,16 +40,26 @@
   header .title { font-weight: 600; }
   .badge { font-size: 11px; padding: 2px 8px; border-radius: 99px; border: 1px solid var(--line); color: var(--muted); }
   .badge.warn { color: var(--warn); border-color: var(--warn); }
+  #banner { display: none; margin: 0; padding: 10px 20px; background: var(--warnbg); color: var(--warn); border-bottom: 1px solid var(--line); font-size: 13px; }
+  #banner.on { display: block; }
   #log { flex: 1; overflow-y: auto; padding: 24px 20px; }
-  .wrap { max-width: 760px; margin: 0 auto; }
+  .wrap { max-width: 780px; margin: 0 auto; }
   .msg { margin-bottom: 22px; display: flex; flex-direction: column; }
   .msg.user { align-items: flex-end; }
   .bubble { background: var(--user); border-radius: 18px; padding: 9px 15px; max-width: 85%; white-space: pre-wrap; }
   .msg.assistant .bubble { background: none; padding: 0; max-width: 100%; }
-  .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
-  .chip { font-size: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 99px; padding: 2px 4px 2px 10px; display: inline-flex; align-items: center; gap: 6px; }
+  .thumbs { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; justify-content: flex-end; }
+  .thumbs figure { margin: 0; text-align: center; font-size: 11px; color: var(--muted); max-width: 72px; }
+  .thumbs img { width: 72px; height: 72px; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); display: block; cursor: zoom-in; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 6px; }
+  .chip { font-size: 12px; background: var(--bg); border: 1px solid var(--line); border-radius: 10px; padding: 3px 4px 3px 4px; display: inline-flex; align-items: center; gap: 6px; }
+  .chip img { width: 28px; height: 28px; object-fit: cover; border-radius: 6px; }
   .chip button { border: none; background: none; cursor: pointer; color: var(--muted); padding: 0 6px; }
-  .imgcard img { max-width: min(100%, 520px); border-radius: 12px; border: 1px solid var(--line); display: block; }
+  .imgcard img.main { max-width: min(100%, 540px); border-radius: 12px; border: 1px solid var(--line); display: block; cursor: zoom-in; }
+  .tries { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
+  .tries figure { margin: 0; font-size: 11px; color: var(--muted); }
+  .tries img { width: 88px; height: 88px; object-fit: cover; border-radius: 8px; border: 2px solid var(--line); display: block; cursor: zoom-in; }
+  .tries figure.best img { border-color: var(--accent); }
   .meta { display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; font-size: 13px; }
   .score { font-weight: 650; }
   .score.ok { color: var(--ok); } .score.bad { color: var(--bad); }
@@ -58,14 +67,19 @@
   details { margin-top: 8px; font-size: 13px; }
   details summary { cursor: pointer; color: var(--muted); }
   pre { white-space: pre-wrap; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px; font: 12px/1.45 ui-monospace, Menlo, monospace; }
-  .typing { color: var(--muted); }
-  .typing::after { content: "…"; animation: blink 1s steps(3) infinite; }
+  .progress { border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; background: var(--panel); font-size: 13px; }
+  .progress .st { color: var(--muted); margin: 2px 0; }
+  .progress .st.last { color: var(--ink); }
+  .progress .st.last::after { content: " …"; animation: blink 1s steps(3) infinite; }
+  .progress.done .st.last::after { content: ""; animation: none; }
+  .progress .t { color: var(--muted); font-variant-numeric: tabular-nums; margin-right: 6px; }
+  .progress img { width: 120px; border-radius: 8px; border: 1px solid var(--line); margin: 4px 0; display: block; cursor: zoom-in; }
   @keyframes blink { 0% { opacity: .2 } 50% { opacity: 1 } 100% { opacity: .2 } }
-  .empty { text-align: center; color: var(--muted); margin-top: 12vh; }
+  .empty { text-align: center; color: var(--muted); margin-top: 10vh; }
   .empty h2 { color: var(--ink); font-size: 22px; }
   .sugg { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin-top: 14px; }
   #composer { padding: 0 20px 20px; }
-  .box2 { max-width: 760px; margin: 0 auto; border: 1px solid var(--line); border-radius: 22px; background: var(--panel); padding: 10px 12px; }
+  .box2 { max-width: 780px; margin: 0 auto; border: 1px solid var(--line); border-radius: 22px; background: var(--panel); padding: 10px 12px; }
   .box2.drag { border-color: var(--accent); }
   #text { width: 100%; border: none; outline: none; background: none; resize: none; max-height: 200px; padding: 4px 6px; }
   .bar { display: flex; align-items: center; gap: 8px; margin-top: 4px; flex-wrap: wrap; }
@@ -74,6 +88,9 @@
   .round:disabled { opacity: .4; cursor: default; }
   .tiny { font-size: 12px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 3px 6px; }
   .err { color: var(--bad); }
+  #lightbox { position: fixed; inset: 0; background: rgba(0,0,0,.85); display: none; align-items: center; justify-content: center; z-index: 10; cursor: zoom-out; }
+  #lightbox.on { display: flex; }
+  #lightbox img { max-width: 94vw; max-height: 94vh; border-radius: 8px; background: #fff; }
   @media (max-width: 800px) { aside { display: none; } }
 </style>
 </head>
@@ -88,16 +105,18 @@
   </details>
   <h2>Biblioteca do cliente</h2>
   <div class="row">
-    <select id="kind" class="tiny"></select>
+    <select id="kind" class="tiny" autocomplete="off"></select>
     <button class="btn" id="addAsset">Enviar imagem</button>
   </div>
   <input type="file" id="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" multiple hidden>
   <div id="assets" class="assets"></div>
-  <p class="hint">Clique para anexar ao próximo pedido (contorno verde). Passe o mouse e use × para apagar. Logo e peças ficam salvos no cliente.</p>
+  <p class="hint">Clique para anexar ao próximo pedido (contorno verde). Passe o mouse e use × para apagar. Logo: use PNG com fundo transparente.</p>
   <h2>Geração</h2>
   <div class="row"><span>Tamanho</span><select id="size" autocomplete="off"></select></div>
   <div class="row"><span>Qualidade</span><select id="quality" autocomplete="off"><option>low</option><option selected>medium</option><option>high</option></select></div>
-  <label class="row" style="gap:6px"><input type="checkbox" id="doReview" checked autocomplete="off" style="flex:none"> <span>Revisar com o critic (até 2 correções)</span></label>
+  <div class="row"><span>Imagem</span><select id="imageModel" autocomplete="off"></select></div>
+  <div class="row"><span>Texto</span><select id="textModel" autocomplete="off"></select></div>
+  <label class="row" style="gap:6px"><input type="checkbox" id="doReview" checked autocomplete="off" style="flex:none"> <span style="min-width:0">Revisar com o critic (até 2 correções)</span></label>
   <p class="hint" id="cfg"></p>
 </aside>
 <main>
@@ -107,6 +126,7 @@
     <span style="flex:1"></span>
     <button class="btn" id="newChat">Nova conversa</button>
   </header>
+  <div id="banner"></div>
   <div id="log"><div class="wrap" id="wrap"></div></div>
   <div id="composer">
     <div class="box2" id="box2">
@@ -121,14 +141,18 @@
     </div>
   </div>
 </main>
+<div id="lightbox"><img alt=""></div>
 <script>
 const $ = (id) => document.getElementById(id);
-const S = { state: null, client: null, clientId: null, assets: [], selected: new Set(), editOf: null, history: [], busy: false };
+const S = { state: null, client: null, clientId: null, assets: [], selected: new Set(), editOf: null, history: [], busy: false, live: null, lastBody: null };
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const store = {
   get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* sem storage: a conversa só vive na página */ } },
+  del(k) { try { localStorage.removeItem(k); } catch { /* ignora */ } },
 };
+const logKey = () => 'chat:' + S.clientId, jobKey = () => 'job:' + S.clientId;
+const saveLog = () => store.set(logKey(), S.history);
 
 async function api(path, body) {
   const r = await fetch(path, body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -137,28 +161,42 @@ async function api(path, body) {
   return j;
 }
 
-function logKey() { return 'chat:' + S.clientId; }
-function saveLog() { store.set(logKey(), S.history); }
-
 async function init() {
   S.state = await api('/api/state');
   $('kind').innerHTML = S.state.kinds.map((k) => `<option>${k}</option>`).join('');
   $('size').innerHTML = S.state.sizes.map((s) => `<option ${s === '1024x1024' ? 'selected' : ''}>${s}</option>`).join('');
   $('client').innerHTML = S.state.clients.map((c) => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('');
+  $('imageModel').innerHTML = `<option>${esc(S.state.image_model)}</option>`;
+  $('textModel').innerHTML = `<option>${esc(S.state.text_model)}</option>`;
   $('modeBadge').textContent = S.state.mock ? 'MOCK (imagens falsas)' : S.state.has_key ? 'API OpenAI' : S.state.has_claude ? 'sem chave: só briefing (Claude)' : 'sem chave';
   if (!S.state.mock && !S.state.has_key) $('modeBadge').classList.add('warn');
-  $('cfg').textContent = `texto: ${S.state.text_model} · imagem: ${S.state.image_model} · nota mínima ${S.state.pass_score}`;
+  $('cfg').textContent = `nota mínima ${S.state.pass_score} · até ${S.state.max_cycles} correções`;
   await loadClient($('client').value || '71');
+  checkModels();
+}
+
+async function checkModels() {
+  try {
+    const m = await api('/api/models');
+    const fill = (id, list, cur) => { const all = [...new Set([cur, ...list])]; $(id).innerHTML = all.map((x) => `<option ${x === cur ? 'selected' : ''}>${esc(x)}</option>`).join(''); };
+    if (m.image_models.length) fill('imageModel', m.image_models, m.image_models.includes(S.state.image_model) ? S.state.image_model : m.image_models[0]);
+    if (m.text_models.length) fill('textModel', m.text_models, m.text_models.includes(S.state.text_model) ? S.state.text_model : (m.text_models.find((x) => /^gpt-5|^gpt-4/.test(x)) || m.text_models[0]));
+    const b = $('banner');
+    b.className = m.notes.length && !S.state.mock ? 'on' : '';
+    b.innerHTML = m.notes.map(esc).join('<br>');
+  } catch (e) { $('banner').className = 'on'; $('banner').textContent = 'Não consegui verificar os modelos: ' + e.message; }
 }
 
 async function loadClient(id) {
   const r = await api('/api/client', { id });
-  S.clientId = r.id; S.client = r.client; S.assets = r.assets; S.selected.clear(); S.editOf = null;
+  S.clientId = r.id; S.client = r.client; S.assets = r.assets; S.selected.clear(); S.editOf = null; S.live = null;
   $('client').value = r.id;
   $('clientName').textContent = r.client.name || r.id;
   $('clientJson').value = JSON.stringify(r.client, null, 2);
   S.history = store.get(logKey()) || [];
   drawAssets(); drawChips(); drawLog();
+  const pending = store.get(jobKey());
+  if (pending && pending.id) resumeJob(pending);
 }
 
 function drawAssets() {
@@ -173,15 +211,18 @@ function drawChips() {
   if (S.editOf) chips.push(`<span class="chip">✎ editando a imagem anterior<button data-unedit="1">×</button></span>`);
   for (const id of S.selected) {
     const a = S.assets.find((x) => x.id === id);
-    if (a) chips.push(`<span class="chip">${esc(a.kind)}: ${esc(a.name)}<button data-unsel="${id}">×</button></span>`);
+    if (a) chips.push(`<span class="chip"><img src="${a.url}" alt="">${esc(a.kind)}: ${esc(a.name)}<button data-unsel="${id}">×</button></span>`);
   }
   $('chips').innerHTML = chips.join('');
 }
 
-function msgHtml(m, i) {
+function thumbs(list) {
+  return (list || []).length ? `<div class="thumbs">${list.map((a) => `<figure><img data-zoom="${a.url}" src="${a.url}" alt="${esc(a.name)}">${esc(a.kind || '')}</figure>`).join('')}</div>` : '';
+}
+
+function msgHtml(m) {
   if (m.role === 'user') {
-    const att = (m.attached || []).map((n) => `<span class="chip">${esc(n)}</span>`).join('');
-    return `<div class="msg user"><div class="bubble">${esc(m.text)}</div>${att ? `<div class="chips">${att}</div>` : ''}</div>`;
+    return `<div class="msg user"><div class="bubble">${esc(m.text)}</div>${thumbs(m.attached)}</div>`;
   }
   if (m.kind === 'image') {
     const ok = m.approved, sc = m.score;
@@ -190,10 +231,12 @@ function msgHtml(m, i) {
     const veto = (m.veto || []).length ? `<span class="veto">vetos: ${m.veto.map(esc).join(', ')}</span>` : '';
     const issues = ((m.review && m.review.issues) || []).map((x) => typeof x === 'string' ? x : `[${x.severity || ''}] ${x.criterion}: ${x.evidence}`).join('\n');
     const scores = m.review ? Object.entries(m.review.scores || {}).map(([k, v]) => `${k}: ${v}`).join('  ·  ') : '';
-    const cyc = (m.cycles || []).map((c) => `ciclo ${c.cycle}: ${c.score ?? '—'}${c.approved ? ' ✓' : ''}${(c.veto || []).length ? ' veto ' + c.veto.join(',') : ''}${c.fix ? '\n   correção pedida: ' + c.fix : ''}`).join('\n');
+    const cyc = (m.cycles || []).map((c) => `tentativa ${c.cycle + 1}: ${c.score ?? '—'}${c.approved ? ' ✓' : ''}${(c.veto || []).length ? ' veto ' + c.veto.join(',') : ''}${c.fix ? '\n   correção pedida: ' + c.fix : ''}`).join('\n');
+    const tries = (m.cycles || []).length > 1 ? `<div class="tries">${m.cycles.map((c) => `<figure class="${c.id === m.id ? 'best' : ''}"><img data-zoom="${c.url}" src="${c.url}" alt="">tentativa ${c.cycle + 1}${c.score != null ? ' · ' + c.score : ''}</figure>`).join('')}</div>` : '';
     return `<div class="msg assistant"><div class="imgcard">
-      <a href="${m.url}" target="_blank"><img src="${m.url}" alt="imagem gerada"></a>
+      <img class="main" data-zoom="${m.url}" src="${m.url}" alt="imagem gerada">
       <div class="meta">${scoreHtml}${veto}<span class="hint">${m.generations} geração(ões) · ${m.seconds}s · ${esc(m.size)}</span></div>
+      ${tries}
       <div class="meta"><button class="btn" data-edit="${m.id}">✎ Editar esta imagem</button>
         <a class="btn" href="${m.url}" download="${m.id}">Baixar</a></div>
       <details><summary>Briefing, revisão e tentativas</summary>
@@ -204,20 +247,28 @@ function msgHtml(m, i) {
         ${(m.inputs || []).length ? `<pre>entradas: ${m.inputs.map((x) => esc(x.kind + ' ' + x.name)).join(', ')}</pre>` : ''}
       </details></div></div>`;
   }
-  return `<div class="msg assistant"><div class="bubble ${m.error ? 'err' : ''}">${esc(m.text)}</div></div>`;
+  return `<div class="msg assistant"><div class="bubble ${m.error ? 'err' : ''}">${esc(m.text)}</div>${m.error && S.lastBody ? '<div class="meta"><button class="btn" data-retry="1">↻ Tentar de novo</button></div>' : ''}</div>`;
+}
+
+function liveHtml() {
+  const L = S.live; if (!L) return '';
+  const steps = L.steps.map((s, i) => `<div class="st ${i === L.steps.length - 1 && !L.done ? 'last' : ''}"><span class="t">${s.t}s</span>${esc(s.text)}${s.image_url ? `<img data-zoom="${s.image_url}" src="${s.image_url}" alt="">` : ''}</div>`).join('');
+  return `<div class="msg assistant" id="live"><div class="progress ${L.done ? 'done' : ''}">${steps || '<div class="st last">Enviando o pedido</div>'}</div></div>`;
 }
 
 function drawLog() {
   const w = $('wrap');
-  if (!S.history.length) {
+  if (!S.history.length && !S.live) {
     w.innerHTML = `<div class="empty"><h2>O que vamos criar para ${esc(S.client.name || S.clientId)}?</h2>
       <div>Anexe a logo e referências, descreva o pedido e itere na imagem como no ChatGPT.</div>
-      <div class="sugg">${['Banner de promoção de verão para feed, com a nossa logo', 'Post de lançamento de coleção, fundo solar, espaço para título', 'Story 9:16 com a modelo ao pôr do sol']
+      <div class="sugg">${['Banner de promoção de verão para feed, com a nossa logo', 'Post de lançamento de coleção, fundo solar, espaço para título', 'Story com a modelo ao pôr do sol']
         .map((s) => `<button class="btn" data-sugg="${esc(s)}">${esc(s)}</button>`).join('')}</div></div>`;
   } else {
-    w.innerHTML = S.history.map(msgHtml).join('');
+    w.innerHTML = S.history.map(msgHtml).join('') + liveHtml();
   }
   const l = $('log'); l.scrollTop = l.scrollHeight;
+  // a altura muda quando as imagens carregam: rola de novo até o fim
+  w.querySelectorAll('img').forEach((im) => { if (!im.complete) im.addEventListener('load', () => { l.scrollTop = l.scrollHeight; }, { once: true }); });
 }
 
 async function uploadFiles(files, kind) {
@@ -232,36 +283,69 @@ async function uploadFiles(files, kind) {
   drawAssets(); drawChips();
 }
 
-async function send(textOverride) {
-  const text = (textOverride ?? $('text').value).trim();
-  if (!text || S.busy) return;
-  S.busy = true; $('send').disabled = true;
-  const attached = [...S.selected].map((id) => S.assets.find((a) => a.id === id)).filter(Boolean).map((a) => `${a.kind}: ${a.name}`);
-  if (S.editOf) attached.unshift('imagem anterior');
-  const history = S.history.map((m) => ({ role: m.role, text: m.text || (m.kind === 'image' ? '[imagem gerada]' : '') }));
-  S.history.push({ role: 'user', text, attached });
-  drawLog(); $('wrap').insertAdjacentHTML('beforeend', '<div class="msg assistant" id="typing"><div class="typing">Pensando, gerando e revisando (pode levar 1 a 3 minutos)</div></div>');
-  $('log').scrollTop = $('log').scrollHeight;
-  $('text').value = ''; autosize();
-  const t0 = Date.now(), timer = setInterval(() => { $('status').textContent = Math.round((Date.now() - t0) / 1000) + 's'; }, 1000);
-  const body = { client: S.clientId, text, asset_ids: [...S.selected], edit_of: S.editOf, history,
-    size: $('size').value, quality: $('quality').value, review: $('doReview').checked };
-  try {
-    const { message } = await api('/api/chat', body);
-    S.history.push(message);
-    S.selected.clear(); S.editOf = null;
-  } catch (e) {
-    S.history.push({ role: 'assistant', kind: 'text', error: true, text: 'Erro: ' + e.message });
-  } finally {
-    clearInterval(timer); $('status').textContent = ''; S.busy = false; $('send').disabled = false;
-    saveLog(); drawLog(); drawAssets(); drawChips(); $('text').focus();
+function setBusy(b) { S.busy = b; $('send').disabled = b; }
+
+async function poll(jobId, since) {
+  // acompanha a tarefa até terminar; sobrevive a falhas curtas de rede
+  let fails = 0;
+  for (;;) {
+    await new Promise((r) => setTimeout(r, 1200));
+    let j;
+    try { j = await api('/api/job', { id: jobId, since }); fails = 0; }
+    catch (e) {
+      if (/não encontrada/.test(e.message)) return { error: 'O servidor foi reiniciado e a tarefa se perdeu. Envie de novo.' };
+      if (++fails > 15) return { error: 'Perdi a conexão com o servidor: ' + e.message };
+      continue;
+    }
+    since = j.next; S.live.steps.push(...j.steps); S.live.elapsed = j.elapsed;
+    $('status').textContent = Math.round(j.elapsed) + 's';
+    drawLog();
+    if (j.status === 'done') return { message: j.message };
+    if (j.status === 'error') return { error: j.error };
   }
 }
 
+async function finish(jobId, res) {
+  S.live.done = true;
+  if (res.message) { if (!S.history.some((m) => m.job === jobId)) S.history.push({ ...res.message, job: jobId }); S.selected.clear(); S.editOf = null; }
+  else S.history.push({ role: 'assistant', kind: 'text', error: true, text: 'Erro: ' + res.error, job: jobId });
+  S.live = null; store.del(jobKey()); setBusy(false); $('status').textContent = '';
+  saveLog(); drawLog(); drawAssets(); drawChips(); $('text').focus();
+}
+
+async function resumeJob(p) {
+  if (S.busy) return;
+  setBusy(true); S.live = { steps: [], done: false }; drawLog();
+  await finish(p.id, await poll(p.id, 0));
+}
+
+async function send(textOverride, bodyOverride) {
+  const text = (textOverride ?? $('text').value).trim();
+  if (!text || S.busy) return;
+  setBusy(true);
+  const attached = [...S.selected].map((id) => S.assets.find((a) => a.id === id)).filter(Boolean).map((a) => ({ kind: a.kind, name: a.name, url: a.url }));
+  if (S.editOf) attached.unshift({ kind: 'imagem anterior', name: 'edição', url: (S.history.find((m) => m.id === S.editOf) || {}).url || '' });
+  const history = S.history.map((m) => ({ role: m.role, text: m.text || (m.kind === 'image' ? '[imagem gerada]' : '') }));
+  const body = bodyOverride || { client: S.clientId, text, asset_ids: [...S.selected], edit_of: S.editOf, history,
+    size: $('size').value, quality: $('quality').value, review: $('doReview').checked,
+    image_model: $('imageModel').value, text_model: $('textModel').value };
+  S.lastBody = body;
+  if (!bodyOverride) { S.history.push({ role: 'user', text, attached }); saveLog(); }  // salva já: atualizar a página no meio não perde o pedido
+  S.live = { steps: [], done: false }; drawLog(); $('text').value = ''; autosize();
+  let jobId;
+  try { jobId = (await api('/api/chat', body)).job; }
+  catch (e) { S.live = { steps: [], done: true }; return finish('x' + Date.now(), { error: e.message }); }
+  store.set(jobKey(), { id: jobId });
+  await finish(jobId, await poll(jobId, 0));
+}
+
 function autosize() { const t = $('text'); t.style.height = 'auto'; t.style.height = Math.min(t.scrollHeight, 200) + 'px'; }
+function zoom(url) { const lb = $('lightbox'); lb.querySelector('img').src = url; lb.classList.add('on'); }
 
 document.addEventListener('click', async (e) => {
   const t = e.target;
+  if (t.closest('#lightbox')) { $('lightbox').classList.remove('on'); return; }
+  if (t.dataset.zoom) { zoom(t.dataset.zoom); return; }
   if (t.dataset.del) { e.stopPropagation(); await api('/api/asset/delete', { client: S.clientId, id: t.dataset.del });
     S.assets = S.assets.filter((a) => a.id !== t.dataset.del); S.selected.delete(t.dataset.del); drawAssets(); drawChips(); return; }
   const card = t.closest('.asset');
@@ -270,11 +354,14 @@ document.addEventListener('click', async (e) => {
   if (t.dataset.unedit) { S.editOf = null; drawChips(); }
   if (t.dataset.edit) { S.editOf = t.dataset.edit; drawChips(); $('text').focus(); $('text').placeholder = 'O que mudar nesta imagem? (o resto fica igual)'; }
   if (t.dataset.sugg) { $('text').value = t.dataset.sugg; autosize(); $('text').focus(); }
+  if (t.dataset.retry && S.lastBody) { S.history = S.history.filter((m, i) => !(i === S.history.length - 1 && m.error)); send(S.lastBody.text, S.lastBody); }
 });
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') $('lightbox').classList.remove('on'); });
 $('send').onclick = () => send();
 $('text').addEventListener('input', autosize);
 $('text').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } });
-$('attach').onclick = $('addAsset').onclick = () => $('file').click();
+$('attach').onclick = () => $('file').click();
+$('addAsset').onclick = () => $('file').click();
 $('file').onchange = async (e) => { await uploadFiles([...e.target.files], $('kind').value); e.target.value = ''; };
 $('client').onchange = () => loadClient($('client').value);
 $('newChat').onclick = () => { S.history = []; S.editOf = null; saveLog(); drawLog(); drawChips(); };
