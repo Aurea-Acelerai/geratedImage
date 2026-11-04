@@ -14,6 +14,9 @@ Devolva **somente** JSON:
  "carry": ["<instrução duradoura>", ...]}
 ```
 
+## Primeira mensagem com arquivos anexados
+Se **não há memória** mas há arquivos anexados, decida do mesmo jeito: se o usuário pede para **alterar uma imagem anexada** ("troque a pessoa da foto de referência", "mude o texto da peça anexada", "adapte para story"), é `edit` com `edit_target` = esse arquivo; se pede uma imagem nova usando os anexos como referência, é `new`.
+
 ## Como decidir
 - **intent `edit`:** a mensagem altera a última imagem ("mude a camisa para azul", "mais claro", "tira o chapéu", "agora com fundo de escritório"). Mantenha tudo o mais igual. `use_last_image: true`.
 - **intent `variation`:** quer outra imagem do mesmo conceito ("faz outra versão", "mais opções", "tenta de outro ângulo"). `use_last_image: true`.

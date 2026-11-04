@@ -83,10 +83,11 @@ class H(BaseHTTPRequestHandler):
                 lasts = re.findall(r"Pedido: (.*?) \|", utext.split("\n\nImagens disponíveis")[0])
                 if pend:
                     out = {"intent": pend.group(2), "request": f"{pend.group(1)} {msg}", "use_last_image": pend.group(2) in ("edit", "variation"), "carry": []}
-                elif re.search(r"\b(mude|troque|tire|agora|mais|deixe)\b", msg, re.I) and lasts:
+                elif re.search(r"\b(mude|troque|tire|agora|mais|deixe)\b", msg, re.I) and (lasts or re.search(r"refer[eê]ncia", msg, re.I)):
                     ref = re.search(r"([^,;|]+?) \(referencia\) \[id (\w+)\]", utext) if re.search(r"refer[eê]ncia", msg, re.I) else None
-                    out = ({"intent": "edit", "request": f"{lasts[-1]}; {msg}", "use_last_image": False, "edit_target": ref.group(2), "carry": []} if ref
-                           else {"intent": "edit", "request": f"{lasts[-1]}; {msg}", "use_last_image": True, "carry": []})
+                    base = f"{lasts[-1]}; " if lasts else ""
+                    out = ({"intent": "edit", "request": f"{base}{msg}", "use_last_image": False, "edit_target": ref.group(2), "carry": []} if ref
+                           else {"intent": "edit", "request": f"{base}{msg}", "use_last_image": True, "carry": []})
                 else:
                     out = {"intent": "new", "request": msg, "use_last_image": False, "carry": []}
                 return self._json(200, {"choices": [{"message": {"content": json.dumps(out)}}]})
@@ -134,6 +135,8 @@ class H(BaseHTTPRequestHandler):
             if "rejectfidelity" in fields.get("prompt", b"").decode().lower() and "input_fidelity" in fields:
                 return self._json(400, {"error": {"message": "Unknown parameter: 'input_fidelity'."}})
             size = fields.get("size", b"1024x1024").decode()
+            if size == "auto":
+                size = "1024x1280"  # a API acompanha a proporção do alvo (simulado: 4:5)
             w, h = (512, 512) if "wrongsize" in fields.get("prompt", b"").decode().lower() else map(int, size.split("x"))
             return self._json(200, {"data": [{"b64_json": base64.b64encode(png(w, h)).decode()}]})
         self._json(404, {"error": {"message": "rota desconhecida"}})

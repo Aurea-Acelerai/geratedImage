@@ -323,6 +323,12 @@ try:
     st2, nc2 = call(CHAT, "/api/client/new", {"name": "Super Brilho"})
     ok(nc2["id"] == "super-brilho-2", "nome repetido ganha sufixo")
     ok(call(CHAT, "/api/client/new", {"name": " "})[0] == 400, "nome vazio é recusado")
+    # 18) conversa NOVA com a peça anexada: o alvo da edição já vale na primeira mensagem, e o tamanho acompanha o alvo
+    p, steps = run({"client": "71", "conv": "convprimeira", "text": "troque a pessoa da foto de referencia pela pessoa da foto", "asset_ids": [pid, rid], "review": False}); m1t = p["message"]
+    ok(m1t["intent"] == "edit" and m1t["inputs"][0]["kind"] == "alvo" and m1t["inputs"][0]["name"] == "peca_campanha.png", "primeira mensagem de uma conversa nova já edita a imagem anexada")
+    ok(m1t["size"] == "auto", f"tamanho automático acompanha o alvo ({m1t['size']})")
+    p, _ = run({"client": "71", "conv": "convsemalvo", "text": "um gato astronauta", "review": False})
+    ok(p["message"]["size"] == "1024x1024", "sem alvo, o tamanho automático vira 1024x1024")
     print("\nTUDO OK")
 finally:
     for p in procs:

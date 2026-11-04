@@ -46,7 +46,7 @@ KIND_ROLE = {
     "peca": "PEÇA já entregue ao cliente: mantenha o mesmo estilo e a mesma linguagem visual",
     "produto": "PRODUTO do cliente: deve aparecer fiel ao original (forma, cor, rótulo)",
 }
-SIZES = {"1024x1024", "1536x1024", "1024x1536"}
+SIZES = {"1024x1024", "1536x1024", "1024x1536", "auto"}  # "auto": acompanha o alvo da edição (sem alvo, 1024x1024)
 
 
 def log_event(kind, **fields):
@@ -738,14 +738,19 @@ def memory_text(conv, files_desc=""):
     return "\n".join(L)
 
 
-def resolve_turn(conv, text, avail, model, provider):
+def resolve_turn(conv, text, avail, model, provider, has_files=False):
     """Entende a mensagem no contexto (como o ChatGPT): devolve intenção e um pedido autossuficiente. Nunca derruba o fluxo."""
     triv = {"intent": "new", "request": text, "use_last_image": False, "carry": list(conv["carry"])}
-    if provider != "openai" or not (conv["turns"] or conv["carry"]):
+    if provider != "openai" or not (conv["turns"] or conv["carry"] or has_files):
         return triv, None
     mem = memory_text(conv)
-    last = conv["turns"][-1]
+    last = conv["turns"][-1] if conv["turns"] else None
     if MOCK:
+        if last is None:
+            m = re.search(r"([^,;|]+?) \(referencia\) \[id (\w+)\]", avail)
+            if m and "referencia" in skills_router.norm(text) and EDIT_WORDS.search(text):
+                return {**triv, "intent": "edit", "request": text, "edit_target": m.group(2)}, None
+            return triv, None
         if last.get("question"):
             li = last.get("intent", "new")
             return {**triv, "intent": li, "request": f'{last["resolved"]} {text}', "use_last_image": li in ("edit", "variation")}, None
@@ -863,7 +868,7 @@ def api_asset_kind(b):
 
 
 def run_chat(b, emit, cid, text, ctx, inputs, files=None, auto=None, stale=None):
-    size = b.get("size") if b.get("size") in SIZES else "1024x1024"
+    size = b.get("size") if b.get("size") in SIZES else "auto"
     quality = b.get("quality") or ui.env_models()["quality"]
     em = ui.env_models()
     text_model, image_model = b.get("text_model") or em["text_model"], b.get("image_model") or em["image_model"]
@@ -890,7 +895,7 @@ def run_chat(b, emit, cid, text, ctx, inputs, files=None, auto=None, stale=None)
     if edit_turn:
         avail += (f" | ATENÇÃO: o usuário escolheu EDITAR a imagem do turno {edit_turn['n']} (id {edit_turn['image_id']}), que pode NÃO ser a última; "
                   f"o pedido daquele turno foi: {edit_turn['resolved'][:600]}")
-    resolved, warn = resolve_turn(conv, text, avail, text_model, provider)
+    resolved, warn = resolve_turn(conv, text, avail, text_model, provider, has_files=bool(inputs))
     if warn:
         avisos.append(warn)
     text_eff, intent = resolved["request"], resolved["intent"]
@@ -911,6 +916,8 @@ def run_chat(b, emit, cid, text, ctx, inputs, files=None, auto=None, stale=None)
                 else "IMAGEM-BASE da variação: mantenha o conceito, a pessoa/produto/marca e o estilo; mude só o que o pedido indicar")
         inputs = [dict(kind="alvo" if intent == "edit" else "variacao", name=lastp.name, mime="image/svg+xml" if lastp.suffix == ".svg" else "image/png",
                        bytes=lastp.read_bytes(), role_text=role)] + list(inputs)
+    if size == "auto" and not any(x["kind"] in ("alvo", "variacao") for x in inputs):
+        size = "1024x1024"  # sem alvo não há proporção a acompanhar
     if intent in ("edit", "variation") and not any(x["kind"] in ("alvo", "variacao") for x in inputs):
         intent = "new"
         avisos.append("Não encontrei a imagem anterior para editar; gerei do zero com o pedido resolvido.")

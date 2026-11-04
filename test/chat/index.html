@@ -237,7 +237,7 @@ async function init() {
   $('kind').innerHTML = S.state.kinds.map((k) => `<option>${k}</option>`).join('');
   $('webkind').innerHTML = S.state.kinds.map((k) => `<option>${k}</option>`).join('');
   $('keybox').className = (!S.state.mock && !S.state.has_key) ? 'on' : '';
-  $('size').innerHTML = S.state.sizes.map((s) => `<option ${s === '1024x1024' ? 'selected' : ''}>${s}</option>`).join('');
+  $('size').innerHTML = S.state.sizes.map((s) => `<option value="${s}" ${s === 'auto' ? 'selected' : ''}>${s === 'auto' ? 'auto (acompanha a imagem alvo)' : s}</option>`).join('');
   $('client').innerHTML = S.state.clients.map((c) => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('');
   $('imageModel').innerHTML = `<option>${esc(S.state.image_model)}</option>`;
   $('textModel').innerHTML = `<option>${esc(S.state.text_model)}</option>`;
