@@ -62,3 +62,14 @@ O navegador consulta `/api/job` (já é assim). Para encadear sem depender de um
 | V2 | Onde guardar imagens: Supabase Storage ou Vercel Blob? | Supabase Storage (banco e arquivos no mesmo lugar, RLS única) |
 | V3 | Plano da Vercel e o teto de `maxDuration` | conferir antes de escolher entre função única e fluxo durável |
 | V4 | Retenção das fotos de pessoas reais | definir com o CEO antes de subir |
+
+## 7. Status da implementação (preview na Vercel, 04/11/2026)
+
+Feito, com a escolha de **Vercel Blob** (V2 ficou provisoriamente em Blob em vez de Supabase; `Store` permite trocar):
+- `test/store.py`: `Store` (read_bytes, write_bytes, exists, list, delete, append_line, mais rename, mtime, set_mtime) com `FileStore` (padrão local), `MemoryStore` (testes) e `BlobStore` (SDK oficial `vercel`, API síncrona `vercel.blob.sync`). Todo acesso do `chat_server.py` a clientes, biblioteca, imagens, conversas, logs e tarefas passa por ele.
+- `JOBS_INLINE` (automático com `VERCEL`): o pipeline roda dentro de `POST /api/chat` e o estado vai para `jobs/<id>.json`; `/api/job` lê do Store.
+- Modo Vercel dos guardas: `/api/setkey` responde 403, sem Keychain, mesma origem em vez de loopback.
+- `api/index.py` (`class handler`), `vercel.json`, `requirements.txt`, `.vercelignore`.
+- Testes: `test_store.py` (mesma conformidade em disco, memória e Blob com SDK falso), `e2e_chat.py` em 4 variantes (`E2E_STORE=memory`, `E2E_INLINE=1`), `e2e_vercel.py` (a função simulada localmente).
+
+Não verificado (precisa do runtime e de uma loja Blob reais): chamadas reais ao Blob; atraso de até ~60 s de leitura após sobrescrita (cache da CDN); como o runtime chama a classe `handler` e qual caminho ela vê depois do rewrite; teto de `maxDuration` do plano; limite de corpo/resposta das funções (4,5 MB, de memória) frente a uploads de até 20 MB e imagens grandes; `includeFiles` em funções Python (a documentação consultada mostra `excludeFiles`); trava entre instâncias para duas mensagens simultâneas da mesma conversa. Autenticação: só a Deployment Protection da Vercel (sem login próprio).

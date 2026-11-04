@@ -9,3 +9,5 @@ test/chat_out/
 .playwright-mcp/
 test/conversations/
 test/logs/
+test/train_data/
+test/train_out/
