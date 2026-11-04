@@ -1,0 +1,13 @@
+{
+  "final_sha256": "d44f838cd03f6860784f03a284c93af5c5ce68cbe24202ce6af57be05ff8c795",
+  "locked_on": "2026-11-04",
+  "rule": "bench/final.json só muda de propósito: depois de alterar, rode `bench.py lock --reason \"...\"`, que regrava o hash e anexa data e razão em history. Resultados do final nunca são usados para ajustar prompts, regras ou modelo.",
+  "history": [
+    {
+      "date": "2026-11-04",
+      "reason": "lock inicial do conjunto final (9 casos)",
+      "final_sha256": "d44f838cd03f6860784f03a284c93af5c5ce68cbe24202ce6af57be05ff8c795",
+      "previous_sha256": null
+    }
+  ]
+}

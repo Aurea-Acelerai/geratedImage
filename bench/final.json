@@ -1,0 +1,338 @@
+[
+  {
+    "id": "final-foto-01",
+    "split": "final",
+    "category": "fotografia",
+    "brief": "Foto noturna de uma rua molhada de cidade pequena, com neon vermelho e verde refletido no asfalto e uma pessoa de moto cruzando desfocada ao fundo. Lente de 50 mm aberta, cores densas, sem texto legível nas placas.",
+    "references": [],
+    "required_criteria": [
+      {
+        "id": "cena",
+        "text": "Rua molhada à noite com reflexos de neon vermelho e verde",
+        "check": "human"
+      },
+      {
+        "id": "movimento",
+        "text": "Motociclista desfocado ao fundo, não nítido",
+        "check": "human"
+      },
+      {
+        "id": "sem-texto",
+        "text": "Placas sem texto legível inventado",
+        "check": "human"
+      },
+      {
+        "id": "tamanho",
+        "text": "Arquivo no tamanho pedido",
+        "check": "auto:size"
+      }
+    ],
+    "preservation": [],
+    "text_literals": [],
+    "expected_size": "1536x1024",
+    "eval_method": "dois avaliadores humanos, de forma cega, com a lista de critérios",
+    "difficulty": "media"
+  },
+  {
+    "id": "final-texto-01",
+    "split": "final",
+    "category": "texto em português",
+    "brief": "Cardápio de lousa de uma cafeteria, escrito à giz, com o título \"Hoje\" e três linhas: \"Café coado R$ 6\", \"Pão na chapa R$ 9\" e \"Suco de laranja R$ 8\". Moldura de madeira e letras manuscritas, mas legíveis.",
+    "references": [],
+    "required_criteria": [
+      {
+        "id": "literais",
+        "text": "As três linhas de preço aparecem como escritas",
+        "check": "auto:ocr"
+      },
+      {
+        "id": "revisao",
+        "text": "Revisão humana obrigatória dos preços e dos acentos (dado crítico)",
+        "check": "human"
+      },
+      {
+        "id": "estilo",
+        "text": "Aparência de giz sobre lousa com moldura de madeira",
+        "check": "human"
+      },
+      {
+        "id": "tamanho",
+        "text": "Arquivo no tamanho pedido",
+        "check": "auto:size"
+      }
+    ],
+    "preservation": [],
+    "text_literals": [
+      "Hoje",
+      "Café coado R$ 6",
+      "Pão na chapa R$ 9",
+      "Suco de laranja R$ 8"
+    ],
+    "expected_size": "1024x1024",
+    "eval_method": "dois avaliadores humanos, de forma cega; OCR só como apoio",
+    "difficulty": "alta",
+    "notes": "Letra manuscrita de giz reduz a confiança do OCR: espere not_verified ou near mesmo com texto correto."
+  },
+  {
+    "id": "final-produto-01",
+    "split": "final",
+    "category": "produto",
+    "brief": "Coloque o produto da referência sobre uma bancada de mármore branco, com dois ramos de eucalipto ao lado, em luz de manhã. Mantenha cor, formato e rótulo da caixa exatamente como na foto.",
+    "references": [
+      {
+        "id": "caixa-cha",
+        "role": "produto",
+        "description": "Foto do usuário de uma caixa de chá com rótulo, sobre fundo neutro",
+        "user_supplied": true
+      }
+    ],
+    "required_criteria": [
+      {
+        "id": "fidelidade",
+        "text": "Caixa idêntica à da referência: cor, formato e rótulo",
+        "check": "human"
+      },
+      {
+        "id": "cena",
+        "text": "Bancada de mármore branco e dois ramos de eucalipto",
+        "check": "human"
+      },
+      {
+        "id": "luz",
+        "text": "Luz de manhã, sombras coerentes com a cena",
+        "check": "human"
+      }
+    ],
+    "preservation": [
+      "texto e arte do rótulo da caixa",
+      "cor da caixa",
+      "formato e proporções da caixa"
+    ],
+    "text_literals": [],
+    "expected_size": "1024x1024",
+    "eval_method": "dois avaliadores humanos comparam o produto com a referência, de forma cega quanto ao braço",
+    "difficulty": "alta"
+  },
+  {
+    "id": "final-edicao-01",
+    "split": "final",
+    "category": "edição local",
+    "brief": "Remova o varal de roupas que aparece no canto superior esquerdo da foto da varanda, reconstruindo a parede que fica atrás. Não altere o resto.",
+    "references": [
+      {
+        "id": "varanda-base",
+        "role": "base",
+        "description": "Foto do usuário de uma varanda com plantas em vasos e um varal no canto superior esquerdo",
+        "user_supplied": true
+      }
+    ],
+    "required_criteria": [
+      {
+        "id": "remocao",
+        "text": "Varal e roupas removidos, sem borrão nem sobra",
+        "check": "human"
+      },
+      {
+        "id": "reconstrucao",
+        "text": "A parede reconstruída continua a textura e a cor da vizinhança",
+        "check": "human"
+      },
+      {
+        "id": "resto",
+        "text": "Nada fora do canto superior esquerdo mudou",
+        "check": "auto:preservation"
+      }
+    ],
+    "preservation": [
+      "tudo fora do canto superior esquerdo",
+      "plantas e vasos",
+      "cores e luz",
+      "enquadramento"
+    ],
+    "text_literals": [],
+    "expected_size": "auto",
+    "eval_method": "comparação com a base fora da região editada; avaliador humano confere a região editada",
+    "difficulty": "media"
+  },
+  {
+    "id": "final-personagem-01",
+    "split": "final",
+    "category": "personagem recorrente",
+    "brief": "O robô-carteiro da referência entregando uma carta para um dragão pequeno na porta de uma caverna. Mesmo desenho: corpo arredondado, antena torta e bolsa de correio. Estilo de livro infantil.",
+    "references": [
+      {
+        "id": "robo-ref",
+        "role": "identidade",
+        "description": "Desenho do próprio usuário de um robô-carteiro com corpo arredondado, antena torta e bolsa",
+        "user_supplied": true
+      }
+    ],
+    "required_criteria": [
+      {
+        "id": "identidade",
+        "text": "Mesmo robô: corpo, antena torta e bolsa iguais à referência",
+        "check": "human"
+      },
+      {
+        "id": "acao",
+        "text": "Entrega de uma carta a um dragão pequeno na entrada de uma caverna",
+        "check": "human"
+      },
+      {
+        "id": "estilo",
+        "text": "Consistente com o estilo da referência",
+        "check": "human"
+      },
+      {
+        "id": "tamanho",
+        "text": "Arquivo no tamanho pedido",
+        "check": "auto:size"
+      }
+    ],
+    "preservation": [],
+    "text_literals": [],
+    "expected_size": "1536x1024",
+    "eval_method": "dois avaliadores humanos comparam com a referência, de forma cega quanto ao braço",
+    "difficulty": "alta"
+  },
+  {
+    "id": "final-diagrama-01",
+    "split": "final",
+    "category": "diagrama com dados fornecidos pelo usuário",
+    "brief": "Fluxograma simples em fundo claro, com caixas arredondadas e setas retas, com exatamente estes passos nesta ordem: \"Receber pedido\", \"Separar itens\", \"Embalar\", \"Enviar\". Depois de \"Separar itens\" há um desvio com a pergunta \"Item em falta?\" que leva a \"Avisar cliente\".",
+    "references": [
+      {
+        "id": "dados-fluxo",
+        "role": "dados",
+        "description": "A estrutura do fluxo está escrita no próprio pedido; nenhum arquivo é necessário",
+        "user_supplied": false
+      }
+    ],
+    "required_criteria": [
+      {
+        "id": "literais",
+        "text": "Os seis rótulos aparecem como escritos",
+        "check": "auto:ocr"
+      },
+      {
+        "id": "estrutura",
+        "text": "Ordem e setas corretas, com o desvio saindo de \"Separar itens\"",
+        "check": "human"
+      },
+      {
+        "id": "sem-invencao",
+        "text": "Nenhuma caixa ou rótulo além dos fornecidos",
+        "check": "human"
+      },
+      {
+        "id": "tamanho",
+        "text": "Arquivo no tamanho pedido",
+        "check": "auto:size"
+      }
+    ],
+    "preservation": [],
+    "text_literals": [
+      "Receber pedido",
+      "Separar itens",
+      "Embalar",
+      "Enviar",
+      "Item em falta?",
+      "Avisar cliente"
+    ],
+    "expected_size": "1536x1024",
+    "eval_method": "dois avaliadores humanos conferem a estrutura; OCR só como apoio",
+    "difficulty": "alta"
+  },
+  {
+    "id": "final-marketing-01",
+    "split": "final",
+    "category": "peça de marketing",
+    "brief": "Anúncio vertical para stories, divulgando um curso online de fotografia com celular. Título: \"Fotografe melhor com o celular\". Linha de apoio: \"Curso online, 4 aulas\". Botão: \"Inscreva-se\". Fundo em degradê de laranja para roxo, com a silhueta de uma mão segurando um celular.",
+    "references": [],
+    "required_criteria": [
+      {
+        "id": "literais",
+        "text": "Título, linha de apoio e botão aparecem como escritos",
+        "check": "auto:ocr"
+      },
+      {
+        "id": "revisao",
+        "text": "Revisão humana do texto e dos acentos",
+        "check": "human"
+      },
+      {
+        "id": "layout",
+        "text": "Texto longe das bordas de corte de stories; botão com aparência de botão",
+        "check": "human"
+      },
+      {
+        "id": "tamanho",
+        "text": "Arquivo no tamanho pedido",
+        "check": "auto:size"
+      }
+    ],
+    "preservation": [],
+    "text_literals": [
+      "Fotografe melhor com o celular",
+      "Curso online, 4 aulas",
+      "Inscreva-se"
+    ],
+    "expected_size": "1024x1536",
+    "eval_method": "dois avaliadores humanos, de forma cega; OCR só como apoio",
+    "difficulty": "media"
+  },
+  {
+    "id": "final-ambiguo-01",
+    "split": "final",
+    "category": "pedido ambíguo",
+    "brief": "Deixa essa imagem mais bonita e mais profissional.",
+    "references": [],
+    "required_criteria": [
+      {
+        "id": "esclarece",
+        "text": "O sistema nota que não há imagem anexada e pergunta qual é, e o que \"bonita\" e \"profissional\" significam aqui",
+        "check": "human"
+      },
+      {
+        "id": "sem-default",
+        "text": "Não gera nem edita nada como se o pedido estivesse completo",
+        "check": "human"
+      }
+    ],
+    "preservation": [],
+    "text_literals": [],
+    "expected_size": "auto",
+    "eval_method": "leitura da resposta do harness por avaliador humano; uma imagem sozinha nunca basta para este caso",
+    "difficulty": "media"
+  },
+  {
+    "id": "final-falha-01",
+    "split": "final",
+    "category": "caso de falha esperada",
+    "brief": "Desenhe exatamente 13 maçãs vermelhas numa fileira horizontal sobre uma mesa branca, sem nenhuma fruta a mais ou a menos, todas separadas e nenhuma sobreposta.",
+    "references": [],
+    "required_criteria": [
+      {
+        "id": "contagem",
+        "text": "Treze maçãs, contadas de forma independente por dois avaliadores",
+        "check": "human"
+      },
+      {
+        "id": "fileira",
+        "text": "Em uma única fileira horizontal, sem sobreposição",
+        "check": "human"
+      },
+      {
+        "id": "tamanho",
+        "text": "Arquivo no tamanho pedido",
+        "check": "auto:size"
+      }
+    ],
+    "preservation": [],
+    "text_literals": [],
+    "expected_size": "1536x1024",
+    "eval_method": "dois avaliadores humanos contam as maçãs sem ver o pedido do outro",
+    "difficulty": "alta",
+    "known_failure_mode": "Contagem exata acima de uns dez objetos costuma falhar: sobram ou faltam itens e eles se fundem."
+  }
+]

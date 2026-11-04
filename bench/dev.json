@@ -1,0 +1,699 @@
+[
+  {
+    "id": "dev-foto-01",
+    "split": "dev",
+    "category": "fotografia",
+    "brief": "Foto documental de uma feira de rua ao amanhecer: uma vendedora arrumando caixas de laranjas e mexericas numa barraca de lona azul. Luz baixa e quente vindo de trás, névoa leve, profundidade de campo rasa, com cara de fotografia analógica 35 mm.",
+    "references": [],
+    "required_criteria": [
+      {
+        "id": "cena",
+        "text": "Vendedora, caixas de laranjas e mexericas e barraca de lona azul estão presentes",
+        "check": "human"
+      },
+      {
+        "id": "luz",
+        "text": "Luz quente de contraluz e névoa leve, coerentes entre si",
+        "check": "human"
+      },
+      {
+        "id": "anatomia",
+        "text": "Mãos, rosto e braços sem deformações visíveis",
+        "check": "human"
+      },
+      {
+        "id": "sem-texto",
+        "text": "Nenhum texto legível inventado em placas ou caixas",
+        "check": "human"
+      },
+      {
+        "id": "tamanho",
+        "text": "Arquivo no tamanho pedido",
+        "check": "auto:size"
+      }
+    ],
+    "preservation": [],
+    "text_literals": [],
+    "expected_size": "1536x1024",
+    "eval_method": "dois avaliadores humanos, de forma cega, com a lista de critérios",
+    "difficulty": "media"
+  },
+  {
+    "id": "dev-foto-02",
+    "split": "dev",
+    "category": "fotografia",
+    "brief": "Retrato de ambiente de um sapateiro idoso na sua oficina, trabalhando com as mãos numa sola de couro. Luz de janela lateral, grão fino, enquadramento médio, expressão concentrada. Ferramentas penduradas na parede ao fundo.",
+    "references": [],
+    "required_criteria": [
+      {
+        "id": "sujeito",
+        "text": "Sapateiro idoso trabalhando numa sola de couro, com as mãos visíveis e plausíveis",
+        "check": "human"
+      },
+      {
+        "id": "ambiente",
+        "text": "Oficina com ferramentas penduradas ao fundo",
+        "check": "human"
+      },
+      {
+        "id": "luz",
+        "text": "Luz de janela lateral, com sombras do lado oposto",
+        "check": "human"
+      },
+      {
+        "id": "tamanho",
+        "text": "Arquivo no tamanho pedido",
+        "check": "auto:size"
+      }
+    ],
+    "preservation": [],
+    "text_literals": [],
+    "expected_size": "1024x1536",
+    "eval_method": "dois avaliadores humanos, de forma cega, com a lista de critérios",
+    "difficulty": "media",
+    "notes": "Mãos e ferramentas pequenas são um ponto fraco comum; avaliar com atenção."
+  },
+  {
+    "id": "dev-ilustracao-01",
+    "split": "dev",
+    "category": "ilustração",
+    "brief": "Ilustração editorial no estilo recorte de papel em camadas, de uma cidade litorânea ao entardecer: casas coloridas num morro, barcos de pesca na baía e gaivotas no céu. Paleta de coral, azul-petróleo e mostarda. Sem texto.",
+    "references": [],
+    "required_criteria": [
+      {
+        "id": "elementos",
+        "text": "Casas no morro, barcos na baía e gaivotas presentes",
+        "check": "human"
+      },
+      {
+        "id": "estilo",
+        "text": "Aparência de recorte de papel em camadas, com sombras entre as camadas",
+        "check": "human"
+      },
+      {
+        "id": "paleta",
+        "text": "Predominam coral, azul-petróleo e mostarda",
+        "check": "human"
+      },
+      {
+        "id": "sem-texto",
+        "text": "Nenhum texto na imagem",
+        "check": "human"
+      },
+      {
+        "id": "tamanho",
+        "text": "Arquivo no tamanho pedido",
+        "check": "auto:size"
+      }
+    ],
+    "preservation": [],
+    "text_literals": [],
+    "expected_size": "1536x1024",
+    "eval_method": "dois avaliadores humanos, de forma cega, com a lista de critérios",
+    "difficulty": "baixa"
+  },
+  {
+    "id": "dev-cena-01",
+    "split": "dev",
+    "category": "cena complexa",
+    "brief": "Interior de uma biblioteca comunitária numa tarde de chuva, com sete pessoas fazendo coisas diferentes: duas crianças lendo no tapete, um idoso cochilando numa poltrona, uma bibliotecária carimbando livros, um adolescente de fone diante de um notebook e dois adultos conversando baixinho diante de uma estante. Um gato dorme no balcão. Janela com chuva e luz fria. Pintura digital realista.",
+    "references": [],
+    "required_criteria": [
+      {
+        "id": "contagem",
+        "text": "Há sete pessoas, nem mais nem menos",
+        "check": "human"
+      },
+      {
+        "id": "acoes",
+        "text": "Cada uma das cinco ações descritas é identificável",
+        "check": "human"
+      },
+      {
+        "id": "gato",
+        "text": "Um gato dormindo no balcão",
+        "check": "human"
+      },
+      {
+        "id": "luz",
+        "text": "Janela com chuva e luz fria coerente com o interior",
+        "check": "human"
+      },
+      {
+        "id": "tamanho",
+        "text": "Arquivo no tamanho pedido",
+        "check": "auto:size"
+      }
+    ],
+    "preservation": [],
+    "text_literals": [],
+    "expected_size": "1536x1024",
+    "eval_method": "dois avaliadores humanos contam pessoas e ações de forma independente",
+    "difficulty": "alta",
+    "notes": "Cenas com muitos personagens costumam fundir ou duplicar figuras."
+  },
+  {
+    "id": "dev-texto-01",
+    "split": "dev",
+    "category": "texto em português",
+    "brief": "Cartaz vertical de feira de livros de bairro. Título grande: \"Feira do Livro Usado\". Subtítulo: \"Troque, leia, passe adiante\". No rodapé: \"Sábado e domingo, das 9h às 17h\". Letras bem legíveis, fundo em papel kraft e uma ilustração simples de uma pilha de livros.",
+    "references": [],
+    "required_criteria": [
+      {
+        "id": "literais",
+        "text": "Os três textos aparecem exatamente como escritos, com acentos e pontuação",
+        "check": "auto:ocr"
+      },
+      {
+        "id": "revisao",
+        "text": "Revisão humana do texto: nenhuma letra trocada ou palavra inventada",
+        "check": "human"
+      },
+      {
+        "id": "hierarquia",
+        "text": "Título maior que o subtítulo, rodapé menor e legível",
+        "check": "human"
+      },
+      {
+        "id": "tamanho",
+        "text": "Arquivo no tamanho pedido",
+        "check": "auto:size"
+      }
+    ],
+    "preservation": [],
+    "text_literals": [
+      "Feira do Livro Usado",
+      "Troque, leia, passe adiante",
+      "Sábado e domingo, das 9h às 17h"
+    ],
+    "expected_size": "1024x1536",
+    "eval_method": "dois avaliadores humanos, de forma cega; OCR só como apoio",
+    "difficulty": "media"
+  },
+  {
+    "id": "dev-interface-01",
+    "split": "dev",
+    "category": "texto em português",
+    "brief": "Mockup de uma tela de aplicativo de lista de tarefas, em português, num celular em pé sobre uma mesa de madeira. Título \"Minhas tarefas\". Três itens: \"Comprar tinta\", \"Regar as plantas\" e \"Ligar para o contador\", com o segundo marcado como concluído.",
+    "references": [],
+    "required_criteria": [
+      {
+        "id": "literais",
+        "text": "Título e os três itens aparecem como escritos",
+        "check": "auto:ocr"
+      },
+      {
+        "id": "estado",
+        "text": "Somente \"Regar as plantas\" aparece marcado como concluído",
+        "check": "human"
+      },
+      {
+        "id": "realismo",
+        "text": "Celular e tela plausíveis, sem texto extra ilegível dominando a tela",
+        "check": "human"
+      },
+      {
+        "id": "tamanho",
+        "text": "Arquivo no tamanho pedido",
+        "check": "auto:size"
+      }
+    ],
+    "preservation": [],
+    "text_literals": [
+      "Minhas tarefas",
+      "Comprar tinta",
+      "Regar as plantas",
+      "Ligar para o contador"
+    ],
+    "expected_size": "1024x1536",
+    "eval_method": "dois avaliadores humanos, de forma cega; OCR só como apoio",
+    "difficulty": "media"
+  },
+  {
+    "id": "dev-produto-01",
+    "split": "dev",
+    "category": "produto",
+    "brief": "Foto de catálogo de uma garrafa térmica de aço escovado na cor verde-musgo, sobre fundo cinza-claro liso, com sombra suave sob o objeto e iluminação de estúdio com softbox. Sem texto nem logotipo.",
+    "references": [],
+    "required_criteria": [
+      {
+        "id": "objeto",
+        "text": "Garrafa térmica de aço escovado, verde-musgo, inteira e com proporções plausíveis",
+        "check": "human"
+      },
+      {
+        "id": "fundo",
+        "text": "Fundo cinza-claro liso e sombra suave",
+        "check": "human"
+      },
+      {
+        "id": "sem-marca",
+        "text": "Nenhum texto nem logotipo",
+        "check": "human"
+      },
+      {
+        "id": "tamanho",
+        "text": "Arquivo no tamanho pedido",
+        "check": "auto:size"
+      }
+    ],
+    "preservation": [],
+    "text_literals": [],
+    "expected_size": "1024x1024",
+    "eval_method": "dois avaliadores humanos, de forma cega, com a lista de critérios",
+    "difficulty": "baixa"
+  },
+  {
+    "id": "dev-personagem-01",
+    "split": "dev",
+    "category": "personagem recorrente",
+    "brief": "A personagem da imagem de referência é a Tuca, mascote da minha escola de ciências. Desenhe a Tuca regando uma horta no pátio da escola, de manhã, com o mesmo traço, as mesmas cores e as mesmas roupas e acessórios da referência.",
+    "references": [
+      {
+        "id": "tuca-ref",
+        "role": "identidade",
+        "description": "Desenho da mascote do próprio usuário (personagem com óculos redondos e macacão), em vista frontal",
+        "user_supplied": true
+      }
+    ],
+    "required_criteria": [
+      {
+        "id": "identidade",
+        "text": "Mesma personagem: traços do rosto, proporções, cores e acessórios da referência",
+        "check": "human"
+      },
+      {
+        "id": "acao",
+        "text": "Ela está regando uma horta, num pátio de escola, de manhã",
+        "check": "human"
+      },
+      {
+        "id": "traco",
+        "text": "Mesmo estilo de desenho da referência",
+        "check": "human"
+      },
+      {
+        "id": "tamanho",
+        "text": "Arquivo no tamanho pedido",
+        "check": "auto:size"
+      }
+    ],
+    "preservation": [],
+    "text_literals": [],
+    "expected_size": "1536x1024",
+    "eval_method": "dois avaliadores humanos comparam com a referência fornecida, de forma cega quanto ao braço",
+    "difficulty": "alta",
+    "notes": "Sem a referência o caso é pulado: a personagem não é inventável a partir do texto."
+  },
+  {
+    "id": "dev-edicao-01",
+    "split": "dev",
+    "category": "edição local",
+    "brief": "Troque apenas a cor da almofada do sofá para terracota. Não mexa em mais nada na foto.",
+    "references": [
+      {
+        "id": "sala-base",
+        "role": "base",
+        "description": "Foto do usuário de uma sala de estar com sofá cinza, parede clara e tapete",
+        "user_supplied": true
+      }
+    ],
+    "required_criteria": [
+      {
+        "id": "alvo",
+        "text": "A almofada ficou terracota, com a mesma forma e dobras",
+        "check": "human"
+      },
+      {
+        "id": "resto",
+        "text": "Nada fora da almofada mudou",
+        "check": "auto:preservation"
+      },
+      {
+        "id": "textura",
+        "text": "A nova cor respeita luz e sombra da almofada original",
+        "check": "human"
+      }
+    ],
+    "preservation": [
+      "formato e posição do sofá",
+      "parede, piso e tapete",
+      "iluminação e sombras",
+      "enquadramento e recorte"
+    ],
+    "text_literals": [],
+    "expected_size": "auto",
+    "eval_method": "comparação com a base fora da região editada; avaliador humano confere a região editada",
+    "difficulty": "media"
+  },
+  {
+    "id": "dev-fundo-01",
+    "split": "dev",
+    "category": "troca de fundo",
+    "brief": "Mantenha a pessoa e a xícara exatamente como estão e troque o fundo por uma oficina de cerâmica, com prateleiras de peças e luz de janela lateral.",
+    "references": [
+      {
+        "id": "retrato-base",
+        "role": "base",
+        "description": "Foto do próprio usuário (ou de voluntário que autorizou o uso) segurando uma xícara diante de uma parede lisa",
+        "user_supplied": true
+      }
+    ],
+    "required_criteria": [
+      {
+        "id": "sujeito",
+        "text": "Pessoa e xícara idênticas à foto original",
+        "check": "auto:preservation"
+      },
+      {
+        "id": "fundo",
+        "text": "Fundo de oficina de cerâmica com prateleiras de peças",
+        "check": "human"
+      },
+      {
+        "id": "borda",
+        "text": "Contorno do cabelo e das mãos sem recorte duro nem halo",
+        "check": "human"
+      },
+      {
+        "id": "luz",
+        "text": "Luz do novo fundo plausível para a pessoa",
+        "check": "human"
+      }
+    ],
+    "preservation": [
+      "rosto e expressão",
+      "cabelo",
+      "roupa",
+      "mãos e xícara"
+    ],
+    "text_literals": [],
+    "expected_size": "auto",
+    "eval_method": "comparação com a base na região do sujeito; avaliador humano confere o fundo e as bordas",
+    "difficulty": "alta"
+  },
+  {
+    "id": "dev-identidade-01",
+    "split": "dev",
+    "category": "preservação de identidade",
+    "brief": "Gere um retrato desta mesma pessoa vestindo um jaleco branco de laboratório, diante de uma bancada com vidrarias, sorrindo levemente. Tem que continuar sendo claramente a mesma pessoa.",
+    "references": [
+      {
+        "id": "pessoa-ref",
+        "role": "identidade",
+        "description": "Retrato do próprio usuário ou de voluntário que autorizou o uso, de frente e com boa luz",
+        "user_supplied": true
+      }
+    ],
+    "required_criteria": [
+      {
+        "id": "identidade",
+        "text": "Dois avaliadores reconhecem a mesma pessoa que na referência",
+        "check": "human"
+      },
+      {
+        "id": "roupa",
+        "text": "Jaleco branco e bancada com vidrarias",
+        "check": "human"
+      },
+      {
+        "id": "expressao",
+        "text": "Sorriso leve",
+        "check": "human"
+      },
+      {
+        "id": "tamanho",
+        "text": "Arquivo no tamanho pedido",
+        "check": "auto:size"
+      }
+    ],
+    "preservation": [
+      "traços do rosto",
+      "tom de pele",
+      "formato e cor do cabelo"
+    ],
+    "text_literals": [],
+    "expected_size": "1024x1024",
+    "eval_method": "avaliadores humanos que conhecem a pessoa, sem saber o braço; nunca por semelhança automática",
+    "difficulty": "alta",
+    "notes": "Use apenas fotos de quem autorizou. Não há verificação automática de identidade neste benchmark."
+  },
+  {
+    "id": "dev-multirref-01",
+    "split": "dev",
+    "category": "múltiplas referências",
+    "brief": "Monte uma foto de mesa de café da manhã com o pote de geleia da referência \"pote-geleia\", na estética de aquarela da referência \"estilo-aquarela\", e aplique o logotipo \"logo-horta\" no rótulo do pote sem deformá-lo.",
+    "references": [
+      {
+        "id": "pote-geleia",
+        "role": "produto",
+        "description": "Foto do usuário de um pote de geleia de vidro com tampa",
+        "user_supplied": true
+      },
+      {
+        "id": "estilo-aquarela",
+        "role": "estilo",
+        "description": "Ilustração do usuário em aquarela com contornos finos",
+        "user_supplied": true
+      },
+      {
+        "id": "logo-horta",
+        "role": "logo",
+        "description": "Logotipo simples do projeto do usuário, sem texto, em fundo branco",
+        "user_supplied": true
+      }
+    ],
+    "required_criteria": [
+      {
+        "id": "pote",
+        "text": "O pote tem a forma e a cor do pote de referência",
+        "check": "human"
+      },
+      {
+        "id": "estilo",
+        "text": "Estética de aquarela como na referência de estilo",
+        "check": "human"
+      },
+      {
+        "id": "logo",
+        "text": "Logotipo no rótulo, sem deformação nem letras novas",
+        "check": "human"
+      },
+      {
+        "id": "cena",
+        "text": "É uma mesa de café da manhã",
+        "check": "human"
+      },
+      {
+        "id": "tamanho",
+        "text": "Arquivo no tamanho pedido",
+        "check": "auto:size"
+      }
+    ],
+    "preservation": [],
+    "text_literals": [],
+    "expected_size": "1536x1024",
+    "eval_method": "dois avaliadores humanos conferem cada uma das três referências",
+    "difficulty": "alta"
+  },
+  {
+    "id": "dev-marketing-01",
+    "split": "dev",
+    "category": "peça de marketing",
+    "brief": "Post quadrado de Instagram para uma padaria de bairro anunciando \"Pão de queijo quentinho toda tarde\" e \"a partir das 16h\". Uma cesta de pão de queijo em primeiro plano, fundo em tons de creme e marrom, título em letras grandes e legíveis.",
+    "references": [],
+    "required_criteria": [
+      {
+        "id": "literais",
+        "text": "Os dois textos aparecem exatamente como escritos",
+        "check": "auto:ocr"
+      },
+      {
+        "id": "revisao",
+        "text": "Revisão humana do texto, incluindo acentos",
+        "check": "human"
+      },
+      {
+        "id": "apelo",
+        "text": "A foto da cesta chama a atenção e o texto não a cobre",
+        "check": "human"
+      },
+      {
+        "id": "tamanho",
+        "text": "Arquivo no tamanho pedido",
+        "check": "auto:size"
+      }
+    ],
+    "preservation": [],
+    "text_literals": [
+      "Pão de queijo quentinho toda tarde",
+      "a partir das 16h"
+    ],
+    "expected_size": "1024x1024",
+    "eval_method": "dois avaliadores humanos, de forma cega; OCR só como apoio",
+    "difficulty": "media"
+  },
+  {
+    "id": "dev-marketing-02",
+    "split": "dev",
+    "category": "peça de marketing",
+    "brief": "Flyer vertical para uma aula aberta de yoga ao ar livre. Título: \"Aula aberta de yoga\". Linha de detalhes: \"Domingo, 8h, Praça do Ipê\". Rodapé: \"Traga seu tapetinho\". Cores suaves de verde e pêssego, silhueta de pessoa em postura de árvore sobre a grama.",
+    "references": [],
+    "required_criteria": [
+      {
+        "id": "literais",
+        "text": "Título, detalhes e rodapé aparecem como escritos",
+        "check": "auto:ocr"
+      },
+      {
+        "id": "revisao",
+        "text": "Revisão humana do texto e da data",
+        "check": "human"
+      },
+      {
+        "id": "layout",
+        "text": "Hierarquia clara: título, detalhes e rodapé",
+        "check": "human"
+      },
+      {
+        "id": "tamanho",
+        "text": "Arquivo no tamanho pedido",
+        "check": "auto:size"
+      }
+    ],
+    "preservation": [],
+    "text_literals": [
+      "Aula aberta de yoga",
+      "Domingo, 8h, Praça do Ipê",
+      "Traga seu tapetinho"
+    ],
+    "expected_size": "1024x1536",
+    "eval_method": "dois avaliadores humanos, de forma cega; OCR só como apoio",
+    "difficulty": "media"
+  },
+  {
+    "id": "dev-diagrama-01",
+    "split": "dev",
+    "category": "diagrama com dados fornecidos pelo usuário",
+    "brief": "Gráfico de barras horizontais limpo, em fundo branco, com as vendas de cada sabor de sorvete no mês passado, nesta ordem e com estes valores exatos: Pistache 48, Morango 135, Chocolate 210, Limão 76, Coco 92. Título: \"Vendas por sabor (unidades)\". Barras proporcionais aos valores, com rótulos e valores legíveis.",
+    "references": [
+      {
+        "id": "dados-sorvete",
+        "role": "dados",
+        "description": "Os valores estão escritos no próprio pedido; nenhum arquivo é necessário",
+        "user_supplied": false
+      }
+    ],
+    "required_criteria": [
+      {
+        "id": "literais",
+        "text": "Título, nomes dos sabores e valores aparecem como fornecidos",
+        "check": "auto:ocr"
+      },
+      {
+        "id": "proporcao",
+        "text": "Comprimento das barras proporcional aos valores",
+        "check": "human"
+      },
+      {
+        "id": "sem-invencao",
+        "text": "Nenhum valor, sabor ou barra além dos fornecidos",
+        "check": "human"
+      },
+      {
+        "id": "ordem",
+        "text": "Barras na ordem pedida",
+        "check": "human"
+      },
+      {
+        "id": "tamanho",
+        "text": "Arquivo no tamanho pedido",
+        "check": "auto:size"
+      }
+    ],
+    "preservation": [],
+    "text_literals": [
+      "Vendas por sabor (unidades)",
+      "Pistache",
+      "Morango",
+      "Chocolate",
+      "Limão",
+      "Coco",
+      "48",
+      "135",
+      "210",
+      "76",
+      "92"
+    ],
+    "expected_size": "1536x1024",
+    "eval_method": "dois avaliadores humanos conferem valores e proporções; OCR só como apoio; valores são críticos",
+    "difficulty": "alta",
+    "known_failure_mode": "Modelos de imagem trocam ou inventam números e desproporcionam barras; esperado errar com frequência."
+  },
+  {
+    "id": "dev-ambiguo-01",
+    "split": "dev",
+    "category": "pedido ambíguo",
+    "brief": "Faz aquela imagem para o evento de sexta, do jeito que combinamos.",
+    "references": [],
+    "required_criteria": [
+      {
+        "id": "esclarece",
+        "text": "O sistema pede esclarecimento (qual evento, formato, texto, público) OU declara por escrito as suposições que adotou antes de gerar",
+        "check": "human"
+      },
+      {
+        "id": "sem-default",
+        "text": "Não entrega uma imagem como se o pedido fosse claro, sem avisar que adivinhou",
+        "check": "human"
+      }
+    ],
+    "preservation": [],
+    "text_literals": [],
+    "expected_size": "auto",
+    "eval_method": "leitura da resposta do harness por avaliador humano; uma imagem sozinha nunca basta para este caso",
+    "difficulty": "media",
+    "notes": "Chamada direta ao provedor não pergunta nada: este caso mede o harness, não o modelo de imagem."
+  },
+  {
+    "id": "dev-falha-01",
+    "split": "dev",
+    "category": "caso de falha esperada",
+    "brief": "Pôster vertical com a tabuada do 7 inteira, de 7 x 1 até 7 x 10, uma conta por linha com o resultado certo, em duas colunas de cinco linhas. Fundo claro e números grandes.",
+    "references": [],
+    "required_criteria": [
+      {
+        "id": "literais",
+        "text": "As dez contas e seus resultados corretos aparecem",
+        "check": "auto:ocr"
+      },
+      {
+        "id": "estrutura",
+        "text": "Duas colunas de cinco linhas, na ordem",
+        "check": "human"
+      },
+      {
+        "id": "tamanho",
+        "text": "Arquivo no tamanho pedido",
+        "check": "auto:size"
+      }
+    ],
+    "preservation": [],
+    "text_literals": [
+      "7 x 1 = 7",
+      "7 x 2 = 14",
+      "7 x 3 = 21",
+      "7 x 4 = 28",
+      "7 x 5 = 35",
+      "7 x 6 = 42",
+      "7 x 7 = 49",
+      "7 x 8 = 56",
+      "7 x 9 = 63",
+      "7 x 10 = 70"
+    ],
+    "expected_size": "1024x1536",
+    "eval_method": "dois avaliadores humanos, de forma cega; OCR só como apoio",
+    "difficulty": "alta",
+    "known_failure_mode": "Texto longo e numérico: o modelo tende a errar algarismos e a repetir ou pular linhas."
+  }
+]
