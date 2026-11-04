@@ -14,21 +14,53 @@ critic (rubrica v3) -> até 2 correções. Sem OPENAI_API_KEY, se o CLI `claude`
 Limite conhecido: logo e texto exato deveriam ser compostos por código (compose_text_overlay, ainda não existe).
 Aqui o logo vai como imagem de entrada e o critic reprova se for redesenhado (veto logo_inventado).
 """
-import argparse, base64, getpass, ipaddress, json, mimetypes, os, pathlib, random, re, shutil, socket, subprocess, sys, threading, time, urllib.error, urllib.parse, urllib.request, uuid
+import argparse, base64, getpass, ipaddress, json, mimetypes, os, pathlib, posixpath, random, re, shutil, socket, subprocess, sys, threading, time, urllib.error, urllib.parse, urllib.request, uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 ROOT = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 import checks, critic, skills_router  # noqa: E402
+import store as store_mod  # noqa: E402  (Store: FileStore/MemoryStore/BlobStore)
 import run_comparison as rc  # noqa: E402
 import ui_server as ui  # noqa: E402  (openai_post, ApiError, env_models)
 
 # CHAT_DATA_DIR separa os dados do uso real dos dos testes automáticos (nunca apague a pasta de uso)
 DATA = pathlib.Path(os.getenv("CHAT_DATA_DIR") or ROOT)
-CLIENTS, OUT = DATA / "clients", DATA / "chat_out"
-LOG_DIR = DATA / "logs"
+# Tudo o que o servidor guarda passa pelo Store (test/store.py). Chaves: clients/<id>/client.json, clients/<id>/assets.json,
+# clients/<id>/assets/<arquivo>, chat_out/<id>/<imagem>, conversations/<id>/<conv>.json, logs/events.jsonl, jobs/<id>.json.
+# Backend: STORE=file|memory|blob; sem STORE, blob se BLOB_READ_WRITE_TOKEN existir, senão disco em DATA (comportamento de sempre).
+STORE = None
+_SEEDED = set()
 MOCK = False
-LOG_LOCK = threading.Lock()
+# Vercel: a função serverless some quando responde, então o pipeline roda DENTRO da requisição e o estado vai para o Store.
+JOBS_INLINE = os.getenv("JOBS_INLINE") == "1" or bool(os.getenv("VERCEL"))
+
+
+def vercel_mode():
+    """Lido a cada requisição (e não na importação) para que os testes possam ligar e desligar."""
+    return bool(os.getenv("VERCEL"))
+
+
+def get_store():
+    global STORE
+    if STORE is None:
+        try:
+            STORE = store_mod.make_store(DATA)
+        except ModuleNotFoundError as e:
+            raise ui.ApiError(500, f"Backend de armazenamento indisponível ({e}). Na Vercel, instale as dependências de requirements.txt.")
+        except ValueError as e:
+            raise ui.ApiError(500, str(e))
+        if vercel_mode() and STORE.name == "file":
+            STORE = None
+            raise ui.ApiError(500, "Na Vercel o disco não guarda nada entre chamadas: defina BLOB_READ_WRITE_TOKEN (Vercel Blob) no projeto.")
+    return STORE
+
+
+def set_store(s):
+    """Troca o backend (testes). Zera o cache de semeadura do cliente 71."""
+    global STORE
+    STORE = s
+    _SEEDED.clear()
 KEYCHAIN_SERVICE = "geratedimage-openai"
 COMMONS_API = os.getenv("COMMONS_API", "https://commons.wikimedia.org/w/api.php")
 WEB_UA = "geratedimage-prototype/0.1 (uso local de teste)"
@@ -52,10 +84,8 @@ SIZES = {"1024x1024", "1536x1024", "1024x1536", "auto"}  # "auto": acompanha o a
 def log_event(kind, **fields):
     """Uma linha JSON por evento em logs/events.jsonl. Nunca derruba o chat. Não registra chaves nem imagens."""
     try:
-        LOG_DIR.mkdir(parents=True, exist_ok=True)
         line = json.dumps({"t": time.strftime("%H:%M:%S"), "kind": kind, **fields}, ensure_ascii=False)
-        with LOG_LOCK, open(LOG_DIR / "events.jsonl", "a", encoding="utf-8") as f:
-            f.write(line + "\n")
+        get_store().append_line("logs/events.jsonl", line)
     except Exception:  # noqa: BLE001
         pass
 
@@ -68,23 +98,33 @@ def slug(s):
 
 
 def cdir(cid):
-    d = CLIENTS / slug(cid)
-    (d / "assets").mkdir(parents=True, exist_ok=True)
-    if not (d / "client.json").exists() and cid == "71":
-        shutil.copy(ROOT / "client_71.json", d / "client.json")
+    """Prefixo do cliente no Store ('clients/<id>'); semeia o cliente de exemplo 71 na primeira vez."""
+    d = f"clients/{slug(cid)}"
+    if cid == "71" and (id(get_store()), "71") not in _SEEDED:
+        if not get_store().exists(f"{d}/client.json"):
+            get_store().write_bytes(f"{d}/client.json", (ROOT / "client_71.json").read_bytes())
+        _SEEDED.add((id(get_store()), "71"))
     return d
 
 
+def read_json(key):
+    return json.loads(get_store().read_text(key))
+
+
+def write_json(key, obj):
+    get_store().write_text(key, json.dumps(obj, ensure_ascii=False, indent=2), "application/json")
+
+
 def load_client(cid):
-    p = cdir(cid) / "client.json"
-    if not p.exists():
+    k = cdir(cid) + "/client.json"
+    if not get_store().exists(k):
         raise ui.ApiError(404, f"cliente {cid} não existe")
-    return json.loads(p.read_text(encoding="utf-8"))
+    return read_json(k)
 
 
 def load_assets(cid):
-    p = cdir(cid) / "assets.json"
-    assets = json.loads(p.read_text(encoding="utf-8")) if p.exists() else []
+    k = cdir(cid) + "/assets.json"
+    assets = read_json(k) if get_store().exists(k) else []
     for a in assets:  # imagens anteriores aos apelidos ganham um a partir do nome do arquivo ('rodrigo.webp' -> 'rodrigo')
         a.setdefault("alias", derive_alias(a.get("name", "")))
     return assets
@@ -256,17 +296,18 @@ def do_review(ctx, text, briefing, b64, ext, size, inputs, model, notes="", pack
 
 def find_out(cid, mid):
     mid = re.sub(r"[^a-z0-9]", "", mid)
-    for p in (OUT / slug(cid)).glob(f"{mid}.*"):
-        return p
+    for k in get_store().list(f"chat_out/{slug(cid)}/"):
+        if posixpath.basename(k).startswith(mid + "."):
+            return k
     raise ui.ApiError(404, "imagem a editar não encontrada")
 
 
 def collect_inputs(cid, edit_of, asset_ids):
     inputs = []
     if edit_of:
-        p = find_out(cid, edit_of)
-        mime = "image/svg+xml" if p.suffix == ".svg" else "image/png"
-        inputs.append(dict(kind="alvo", name=p.name, mime=mime, bytes=p.read_bytes(),
+        k = find_out(cid, edit_of)
+        mime = "image/svg+xml" if k.endswith(".svg") else "image/png"
+        inputs.append(dict(kind="alvo", name=posixpath.basename(k), mime=mime, bytes=get_store().read_bytes(k),
                            role_text="ALVO DE EDIÇÃO: peça gerada anteriormente; mude só o que o pedido atual pede e mantenha o resto idêntico"))
     by_id = {a["id"]: a for a in load_assets(cid)}
     missing = [aid for aid in asset_ids if aid not in by_id]
@@ -275,22 +316,21 @@ def collect_inputs(cid, edit_of, asset_ids):
                                "sem ela a imagem sairia sem a referência.")
     for aid in asset_ids:
         a = by_id[aid]
-        p = cdir(cid) / "assets" / a["file"]
-        if not p.exists():
+        k = f"{cdir(cid)}/assets/{a['file']}"
+        if not get_store().exists(k):
             raise ui.ApiError(409, f"O arquivo de '{a['name']}' sumiu da biblioteca. Envie a imagem de novo.")
-        inputs.append(dict(id=a["id"], kind=a["kind"], name=a["name"], mime=a["mime"], bytes=p.read_bytes(),
+        inputs.append(dict(id=a["id"], kind=a["kind"], name=a["name"], mime=a["mime"], bytes=get_store().read_bytes(k),
                            role_text=f"{KIND_ROLE.get(a['kind'], 'imagem do cliente')} (arquivo: {a['name']})"))
     return inputs
 
 
 # ---------- handlers ----------
 def api_state(_):
-    CLIENTS.mkdir(exist_ok=True)
     cdir("71")
     clients = []
-    for d in sorted(CLIENTS.iterdir()):
-        if (d / "client.json").exists():
-            clients.append({"id": d.name, "name": json.loads((d / "client.json").read_text(encoding="utf-8")).get("name", d.name)})
+    ids = sorted({k.split("/")[1] for k in get_store().list("clients/") if k.count("/") == 2 and k.endswith("/client.json")})
+    for i in ids:
+        clients.append({"id": i, "name": read_json(f"clients/{i}/client.json").get("name", i)})
     return {"mock": MOCK, "has_key": bool(os.getenv("OPENAI_API_KEY")), "has_claude": shutil.which("claude") is not None,
             **ui.env_models(), "pass_score": critic.PASS_SCORE, "max_cycles": critic.MAX_CYCLES, "clients": clients,
             "kinds": list(KIND_ROLE), "sizes": sorted(SIZES), "web_search": True}
@@ -307,19 +347,19 @@ def api_client_new(b):
         raise ui.ApiError(400, "dê um nome ao cliente")
     base = slug(re.sub(r"\s+", "-", skills_router.norm(name))) if re.search(r"[a-z0-9]", skills_router.norm(name)) else "cliente"
     cid, n = base, 2
-    while (CLIENTS / cid / "client.json").exists():
+    while get_store().exists(f"clients/{cid}/client.json"):
         cid, n = f"{base}-{n}", n + 1
     d = cdir(cid)
     ctx = {"id": cid, "name": name, "sector": str(b.get("sector", ""))[:120], "audience": "", "tone": "", "palette": [], "typography": "",
            "image_style": "", "approved_references": []}
-    (d / "client.json").write_text(json.dumps(ctx, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_json(f"{d}/client.json", ctx)
     log_event("cliente_novo", id=cid)
     return {"id": cid, "client": ctx}
 
 
 def api_client_save(b):
     d = cdir(b["id"])
-    (d / "client.json").write_text(json.dumps(b["client"], ensure_ascii=False, indent=2), encoding="utf-8")
+    write_json(f"{d}/client.json", b["client"])
     return {"ok": True, "id": slug(b["id"])}
 
 
@@ -348,9 +388,9 @@ def store_asset(cid, kind, name, mime, data, alias=None, extra=None):
     clean = re.sub(r"[\x00-\x1f\x7f]", " ", os.path.basename(name or f"{aid}.{MIME_EXT[mime]}"))[:80]
     a = {"id": aid, "kind": kind, "name": clean, "alias": re.sub(r"[\x00-\x1f\x7f]", " ", (alias if alias is not None else derive_alias(clean)))[:60].strip(),
          "file": f"{aid}.{MIME_EXT[mime]}", "mime": mime, **(extra or {})}
-    (cdir(cid) / "assets" / a["file"]).write_bytes(data)
+    get_store().write_bytes(f"{cdir(cid)}/assets/{a['file']}", data, mime)
     assets = load_assets(cid) + [a]
-    (cdir(cid) / "assets.json").write_text(json.dumps(assets, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_json(f"{cdir(cid)}/assets.json", assets)
     return with_urls(cid, [a])[0]
 
 
@@ -361,7 +401,7 @@ def api_asset_alias(b):
     if not hit:
         raise ui.ApiError(404, "imagem não encontrada na biblioteca")
     hit[0]["alias"] = re.sub(r"[\x00-\x1f\x7f]", " ", str(b.get("alias", "")))[:60].strip()
-    (cdir(cid) / "assets.json").write_text(json.dumps(assets, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_json(f"{cdir(cid)}/assets.json", assets)
     return {"ok": True, "alias": hit[0]["alias"]}
 
 
@@ -415,8 +455,8 @@ def api_asset_delete(b):
     assets = load_assets(cid)
     gone = [a for a in assets if a["id"] == b["id"]]
     for a in gone:
-        (cdir(cid) / "assets" / a["file"]).unlink(missing_ok=True)
-    (cdir(cid) / "assets.json").write_text(json.dumps([a for a in assets if a["id"] != b["id"]], ensure_ascii=False, indent=2), encoding="utf-8")
+        get_store().delete(f"{cdir(cid)}/assets/{a['file']}")
+    write_json(f"{cdir(cid)}/assets.json", [a for a in assets if a["id"] != b["id"]])
     return {"ok": True}
 
 
@@ -465,7 +505,7 @@ def api_models(_):
 
 # ---------- chave da OpenAI pelo navegador (nunca passa pelo chat nem por arquivo do repositório) ----------
 def load_key_from_keychain():
-    if os.getenv("OPENAI_API_KEY") or sys.platform != "darwin":
+    if os.getenv("OPENAI_API_KEY") or sys.platform != "darwin" or vercel_mode():
         return False
     try:
         r = subprocess.run(["security", "find-generic-password", "-a", getpass.getuser(), "-s", KEYCHAIN_SERVICE, "-w"],
@@ -479,6 +519,8 @@ def load_key_from_keychain():
 
 
 def api_setkey(b):
+    if vercel_mode():
+        raise ui.ApiError(403, "Na Vercel a chave não pode ser definida pela página: defina OPENAI_API_KEY nas variáveis de ambiente do projeto (Settings > Environment Variables) e faça um novo deploy.")
     key = str(b.get("key", "")).strip()
     if not re.fullmatch(r"sk-[A-Za-z0-9_\-]{20,}", key):
         raise ui.ApiError(400, "Isso não parece uma chave da OpenAI (começa com sk- e é longa).")
@@ -590,21 +632,34 @@ def api_webadd(b):
 
 
 # ---------- jobs (a geração leva minutos: o navegador acompanha por polling) ----------
+# Modo local (padrão): dicionário em memória + thread em segundo plano.
+# Modo inline (JOBS_INLINE=1, ou VERCEL definido): o pipeline roda DENTRO da requisição de /api/chat (a função fica viva até
+# terminar) e o estado da tarefa vai para o Store (jobs/<id>.json); /api/job lê do Store, então qualquer instância responde.
 JOBS = {}
+JOB_ID = re.compile(r"[a-f0-9]{10}")
 
 
 def start_job(fn, meta=None):
     jid = uuid.uuid4().hex[:10]
     job = {"id": jid, "status": "running", "steps": [], "message": None, "error": None, "t0": time.time()}
-    for old in sorted(JOBS.values(), key=lambda j: j["t0"])[:-40]:
-        JOBS.pop(old["id"], None)
-    JOBS[jid] = job
+    if not JOBS_INLINE:
+        for old in sorted(JOBS.values(), key=lambda j: j["t0"])[:-40]:
+            JOBS.pop(old["id"], None)
+        JOBS[jid] = job
     log_event("start", job=jid, **(meta or {}))
+
+    def save():
+        if JOBS_INLINE:
+            try:
+                write_json(f"jobs/{jid}.json", job)
+            except Exception as e:  # noqa: BLE001  (não derruba o pipeline; o log registra)
+                log_event("erro", job=jid, erro=f"não consegui gravar o estado da tarefa: {type(e).__name__}")
 
     def emit(text, **extra):
         step = {"t": round(time.time() - job["t0"], 1), "text": text, **extra}
         job["steps"].append(step)
         log_event("step", job=jid, t=step["t"], text=text, **{k: v for k, v in extra.items() if k in ("image_url", "prompt")})
+        save()
 
     def runner():
         try:
@@ -624,21 +679,35 @@ def start_job(fn, meta=None):
             job["status"], job["error"] = "error", f"{type(e).__name__}: {e}"
             log_event("erro", job=jid, erro=job["error"])
 
+    if JOBS_INLINE:
+        save()
+        try:
+            runner()
+        finally:
+            job["t1"] = time.time()  # congela o "elapsed" depois de terminar (quem consulta de outra instância vê o tempo real da tarefa)
+            save()
+        return jid
     threading.Thread(target=runner, daemon=True).start()
     return jid
 
 
 def api_job(b):
-    job = JOBS.get(b.get("id"))
+    jid = b.get("id")
+    if JOBS_INLINE:
+        if not isinstance(jid, str) or not JOB_ID.fullmatch(jid) or not get_store().exists(f"jobs/{jid}.json"):
+            raise ui.ApiError(404, "tarefa não encontrada")
+        job = read_json(f"jobs/{jid}.json")
+    else:
+        job = JOBS.get(jid)
     if not job:
         raise ui.ApiError(404, "tarefa não encontrada (o servidor foi reiniciado?)")
     since = int(b.get("since") or 0)
     return {"status": job["status"], "steps": job["steps"][since:], "next": len(job["steps"]),
-            "message": job["message"], "error": job["error"], "elapsed": round(time.time() - job["t0"], 1)}
+            "message": job["message"], "error": job["error"], "elapsed": round(job.get("t1", time.time()) - job["t0"], 1)}
 
 
 def api_chat(b):
-    """Valida na hora (falha rápido) e roda o pipeline numa tarefa em segundo plano."""
+    """Valida na hora (falha rápido) e roda o pipeline numa tarefa em segundo plano (ou inline, ver JOBS_INLINE)."""
     cid, text = b["client"], (b.get("text") or "").strip()
     if not text:
         raise ui.ApiError(400, "mensagem vazia")
@@ -655,38 +724,38 @@ def api_chat(b):
             "melhorias": {"designer": (b.get("improve") or {}).get("designer", True), "skills": (b.get("improve") or {}).get("skills", True),
                           "critic": b.get("review", True), "comparar": (b.get("improve") or {}).get("compare_raw", False)},
             "modelos": {"imagem": b.get("image_model"), "texto": b.get("text_model")}}
-    return {"job": start_job(lambda emit: run_chat(b, emit, cid, text, ctx, inputs, files, auto, stale), meta)}
+    jid = start_job(lambda emit: run_chat(b, emit, cid, text, ctx, inputs, files, auto, stale), meta)
+    if JOBS_INLINE:  # já terminou: devolve o resultado junto; a interface ainda consulta /api/job e recebe o mesmo estado
+        j = api_job({"id": jid})
+        return {"job": jid, "status": j["status"], "message": j["message"], "error": j["error"]}
+    return {"job": jid}
 
 
 # ---------- memória da conversa (em disco; sobrevive a reinício e a atualizar a página) ----------
-CONV_DIR = DATA / "conversations"
 MEMORY_PROMPT_PATH = ROOT.parent / "prompts" / "memory.system.md"
 IDENTITY_KINDS = ("pessoa", "logo", "produto")
 EDIT_WORDS = re.compile(r"\b(mude|muda|troque|troca|tire|tira|remova|remove|adicione|coloque|agora|mais|menos|deixe|deixa|altere|ajuste)\b", re.I)
 
 
 def conv_path(cid, conv_id):
-    return CONV_DIR / slug(cid) / f"{slug(conv_id)}.json"
+    """Chave da conversa no Store."""
+    return f"conversations/{slug(cid)}/{slug(conv_id)}.json"
 
 
 def load_conv(cid, conv_id):
     p = conv_path(cid, conv_id)
-    if p.exists():
+    if get_store().exists(p):
         try:
-            c = json.loads(p.read_text(encoding="utf-8"))
+            c = read_json(p)
             c.setdefault("files", [])
             return c
         except json.JSONDecodeError:  # arquivo corrompido: guarda a cópia e recomeça, em vez de travar a conversa
-            p.rename(p.with_name(p.name + f".corrompido-{int(time.time())}"))
+            get_store().rename(p, p + f".corrompido-{int(time.time())}")
     return {"id": slug(conv_id), "client": slug(cid), "created": time.strftime("%Y-%m-%d %H:%M:%S"), "turns": [], "carry": [], "files": []}
 
 
 def save_conv(conv):
-    p = conv_path(conv["client"], conv["id"])
-    p.parent.mkdir(parents=True, exist_ok=True)
-    tmp = p.with_name(p.name + f".{uuid.uuid4().hex[:6]}.tmp")
-    tmp.write_text(json.dumps(conv, ensure_ascii=False, indent=2), encoding="utf-8")
-    tmp.replace(p)
+    write_json(conv_path(conv["client"], conv["id"]), conv)  # o FileStore troca de forma atômica (arquivo temporário + replace)
 
 
 def last_image(cid, conv):
@@ -694,7 +763,7 @@ def last_image(cid, conv):
         if t.get("image_id"):
             try:
                 p = find_out(cid, t["image_id"])
-                if p.suffix == ".svg" and not MOCK:  # imagem falsa de um teste mock: a API real não aceita SVG
+                if p.endswith(".svg") and not MOCK:  # imagem falsa de um teste mock: a API real não aceita SVG
                     return None, None
                 return p, t["image_id"]
             except ui.ApiError:
@@ -801,35 +870,39 @@ def _conv_title(c):
 
 def list_convs(cid):
     """Histórico do cliente, do mais recente ao mais antigo. Arquivo ilegível não derruba a lista: é contado em 'skipped'."""
-    d = CONV_DIR / _strict_id(cid, "cliente")
+    cid = _strict_id(cid, "cliente")
     convs, skipped = [], 0
-    for p in (d.glob("*.json") if d.is_dir() else []):
+    pre = f"conversations/{cid}/"
+    for k in get_store().list(pre):
+        name = k[len(pre):]
+        if "/" in name or not name.endswith(".json"):  # só os JSON diretos da pasta (como o antigo glob("*.json"))
+            continue
         try:
-            c = json.loads(p.read_text(encoding="utf-8"))
+            c = read_json(k)
             turns = c["turns"]
             if not isinstance(turns, list):
                 raise ValueError("turns")
-            mtime = p.stat().st_mtime
+            mtime = get_store().mtime(k)
         except (OSError, ValueError, KeyError, TypeError, AttributeError):
             skipped += 1
-            log_event("conv_list_skipped", client=d.name, file=p.name)
+            log_event("conv_list_skipped", client=cid, file=name)
             continue
         if turns:  # conversa sem mensagens não entra no histórico
-            convs.append({"id": p.stem, "title": _conv_title(c), "updated": int(mtime), "count": len(turns), "_m": mtime})
+            convs.append({"id": name[:-len(".json")], "title": _conv_title(c), "updated": int(mtime), "count": len(turns), "_m": mtime})
     convs.sort(key=lambda x: x.pop("_m"), reverse=True)
     return {"convs": convs, "skipped": skipped}
 
 
 def _existing_conv_path(b):
     p = conv_path(_strict_id(b["client"], "cliente"), _strict_id(b["conv"], "conversa"))
-    if not p.is_file():
+    if not get_store().exists(p):
         raise ui.ApiError(404, "conversa não encontrada")
     return p
 
 
 def api_conv_delete(b):
     with CONV_LOCK:
-        _existing_conv_path(b).unlink()  # só o JSON da conversa; imagens de saída e biblioteca ficam
+        get_store().delete(_existing_conv_path(b))  # só o JSON da conversa; imagens de saída e biblioteca ficam
     return {"ok": True}
 
 
@@ -840,13 +913,13 @@ def api_conv_rename(b):
     with CONV_LOCK:
         p = _existing_conv_path(b)
         try:
-            c = json.loads(p.read_text(encoding="utf-8"))
+            c = read_json(p)
         except ValueError:
             raise ui.ApiError(422, "conversa ilegível; não dá para renomear")
-        st = p.stat()
+        t0 = get_store().mtime(p)
         c["title"] = title.strip()
         save_conv(c)
-        os.utime(p, (st.st_atime, st.st_mtime))  # renomear não é atividade: não muda a ordem do histórico
+        get_store().set_mtime(p, t0)  # renomear não é atividade: não muda a ordem do histórico
     return {"ok": True}
 
 
@@ -863,7 +936,7 @@ def api_asset_kind(b):
     if not hit:
         raise ui.ApiError(404, "imagem não encontrada na biblioteca")
     hit[0]["kind"] = b["kind"]
-    (cdir(cid) / "assets.json").write_text(json.dumps(assets, ensure_ascii=False, indent=2), encoding="utf-8")
+    write_json(f"{cdir(cid)}/assets.json", assets)
     return {"ok": True}
 
 
@@ -914,8 +987,8 @@ def run_chat(b, emit, cid, text, ctx, inputs, files=None, auto=None, stale=None)
     if resolved["use_last_image"] and lastp and not any(x["kind"] == "alvo" for x in inputs):
         role = ("ALVO DE EDIÇÃO: a última imagem gerada; mude só o que o pedido atual pede e mantenha o resto idêntico" if intent == "edit"
                 else "IMAGEM-BASE da variação: mantenha o conceito, a pessoa/produto/marca e o estilo; mude só o que o pedido indicar")
-        inputs = [dict(kind="alvo" if intent == "edit" else "variacao", name=lastp.name, mime="image/svg+xml" if lastp.suffix == ".svg" else "image/png",
-                       bytes=lastp.read_bytes(), role_text=role)] + list(inputs)
+        inputs = [dict(kind="alvo" if intent == "edit" else "variacao", name=posixpath.basename(lastp), mime="image/svg+xml" if lastp.endswith(".svg") else "image/png",
+                       bytes=get_store().read_bytes(lastp), role_text=role)] + list(inputs)
     if size == "auto" and not any(x["kind"] in ("alvo", "variacao") for x in inputs):
         size = "1024x1024"  # sem alvo não há proporção a acompanhar
     if intent in ("edit", "variation") and not any(x["kind"] in ("alvo", "variacao") for x in inputs):
@@ -978,7 +1051,6 @@ def run_chat(b, emit, cid, text, ctx, inputs, files=None, auto=None, stale=None)
     max_cycle = critic.MAX_CYCLES if imp["designer"] else 0
     fidelity = "high" if any(x["kind"] in IDENTITY_KINDS + ("alvo", "variacao") for x in inputs) else None
     mid = re.sub(r"[^a-z0-9]", "", time.strftime("%Y%m%d%H%M%S") + uuid.uuid4().hex[:4])
-    (OUT / slug(cid)).mkdir(parents=True, exist_ok=True)
     cycles, best = [], None
     for cycle in range(max_cycle + 1):
         how = "editando com as imagens de entrada" if inputs else "gerando"
@@ -986,7 +1058,7 @@ def run_chat(b, emit, cid, text, ctx, inputs, files=None, auto=None, stale=None)
         tg = time.time()
         b64, ext = make_image(brief["prompt"], size, quality, inputs, image_model, fidelity, avisos)
         gid = f"{mid}c{cycle}"
-        (OUT / slug(cid) / f"{gid}.{ext}").write_bytes(base64.b64decode(b64))
+        get_store().write_bytes(f"chat_out/{slug(cid)}/{gid}.{ext}", base64.b64decode(b64), "image/svg+xml" if ext == "svg" else "image/png")
         url = f"/files/{slug(cid)}/out/{gid}.{ext}"
         emit(f"Imagem da tentativa {cycle + 1} pronta em {round(time.time() - tg)}s.", image_url=url)
         entry = {"cycle": cycle, "prompt": brief["prompt"], "id": gid, "url": url}
@@ -1024,7 +1096,7 @@ def run_chat(b, emit, cid, text, ctx, inputs, files=None, auto=None, stale=None)
         tr = time.time()
         b64, ext = make_image(text_eff, size, quality, inputs, image_model, fidelity, avisos)
         rid = f"{mid}raw"
-        (OUT / slug(cid) / f"{rid}.{ext}").write_bytes(base64.b64decode(b64))
+        get_store().write_bytes(f"chat_out/{slug(cid)}/{rid}.{ext}", base64.b64decode(b64), "image/svg+xml" if ext == "svg" else "image/png")
         raw = {"id": rid, "url": f"/files/{slug(cid)}/out/{rid}.{ext}", "prompt": text_eff}
         emit(f"Versão do GPT puro pronta em {round(time.time() - tr)}s.", image_url=raw["url"])
         if do_rev:
@@ -1075,7 +1147,12 @@ class H(BaseHTTPRequestHandler):
 
     def _local_only(self):
         """Só aceita o próprio navegador: Host e Origin precisam ser 127.0.0.1 ou localhost. Bloqueia páginas de outros sites
-        que tentariam gastar a chave ou mexer na biblioteca (CSRF) e DNS rebinding."""
+        que tentariam gastar a chave ou mexer na biblioteca (CSRF) e DNS rebinding.
+        Na Vercel (env VERCEL) o Host é o domínio do deploy e o login é a Deployment Protection da Vercel: aqui só resta a
+        checagem de mesma origem (um Origin, se vier, precisa ser o próprio Host)."""
+        if vercel_mode():
+            org = self.headers.get("Origin")
+            return not org or urllib.parse.urlparse(org).netloc.lower() == (self.headers.get("Host") or "").lower()
         host = (self.headers.get("Host") or "").rsplit(":", 1)[0].strip("[]")
         if host not in ("127.0.0.1", "localhost"):
             return False
@@ -1099,11 +1176,14 @@ class H(BaseHTTPRequestHandler):
                 q = urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query)
                 return self._send(200, list_convs((q.get("client") or [""])[0]))
             m = re.fullmatch(r"/files/([a-z0-9_-]+)/(assets|out)/([A-Za-z0-9._-]+)", path)
-            if m:
-                base = (CLIENTS / m.group(1) / "assets") if m.group(2) == "assets" else (OUT / m.group(1))
-                p = (base / m.group(3)).resolve()
-                if base.resolve() in p.parents and p.is_file():
-                    return self._send(200, p.read_bytes(), mimetypes.guess_type(p.name)[0] or "application/octet-stream")
+            if m and m.group(3) not in (".", ".."):
+                key = f"clients/{m.group(1)}/assets/{m.group(3)}" if m.group(2) == "assets" else f"chat_out/{m.group(1)}/{m.group(3)}"
+                try:
+                    data = get_store().read_bytes(key)
+                except FileNotFoundError:
+                    data = None
+                if data is not None:
+                    return self._send(200, data, mimetypes.guess_type(m.group(3))[0] or "application/octet-stream")
             self._send(404, {"error": "não encontrado"})
         except ui.ApiError as e:
             self._send(e.status, {"error": str(e)})
