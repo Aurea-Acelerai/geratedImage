@@ -6,3 +6,4 @@ test/out/
 .venv/
 test/clients/
 test/chat_out/
+.playwright-mcp/
