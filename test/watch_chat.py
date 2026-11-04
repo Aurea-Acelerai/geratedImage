@@ -21,7 +21,7 @@ def fmt(ev):
         melhorias = ev.get("melhorias") or {}
         off = [n for n, v in melhorias.items() if not v]
         anexos = ", ".join(f"{a['tipo']}:{a['nome']}" for a in ev.get("anexos", [])) or "nenhum"
-        return (f"[{t}] ▶ NOVA MENSAGEM {job} (conv {str(ev.get('conv'))[:6]}, modo {ev.get('modo')}, {ev.get('tamanho')})\n"
+        return (f"[{t}] ▶ NOVA MENSAGEM {job} (API: {ev.get('provedor')}; conv {str(ev.get('conv'))[:6]}, modo {ev.get('modo')}, {ev.get('tamanho')})\n"
                 f"           texto: {ev.get('texto')}\n           anexos: {anexos}" + (f" | melhorias DESLIGADAS: {', '.join(off)}" if off else "")
                 + (f" | edit_of: {ev.get('edit_of')}" if ev.get("edit_of") else ""))
     if k == "step":

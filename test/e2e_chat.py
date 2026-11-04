@@ -221,6 +221,13 @@ try:
     ok(not any("sk-" in json.dumps(e) for e in evs), "nenhuma chave no registro")
     import subprocess as sp
     fm = sp.run([sys.executable, "-I", str(ROOT / "watch_chat.py"), "--from-start"], env={**os.environ, "CHAT_DATA_DIR": tmp.name}, capture_output=True, text=True, timeout=3) if False else None
+    # 12) a foto que o designer pede já está na biblioteca: ele diz qual e a interface oferece fixá-la
+    p, _ = run({"client": "71", "conv": "convsug", "text": "preciso perguntar algo sobre a pessoa", "review": False}); msug = p["message"]
+    wu = call(FAKE, "/__stats")[1]["last_writer_user"]
+    ok(msug["kind"] == "text" and any(s["id"] == pid and s["kind"] == "pessoa" for s in msug["suggest"]), "pergunta traz a foto da biblioteca como sugestão")
+    ok("NÃO estão anexadas" in wu and "rodrigo.webp (pessoa)" in wu, "o designer é informado do que há na biblioteca e não está anexado")
+    p, _ = run({"client": "71", "conv": "convsug2", "text": "preciso perguntar algo sobre a pessoa", "asset_ids": [pid], "review": False}); msug2 = p["message"]
+    ok(msug2["kind"] == "text" and not any(s["id"] == pid for s in msug2["suggest"]), "foto já anexada não é sugerida de novo")
     print("\nTUDO OK")
 finally:
     for p in procs:

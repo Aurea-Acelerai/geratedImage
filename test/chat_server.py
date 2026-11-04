@@ -123,7 +123,7 @@ def data_url(inp):
 
 
 # ---------- etapas ----------
-def build_user(text, size, history, inputs, feedback=None, prev=None, memory="", intent="new", original=None):
+def build_user(text, size, history, inputs, feedback=None, prev=None, memory="", intent="new", original=None, library=""):
     u = f"Pedido atual (já resolvido com o contexto da conversa): {text}\n"
     if original and original.strip() != text.strip():
         u += f"Mensagem original do usuário: {original}\n"
@@ -133,6 +133,8 @@ def build_user(text, size, history, inputs, feedback=None, prev=None, memory="",
               "(rosto, pose, enquadramento, fundo, texto).\n")
     elif intent == "variation":
         u += "Intenção: VARIAÇÃO da Image 1: mantenha o conceito, a pessoa/produto/marca e o estilo; mude só o que o pedido indicar.\n"
+    if library:
+        u += "\nImagens da biblioteca do cliente que NÃO estão anexadas a este pedido: " + library + "\n"
     if memory:
         u += "\n" + memory + "\n"
     elif history:
@@ -153,7 +155,7 @@ def build_user(text, size, history, inputs, feedback=None, prev=None, memory="",
 
 
 def write_briefing(ctx, text, size, history, inputs, feedback=None, prev=None, model=None, provider="openai", mode="livre", use_skills=True,
-                   memory="", intent="new", original=None):
+                   memory="", intent="new", original=None, library=""):
     if MOCK:
         time.sleep(0.5)
         if re.search(r"\bperguntar\b", text):
@@ -164,7 +166,7 @@ def write_briefing(ctx, text, size, history, inputs, feedback=None, prev=None, m
                           + f"Input images: {len(inputs)}"
                           + (f"\n[mock: corrigido -> {feedback}]" if feedback else "")}
     system = rc.load_system_prompt(ctx, request=text, size=size, has_inputs=bool(inputs), mode=mode, use_skills=use_skills)
-    user = build_user(text, size, history, inputs, feedback, prev, memory, intent, original)
+    user = build_user(text, size, history, inputs, feedback, prev, memory, intent, original, library)
     if provider == "claude":
         import run_briefings_claude as rbc
         return rbc.briefing(user, ctx, "sonnet", size, mode=mode, use_skills=use_skills, tail="")
@@ -266,7 +268,7 @@ def collect_inputs(cid, edit_of, asset_ids):
         p = cdir(cid) / "assets" / a["file"]
         if not p.exists():
             raise ui.ApiError(409, f"O arquivo de '{a['name']}' sumiu da biblioteca. Envie a imagem de novo.")
-        inputs.append(dict(kind=a["kind"], name=a["name"], mime=a["mime"], bytes=p.read_bytes(),
+        inputs.append(dict(id=a["id"], kind=a["kind"], name=a["name"], mime=a["mime"], bytes=p.read_bytes(),
                            role_text=f"{KIND_ROLE.get(a['kind'], 'imagem do cliente')} (arquivo: {a['name']})"))
     return inputs
 
@@ -422,7 +424,8 @@ def api_chat(b):
     inputs = collect_inputs(cid, b.get("edit_of"), b.get("asset_ids") or [])
     if not MOCK and not os.getenv("OPENAI_API_KEY") and not shutil.which("claude"):
         raise ui.ApiError(400, "Sem OPENAI_API_KEY e sem o CLI claude: nada a executar.")
-    meta = {"client": cid, "conv": b.get("conv"), "texto": text, "modo": b.get("mode") or "livre", "tamanho": b.get("size"),
+    provider_now = "mock" if MOCK else ("openai" if os.getenv("OPENAI_API_KEY") else "claude-cli (SEM chave: nenhuma imagem é gerada)")
+    meta = {"provedor": provider_now, "client": cid, "conv": b.get("conv"), "texto": text, "modo": b.get("mode") or "livre", "tamanho": b.get("size"),
             "qualidade": b.get("quality"), "anexos": [{"tipo": x["kind"], "nome": x["name"]} for x in inputs], "edit_of": b.get("edit_of"),
             "melhorias": {"designer": (b.get("improve") or {}).get("designer", True), "skills": (b.get("improve") or {}).get("skills", True),
                           "critic": b.get("review", True), "comparar": (b.get("improve") or {}).get("compare_raw", False)},
@@ -583,6 +586,9 @@ def run_chat(b, emit, cid, text, ctx, inputs):
     if intent in ("edit", "variation") and not any(x["kind"] in ("alvo", "variacao") for x in inputs):
         intent = "new"
         avisos.append("Não encontrei a imagem anterior para editar; gerei do zero com o pedido resolvido.")
+    pinned_ids = {x.get("id") for x in inputs}
+    suggest = [{"id": a["id"], "name": a["name"], "kind": a["kind"]} for a in load_assets(cid) if a["kind"] in IDENTITY_KINDS and a["id"] not in pinned_ids]
+    library = ", ".join(f"{s['name']} ({s['kind']})" for s in suggest)
     memory = memory_text(conv)
     if conv["turns"] or text_eff != text:
         emit(f"Memória: entendi como {'edição da imagem anterior' if intent == 'edit' else 'variação' if intent == 'variation' else 'pedido novo'}"
@@ -609,12 +615,12 @@ def run_chat(b, emit, cid, text, ctx, inputs):
             save_conv(fresh)
 
     if imp["designer"]:
-        emit("O designer está escrevendo o briefing…")
+        emit(f"O designer está escrevendo o briefing ({'OpenAI, modelo ' + text_model if provider == 'openai' and not MOCK else 'DEMONSTRAÇÃO, sem API' if MOCK else 'Claude CLI: SEM chave da OpenAI'})…")
         brief = write_briefing(ctx_eff, text_eff, size, history, inputs, model=text_model, provider=provider, mode=mode, use_skills=imp["skills"],
-                               memory=memory, intent=intent, original=text)
+                               memory=memory, intent=intent, original=text, library=library)
         if brief.get("question"):
             record(question=brief["question"])
-            return {"role": "assistant", "kind": "text", "text": brief["question"], "conv": conv["id"]}
+            return {"role": "assistant", "kind": "text", "text": brief["question"], "conv": conv["id"], "suggest": suggest}
         if provider == "claude":
             return {"role": "assistant", "kind": "text", "briefing_only": True,
                     "text": "Sem OPENAI_API_KEY: gerei só o briefing, sem imagem.\n\n" + brief.get("prompt", "")}
@@ -632,7 +638,7 @@ def run_chat(b, emit, cid, text, ctx, inputs):
     cycles, best = [], None
     for cycle in range(max_cycle + 1):
         how = "editando com as imagens de entrada" if inputs else "gerando"
-        emit(f"Tentativa {cycle + 1}: {how} ({image_model}, {size}, {quality}" + (", fidelidade alta" if fidelity else "") + ")…")
+        emit(f"Tentativa {cycle + 1}: {how} (OpenAI Images, modelo {image_model}, {size}, {quality}" + (", fidelidade alta" if fidelity else "") + ")…")
         tg = time.time()
         b64, ext = make_image(brief["prompt"], size, quality, inputs, image_model, fidelity, avisos)
         gid = f"{mid}c{cycle}"
@@ -641,7 +647,7 @@ def run_chat(b, emit, cid, text, ctx, inputs):
         emit(f"Imagem da tentativa {cycle + 1} pronta em {round(time.time() - tg)}s.", image_url=url)
         entry = {"cycle": cycle, "prompt": brief["prompt"], "id": gid, "url": url}
         if do_rev:
-            emit("O critic está revisando…")
+            emit(f"O critic está revisando ({'OpenAI, modelo ' + (b.get('critic_model') or text_model) if not MOCK else 'DEMONSTRAÇÃO'})…")
             rv, s, ok = do_review(ctx_critic, text_eff, brief["prompt"], b64, ext, size, inputs, b.get("critic_model") or text_model, notes, packs)
             entry.update(score=s, approved=ok, veto=rv.get("veto", []), fix=rv.get("fix"), review=rv)
             emit(f"Nota {s}: {'aprovada' if ok else 'reprovada'}" + (f" · vetos: {', '.join(rv.get('veto', []))}" if rv.get("veto") else "")
@@ -655,7 +661,7 @@ def run_chat(b, emit, cid, text, ctx, inputs):
             break
         emit("Corrigindo o briefing com a sugestão do critic…")
         brief = write_briefing(ctx_eff, text_eff, size, history, inputs, feedback=rv.get("fix"), prev=brief["prompt"],
-                               model=text_model, provider=provider, mode=mode, use_skills=imp["skills"], memory=memory, intent=intent, original=text)
+                               model=text_model, provider=provider, mode=mode, use_skills=imp["skills"], memory=memory, intent=intent, original=text, library=library)
         if brief.get("question"):
             break
     e = best["entry"]

@@ -296,7 +296,8 @@ function msgHtml(m) {
         ${(m.inputs || []).length ? `<pre>entradas: ${m.inputs.map((x) => esc(x.kind + ' ' + x.name)).join(', ')}</pre>` : ''}
       </details></div></div>`;
   }
-  return `<div class="msg assistant"><div class="bubble ${m.error ? 'err' : ''}">${esc(m.text)}</div>${m.error && S.lastBody ? '<div class="meta"><button class="btn" data-retry="1">↻ Tentar de novo</button></div>' : ''}</div>`;
+  const sug = (m.suggest || []).filter((s) => S.assets.some((a) => a.id === s.id)).map((s) => `<button class="btn" data-pin="${s.id}">📌 Usar ${esc(s.name)} (${esc(s.kind)}) e continuar</button>`).join(' ');
+  return `<div class="msg assistant"><div class="bubble ${m.error ? 'err' : ''}">${esc(m.text)}</div>${sug ? `<div class="meta">${sug}</div>` : ''}${m.error && S.lastBody ? '<div class="meta"><button class="btn" data-retry="1">↻ Tentar de novo</button></div>' : ''}</div>`;
 }
 
 function liveHtml() {
@@ -421,6 +422,7 @@ document.addEventListener('click', async (e) => {
   const card = t.closest('.asset');
   if (t.tagName === 'SELECT') return;
   if (card) { const id = card.dataset.id; S.selected.has(id) ? S.selected.delete(id) : S.selected.add(id); saveSel(); drawAssets(); drawChips(); return; }
+  if (t.dataset.pin) { S.selected.add(t.dataset.pin); saveSel(); drawAssets(); drawChips(); send('pode usar a imagem fixada'); return; }
   if (t.dataset.unsel) { S.selected.delete(t.dataset.unsel); saveSel(); drawAssets(); drawChips(); }
   if (t.dataset.unedit) { S.editOf = null; drawChips(); }
   if (t.dataset.edit) { S.editOf = t.dataset.edit; drawChips(); $('text').focus(); $('text').placeholder = 'O que mudar nesta imagem? (o resto fica igual)'; }
