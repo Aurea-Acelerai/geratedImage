@@ -1,0 +1,310 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Teste do system prompt</title>
+<style>
+  :root {
+    --bg: #f6f5f2; --panel: #ffffff; --ink: #1c1b19; --muted: #6b6860; --line: #e2dfd8;
+    --accent: #0b3c5d; --accent-ink: #ffffff; --ok: #1f7a4d; --bad: #b3261e; --warn: #9a6700;
+    --code: #f0eee9;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #151514; --panel: #1e1e1c; --ink: #ecebe7; --muted: #9a978f; --line: #33322f;
+            --accent: #6fb3dd; --accent-ink: #0b1a24; --ok: #5cc994; --bad: #ff8a80; --warn: #e0b34a; --code: #262624; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 14px/1.45 -apple-system, "Segoe UI", system-ui, sans-serif; }
+  header { padding: 14px 20px; border-bottom: 1px solid var(--line); display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+  header h1 { font-size: 16px; margin: 0; font-weight: 650; }
+  header .meta { color: var(--muted); font-size: 12px; }
+  .badge { font-size: 11px; padding: 2px 8px; border-radius: 99px; border: 1px solid var(--line); color: var(--muted); }
+  .badge.ok { color: var(--ok); border-color: var(--ok); } .badge.bad { color: var(--bad); border-color: var(--bad); } .badge.warn { color: var(--warn); border-color: var(--warn); }
+  main { display: grid; grid-template-columns: minmax(300px, 380px) 1fr; gap: 16px; padding: 16px 20px; align-items: start; }
+  @media (max-width: 860px) { main { grid-template-columns: 1fr; } }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
+  aside { position: sticky; top: 12px; display: flex; flex-direction: column; gap: 12px; max-height: calc(100vh - 24px); overflow: auto; }
+  @media (max-width: 860px) { aside { position: static; max-height: none; } }
+  label { display: block; font-size: 12px; font-weight: 600; margin: 10px 0 4px; color: var(--muted); }
+  label:first-child { margin-top: 0; }
+  textarea, input, select { width: 100%; font: inherit; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 7px; padding: 7px 9px; }
+  textarea { resize: vertical; } textarea.mono, pre { font: 12px/1.5 ui-monospace, "SF Mono", Menlo, monospace; }
+  .row { display: flex; gap: 8px; } .row > * { flex: 1; min-width: 0; }
+  button { font: inherit; cursor: pointer; border-radius: 7px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); padding: 7px 12px; }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+  button:disabled { opacity: .5; cursor: wait; }
+  .check { display: flex; gap: 6px; align-items: center; font-size: 13px; font-weight: 400; color: var(--ink); margin: 10px 0 0; }
+  .check input { width: auto; }
+  .hint { color: var(--muted); font-size: 12px; margin-top: 4px; }
+  details > summary { cursor: pointer; font-weight: 600; font-size: 13px; }
+  pre { margin: 8px 0 0; padding: 10px; background: var(--code); border-radius: 7px; white-space: pre-wrap; word-break: break-word; max-height: 360px; overflow: auto; }
+  #feed { display: flex; flex-direction: column; gap: 14px; }
+  .empty { color: var(--muted); padding: 40px 10px; text-align: center; }
+  .card h2 { font-size: 14px; margin: 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .card .req { color: var(--muted); font-size: 13px; margin: 4px 0 10px; }
+  .grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; }
+  @media (max-width: 1100px) { .grid { grid-template-columns: 1fr; } }
+  .imgbox { background: var(--code); border-radius: 8px; min-height: 120px; display: grid; place-items: center; overflow: hidden; color: var(--muted); }
+  .imgbox img { width: 100%; height: auto; display: block; max-height: 560px; object-fit: contain; }
+  .actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  .scores { display: grid; grid-template-columns: auto 1fr auto; gap: 3px 8px; align-items: center; font-size: 12px; margin-top: 8px; }
+  .bar { height: 6px; background: var(--code); border-radius: 4px; overflow: hidden; } .bar i { display: block; height: 100%; background: var(--accent); }
+  .bar i.low { background: var(--bad); } .bar i.mid { background: var(--warn); }
+  ul.issues { margin: 6px 0 0; padding-left: 18px; font-size: 13px; }
+  .err { color: var(--bad); font-size: 13px; margin-top: 8px; white-space: pre-wrap; }
+  .spin { display: inline-block; width: 12px; height: 12px; border: 2px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: s .7s linear infinite; vertical-align: -2px; }
+  @keyframes s { to { transform: rotate(360deg); } }
+  .score { font-size: 20px; font-weight: 700; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Teste do system prompt · designer-imagegen</h1>
+  <span id="status" class="badge">carregando…</span>
+  <span class="meta" id="promptmeta"></span>
+</header>
+
+<main>
+  <aside>
+    <section class="panel">
+      <label for="case">Caso de teste</label>
+      <select id="case"></select>
+
+      <label for="request">Pedido (o que o usuário pediria ao agente)</label>
+      <textarea id="request" rows="3" placeholder="ex.: post de feed anunciando a promoção de verão"></textarea>
+
+      <div class="row">
+        <div><label for="size">Tamanho</label>
+          <select id="size"><option>1024x1024</option><option>1024x1536</option><option>1536x1024</option></select></div>
+        <div><label for="quality">Qualidade</label>
+          <select id="quality"><option>low</option><option selected>medium</option><option>high</option></select></div>
+      </div>
+      <div class="row">
+        <div><label for="provider">Quem escreve o briefing</label>
+          <select id="provider"><option value="claude">Claude (CLI, sem chave)</option><option value="openai">OpenAI (API)</option></select></div>
+        <div><label for="claude_model">Modelo Claude</label>
+          <select id="claude_model"><option>sonnet</option><option>opus</option><option>haiku</option></select></div>
+      </div>
+      <div class="row">
+        <div><label for="text_model">Modelo de texto (OpenAI)</label><input id="text_model"></div>
+        <div><label for="image_model">Modelo de imagem</label><input id="image_model"></div>
+      </div>
+
+      <label class="check"><input type="checkbox" id="doImage" checked> Gerar imagem (desmarque para ver só o briefing)</label>
+      <label class="check"><input type="checkbox" id="doReview" checked> Revisar com o critic</label>
+      <label class="check"><input type="checkbox" id="doNaive"> Comparar com prompt cru (braço A)</label>
+
+      <div class="actions" style="margin-top:14px">
+        <button class="primary" id="run" style="flex:1">Rodar</button>
+        <button id="clear">Limpar</button>
+      </div>
+      <div class="hint" id="runhint"></div>
+    </section>
+
+    <section class="panel">
+      <label for="client">Contexto do cliente (JSON injetado no prompt)</label>
+      <textarea id="client" class="mono" rows="12" spellcheck="false"></textarea>
+      <div class="hint" id="clienthint"></div>
+    </section>
+
+    <section class="panel">
+      <details id="sysdet">
+        <summary>System prompt renderizado</summary>
+        <div class="hint">Relido do disco a cada execução. Edite <code id="ppath"></code> e rode de novo.</div>
+        <pre id="systext">abra para carregar…</pre>
+      </details>
+    </section>
+  </aside>
+
+  <section id="feed"><div class="empty" id="empty">Escolha um caso (ou escreva um pedido) e clique em <b>Rodar</b>.</div></section>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const state = { defaults: null, runs: [], seq: 0 };
+
+function el(tag, attrs = {}, ...kids) {
+  const n = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === 'class') n.className = v;
+    else if (k.startsWith('on')) n.addEventListener(k.slice(2), v);
+    else if (v !== false && v != null) n.setAttribute(k, v);
+  }
+  for (const k of kids.flat()) if (k != null) n.append(k.nodeType ? k : document.createTextNode(k));
+  return n;
+}
+
+async function api(path, body) {
+  const r = await fetch(path, body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const j = await r.json().catch(() => ({ error: 'resposta inválida' }));
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+
+function getClient() {
+  try { const c = JSON.parse($('client').value); $('clienthint').textContent = ''; return c; }
+  catch (e) { $('clienthint').textContent = 'JSON inválido: ' + e.message; throw new Error('JSON do cliente inválido'); }
+}
+const briefingOpts = () => ({ provider: $('provider').value, claude_model: $('claude_model').value, text_model: $('text_model').value, size: $('size').value });
+
+/* ---------- cards ---------- */
+function newRun(arm, request) {
+  const run = { id: ++state.seq, arm, request, size: $('size').value, quality: $('quality').value, busy: null, error: null,
+    briefing: null, prompt: '', image: null, review: null, score: null, approved: null, rounds: 0, node: el('article', { class: 'panel card' }) };
+  state.runs.unshift(run);
+  $('empty')?.remove();
+  $('feed').prepend(run.node);
+  draw(run);
+  return run;
+}
+
+function draw(run) {
+  const n = run.node; n.replaceChildren();
+  const title = run.arm === 'A' ? 'A · prompt cru' : 'B · harness (briefing do system prompt)';
+  const head = el('h2', {}, title,
+    run.briefing ? el('span', { class: 'badge' }, `${run.briefing.use_case} / ${run.briefing.role}`) : null,
+    run.rounds ? el('span', { class: 'badge warn' }, `correção ${run.rounds}`) : null,
+    run.approved != null ? el('span', { class: 'badge ' + (run.approved ? 'ok' : 'bad') }, run.approved ? 'aprovado' : 'reprovado') : null,
+    run.busy ? el('span', {}, el('span', { class: 'spin' }), ' ', run.busy) : null);
+  n.append(head, el('div', { class: 'req' }, `“${run.request}” · ${run.size} · ${run.quality}`));
+
+  const left = el('div', {}, el('label', {}, run.arm === 'A' ? 'Prompt enviado ao modelo de imagem' : 'Prompt final (editável antes de regerar)'),
+    el('textarea', { class: 'mono', rows: 11, spellcheck: 'false', oninput: (e) => { run.prompt = e.target.value; } }, run.prompt));
+  left.querySelector('textarea').value = run.prompt;
+  if (run.briefing?.system_chars) left.append(el('div', { class: 'hint' }, `system prompt: ${run.briefing.system_chars} caracteres`));
+
+  const acts = el('div', { class: 'actions' });
+  const dis = !!run.busy;
+  acts.append(el('button', { disabled: dis || !run.prompt, onclick: () => doImage(run) }, run.image ? 'Regerar imagem' : 'Gerar imagem'));
+  if (run.image) acts.append(el('button', { disabled: dis, onclick: () => doReview(run) }, run.review ? 'Revisar de novo' : 'Revisar'));
+  if (run.arm === 'B' && run.review && run.review.fix && !run.approved)
+    acts.append(el('button', { class: 'primary', disabled: dis, onclick: () => doFix(run) }, 'Aplicar correção e regerar'));
+  left.append(acts);
+
+  const right = el('div', {});
+  if (run.image) {
+    const src = `data:${run.image.mime};base64,${run.image.b64}`;
+    right.append(el('div', { class: 'imgbox' }, el('img', { src, alt: 'imagem gerada' })));
+    right.append(el('div', { class: 'actions' },
+      el('a', { href: src, download: `caso-${run.id}-${run.arm}.${run.image.mime.includes('svg') ? 'svg' : 'png'}` }, 'baixar'),
+      el('span', { class: 'hint' }, `${run.image.seconds}s`)));
+  } else right.append(el('div', { class: 'imgbox' }, run.busy && run.busy.includes('imagem') ? 'gerando…' : 'sem imagem ainda'));
+
+  if (run.review) {
+    const rv = run.review, w = state.defaults.weights;
+    const box = el('div', {}, el('div', {}, el('span', { class: 'score' }, run.score.toFixed(2)), el('span', { class: 'hint' }, `  mínimo ${state.defaults.pass_score}`)));
+    if (rv.veto?.length) box.append(el('div', {}, ...rv.veto.map((v) => el('span', { class: 'badge bad', style: 'margin-right:4px' }, 'VETO ' + v))));
+    const sc = el('div', { class: 'scores' });
+    for (const k of Object.keys(w)) {
+      const v = Number(rv.scores?.[k] ?? 0);
+      sc.append(el('span', {}, k), el('div', { class: 'bar' }, el('i', { class: v < 6 ? 'low' : v < 8 ? 'mid' : '', style: `width:${v * 10}%` })), el('span', {}, String(v)));
+    }
+    box.append(sc);
+    if (rv.issues?.length) box.append(el('ul', { class: 'issues' }, ...rv.issues.map((i) => el('li', {}, i))));
+    if (rv.fix) box.append(el('div', { class: 'hint' }, 'correção sugerida: ' + rv.fix));
+    right.append(box);
+  }
+  if (run.error) right.append(el('div', { class: 'err' }, run.error));
+  n.append(el('div', { class: 'grid' }, left, right));
+}
+
+async function guarded(run, label, fn) {
+  run.busy = label; run.error = null; draw(run);
+  try { await fn(); } catch (e) { run.error = e.message; }
+  run.busy = null; draw(run);
+}
+
+const doImage = (run) => guarded(run, 'gerando imagem…', async () => {
+  run.image = null; run.review = null; run.score = null; run.approved = null; draw(run);
+  run.image = await api('/api/image', { prompt: run.prompt, size: run.size, quality: run.quality, image_model: $('image_model').value });
+});
+const doReview = (run) => guarded(run, 'revisando…', async () => {
+  const r = await api('/api/review', { b64: run.image.b64, mime: run.image.mime, briefing: run.prompt, client: run.client,
+    request: run.request, size: run.size, text_model: $('text_model').value });
+  Object.assign(run, { review: r.review, score: r.score, approved: r.approved });
+});
+const doFix = (run) => guarded(run, 'reescrevendo briefing…', async () => {
+  const b = await api('/api/briefing', { client: run.client, request: run.request, feedback: run.review.fix, prev: run.prompt, ...briefingOpts() });
+  run.briefing = b; run.prompt = b.prompt; run.rounds++;
+  run.busy = 'gerando imagem…'; draw(run);
+  run.image = await api('/api/image', { prompt: run.prompt, size: run.size, quality: run.quality, image_model: $('image_model').value });
+  run.review = null; run.score = null; run.approved = null;
+  run.busy = 'revisando…'; draw(run);
+  const r = await api('/api/review', { b64: run.image.b64, mime: run.image.mime, briefing: run.prompt, client: run.client, request: run.request, size: run.size, text_model: $('text_model').value });
+  Object.assign(run, { review: r.review, score: r.score, approved: r.approved });
+});
+
+/* ---------- pipeline ---------- */
+async function pipeline(run, getPrompt) {
+  await guarded(run, 'escrevendo briefing…', async () => {
+    const p = await getPrompt(); run.briefing = p.briefing || null; run.prompt = p.prompt; draw(run);
+    if (!$('doImage').checked) return;
+    run.busy = 'gerando imagem…'; draw(run);
+    run.image = await api('/api/image', { prompt: run.prompt, size: run.size, quality: run.quality, image_model: $('image_model').value });
+    if (!$('doReview').checked) return;
+    run.busy = 'revisando…'; draw(run);
+    const r = await api('/api/review', { b64: run.image.b64, mime: run.image.mime, briefing: run.prompt, client: run.client,
+      request: run.request, size: run.size, text_model: $('text_model').value });
+    Object.assign(run, { review: r.review, score: r.score, approved: r.approved });
+  });
+}
+
+async function runAll() {
+  const request = $('request').value.trim();
+  if (!request) { $('request').focus(); return; }
+  let client; try { client = getClient(); } catch { return; }
+  $('run').disabled = true;
+  const jobs = [];
+  const b = newRun('B', request); b.client = client;
+  jobs.push(pipeline(b, async () => { const x = await api('/api/briefing', { client, request, ...briefingOpts() }); return { briefing: x, prompt: x.prompt }; }));
+  if ($('doNaive').checked) {
+    const a = newRun('A', request); a.client = client;
+    jobs.push(pipeline(a, async () => ({ prompt: (await api('/api/naive', { client, request })).prompt })));
+  }
+  await Promise.all(jobs);
+  $('run').disabled = false;
+}
+
+async function loadSystem() {
+  try {
+    const s = await api('/api/system', { client: getClient() });
+    $('systext').textContent = s.system;
+    $('promptmeta').textContent = `prompt: ${s.chars} caracteres · sha ${s.sha} · salvo às ${s.mtime}`;
+  } catch (e) { $('systext').textContent = e.message; }
+}
+
+async function init() {
+  const d = state.defaults = await api('/api/defaults');
+  $('client').value = JSON.stringify(d.client, null, 2);
+  $('text_model').value = d.text_model; $('image_model').value = d.image_model; $('quality').value = d.quality;
+  $('ppath').textContent = d.prompt_path;
+  const sel = $('case');
+  sel.append(el('option', { value: '' }, '— pedido livre —'));
+  for (const c of d.cases) sel.append(el('option', { value: c.id }, `${c.id}. ${c.request.slice(0, 54)}${c.request.length > 54 ? '…' : ''}`));
+  sel.addEventListener('change', () => {
+    const c = d.cases.find((x) => String(x.id) === sel.value);
+    if (c) { $('request').value = c.request; if (c.size) $('size').value = c.size; }
+  });
+  const st = $('status');
+  if (d.mock) { st.textContent = 'modo mock (sem API)'; st.className = 'badge warn'; }
+  else if (d.has_key) { st.textContent = 'API key ok'; st.className = 'badge ok'; }
+  else {
+    st.textContent = d.has_claude ? 'sem OPENAI_API_KEY · briefing via Claude' : 'sem OPENAI_API_KEY e sem claude CLI';
+    st.className = 'badge ' + (d.has_claude ? 'warn' : 'bad');
+    $('doImage').checked = false; $('doReview').checked = false;
+    $('runhint').textContent = 'Sem chave da OpenAI não há geração de imagem nem critic: só o briefing. Para imagem, inicie o servidor com OPENAI_API_KEY.';
+  }
+  if (!d.has_claude) { $('provider').value = 'openai'; }
+  $('run').addEventListener('click', runAll);
+  $('request').addEventListener('keydown', (e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) runAll(); });
+  $('clear').addEventListener('click', () => { state.runs = []; $('feed').replaceChildren(el('div', { class: 'empty', id: 'empty' }, 'Limpo.')); });
+  $('sysdet').addEventListener('toggle', () => { if ($('sysdet').open) loadSystem(); });
+  $('client').addEventListener('input', () => { try { JSON.parse($('client').value); $('clienthint').textContent = ''; } catch (e) { $('clienthint').textContent = 'JSON inválido: ' + e.message; } });
+  loadSystem();
+}
+init().catch((e) => { $('status').textContent = 'erro: ' + e.message; $('status').className = 'badge bad'; });
+</script>
+</body>
+</html>
