@@ -25,6 +25,8 @@ import argparse, base64, csv, json, os, pathlib, random, sys, time
 ROOT = pathlib.Path(__file__).resolve().parent
 SYSTEM_PROMPT_PATH = ROOT.parent / "prompts" / "designer-imagegen.system.md"
 sys.path.insert(0, str(ROOT))
+import qa_gates  # gates de QA da fonte 2 sobre a especificação da peça
+import gen_estilos  # catálogo de estilos gerado da fonte
 import skills_router  # skills de design escolhidas por pedido (skills/design-*)
 import checks  # regras de design (docs/08) e checagens por código
 import critic  # rubrica, limiar e prompt do critic: prompts/rubric.json e prompts/critic.system.md
@@ -72,6 +74,8 @@ def self_test():
     critic.self_test()
     checks.self_test()
     skills_router.self_test()
+    qa_gates.self_test()
+    gen_estilos.check()
     sp = load_system_prompt({"name": "x"})
     assert "E1." in sp and "agent:start" not in sp, "regras de design não chegaram ao system prompt"
     sk = load_system_prompt({"name": "x"}, request="banner de promoção para stories", size="1536x1024")

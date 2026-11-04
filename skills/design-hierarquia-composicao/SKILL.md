@@ -11,7 +11,7 @@ Os exemplos ilustram forma, não conteúdo: nunca herde deles assunto, cena ou l
 
 ### H1 — Três níveis de leitura com salto real
 - **Por quê:** sem salto de escala ou peso, tudo parece igual e o olho não sabe por onde entrar.
-- **Aplicar:** nível 1 = ponto focal/título (domina); nível 2 = apoio (cerca de 40–60% da escala do nível 1); nível 3 = CTA, legal, assinatura. Entre níveis, razão de escala ≥ 1,5. Em peça sem texto: assunto (1), contexto (2), detalhe (3). No briefing: "dominant subject, calm secondary context, minimal tertiary detail".
+- **Aplicar:** nível 1 = ponto focal/título (domina); nível 2 = apoio (cerca de 40–60% da escala do nível 1); nível 3 = CTA, legal, assinatura. Entre níveis, razão de escala ≥ 1,5. **Em peça com texto, o título é ≥ 2,5× o corpo** (gate 2 da fonte `02-design-visual-direcao-arte`, mais restritivo que o nosso 1,5 e por isso adotado); título ≥ 1,5× o apoio. Em peça sem texto: assunto (1), contexto (2), detalhe (3). No briefing: "dominant subject, calm secondary context, minimal tertiary detail".
 - **Verificar:** teste dos olhos semicerrados (borre a imagem): sobram 3 massas distintas?
 - **Falha típica:** título e subtítulo quase do mesmo tamanho; CTA maior que a oferta.
 

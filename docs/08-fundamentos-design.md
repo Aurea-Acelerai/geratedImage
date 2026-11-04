@@ -25,7 +25,7 @@ Cada regra tem um ID (`H1`, `F2`...) para o designer, o critic e o curador citar
 - **E5.** Conjunto de peças: variar o ângulo antes do tratamento; 15–20 ativos *conceitualmente* distintos por campanha, não recortes da mesma ideia.
 
 ## 2. Hierarquia e composição
-- **H1.** Mínimo de 3 níveis de leitura, com salto real de escala ou peso. [RUBRICA: `hierarchy`]
+- **H1.** Mínimo de 3 níveis de leitura, com salto real de escala ou peso; em peça com texto, título >= 2,5x o corpo. [RUBRICA: `hierarchy`]
 - **H2.** Um único ponto focal; o olho vai a ele primeiro. [RUBRICA: `hierarchy`]
 - **H3.** Zonas: topo = logo ou proposta de valor; meio = mensagem e visual; base = CTA. [PLAYBOOK]
 - **H4.** Espaço negativo é função, não sobra: reservar onde o texto entra. [RUBRICA: `composition`]

@@ -1,0 +1,246 @@
+{
+  "versao": 1,
+  "fonte": "docs/fontes/02-design-visual-direcao-arte.md (seção 5, copiada sem alteração)",
+  "estilos": {
+    "dark_cyberpunk": {
+      "family": "material_luz",
+      "mecanismo": "luz emitida em fundo escuro",
+      "surface": "#0B0D10 a #14161A (nunca #000 em área grande)",
+      "text": "#F5F7FA / #C7CCD4",
+      "accent": "1 neon (ciano, magenta ou verde-limão), ate 10% da area",
+      "shadow": "glow apenas em accent e CTA; nunca em corpo de texto",
+      "type": "sans geometrica/tecnica, tracking neutro, numerais tabulares",
+      "risco": "halation: neon sobre preto engrossa glifos e derruba legibilidade",
+      "melhor_uso": "gaming, tech, cripto, dev tools",
+      "evitar": "varejo, oferta de preco, publico 45+"
+    },
+    "glassmorphism": {
+      "family": "material_translucido",
+      "mecanismo": "blur de fundo + borda clara + scrim",
+      "surface": "preenchimento branco 8-20% + backdrop-blur 12-24px",
+      "text": "branco puro sobre scrim >=35% de opacidade",
+      "accent": "gradiente vivo apenas atras do vidro",
+      "shadow": "borda 1px branca 20-35% + sombra suave ampla",
+      "type": "sans humanista, peso medio, sem texto <14px",
+      "risco": "contraste variavel: nao existe valor unico, precisa do pior caso",
+      "melhor_uso": "badge, selo, card de controle sobre imagem",
+      "evitar": "tabela densa, texto pequeno, fundo cinza chapado (efeito desaparece)"
+    },
+    "minimal_flat": {
+      "family": "estrutura",
+      "mecanismo": "subtracao + grid + escala tipografica",
+      "surface": "#FFFFFF / #F6F7F9",
+      "text": "#0F1115",
+      "accent": "1 cor solida, uso semantico",
+      "shadow": "quase nenhuma; separacao por cor de superficie",
+      "type": "sans neutra (Helvetica/Inter-like), escala 1.25-1.333",
+      "risco": "sem efeito para esconder erro: toda falha aparece",
+      "melhor_uso": "SaaS, B2B, conversao, oferta",
+      "evitar": "marca que precisa de personalidade forte"
+    },
+    "neo_brutalism": {
+      "family": "estrutura",
+      "mecanismo": "contorno duro + sombra sem blur + cor de choque",
+      "surface": "bege, off-white ou cor chapada saturada",
+      "text": "#000 puro",
+      "accent": "2-3 cores em choque (amarelo, rosa, ciano)",
+      "shadow": "offset 4-8px solido, 0 blur",
+      "type": "grotesca pesada ou mono; tracking apertado",
+      "risco": "sopa visual em tamanho pequeno",
+      "melhor_uso": "creator economy, moda, marca jovem, hook de feed",
+      "evitar": "institucional, saude, financeiro tradicional"
+    },
+    "material3": {
+      "family": "sistema",
+      "mecanismo": "cor tonal gerada + elevacao por superficie tonal",
+      "surface": "tonal surface 1-5 (elevacao por cor, nao sombra)",
+      "text": "on-surface / on-surface-variant",
+      "accent": "primary/secondary/tertiary + error semantico",
+      "shadow": "reservada a FAB, dialogo, sheet",
+      "type": "Google Sans/Roboto-like, escala M3",
+      "risco": "usar marca no lugar de cor semantica de erro/sucesso",
+      "melhor_uso": "produto Android, app de sistema, dashboard",
+      "evitar": "marca com paleta proprietaria rigida"
+    },
+    "skeuomorphism": {
+      "family": "material_realista",
+      "mecanismo": "textura + relevo + sombra realista",
+      "surface": "couro, papel, metal, madeira",
+      "text": "serif/sans com emboss discreto",
+      "accent": "dourado, metalico",
+      "shadow": "multiplas camadas + highlight interno",
+      "type": "serif classica ou sans humanista",
+      "risco": "incoerencia de fonte de luz entre elementos",
+      "melhor_uso": "audio, instrumentos, nostalgia, citacao",
+      "evitar": "produto digital moderno, mobile first"
+    },
+    "aurora": {
+      "family": "material_gradiente",
+      "mecanismo": "mesh gradient difuso organico",
+      "surface": "3-5 blobs desfocados, pastel ou saturado",
+      "text": "branco/preto com scrim",
+      "accent": "derivado do gradiente",
+      "shadow": "nenhuma; profundidade vem do blur",
+      "type": "sans leve, titulos finos grandes",
+      "risco": "contraste imprevisivel no ponto mais claro do gradiente",
+      "melhor_uso": "saude, meditacao, fintech emocional, hero de landing",
+      "evitar": "dados, texto longo"
+    },
+    "typographic": {
+      "family": "estrutura_tipo",
+      "mecanismo": "tipografia como arquitetura",
+      "surface": "monocromatico (preto/branco) ou 1 cor",
+      "text": "display em escala extrema (>=4x o corpo)",
+      "accent": "1 cor para 1 palavra-chave",
+      "shadow": "nenhuma",
+      "type": "grotesca de display + texto em peso leve",
+      "risco": "vira ilegivel sem dominio de tamanho optico e tracking",
+      "melhor_uso": "agencia, midia, manifesto, hook de social",
+      "evitar": "quando ha imagem de produto obrigatoria"
+    },
+    "retro_pixel": {
+      "family": "estrutura_limite",
+      "mecanismo": "grade de pixel + paleta limitada",
+      "surface": "paleta de 8-16 cores",
+      "text": "bitmap/pixel font em multiplos de 8px",
+      "accent": "1-2 cores de destaque",
+      "shadow": "dithering, nunca blur",
+      "type": "pixel exclusivamente",
+      "risco": "misturar pixel com vetor suave",
+      "melhor_uso": "games indie, cultura dev, nostalgia 90s",
+      "evitar": "leitura longa, legibilidade pequena"
+    },
+    "brutalism": {
+      "family": "anti_estilo",
+      "mecanismo": "ausencia deliberada de estilo",
+      "surface": "branco/cinza padrao",
+      "text": "#000, Times ou mono padrao",
+      "accent": "azul de link (#0000EE)",
+      "shadow": "nenhuma",
+      "type": "default do sistema, tamanhos sem escala",
+      "risco": "lido como amadorismo por publico nao iniciado",
+      "melhor_uso": "galeria, arte, dev tools, portfolio",
+      "evitar": "trafego pago de varejo"
+    },
+    "isometric": {
+      "family": "tecnica_apresentacao",
+      "mecanismo": "projecao axonometrica 30 graus",
+      "surface": "fundo neutro para destacar objetos",
+      "text": "sans neutra, pouca quantidade",
+      "accent": "2-4 cores para categorias",
+      "shadow": "sombra suave sob os objetos, 1 direcao de luz",
+      "type": "sans geometrica",
+      "risco": "angulos inconsistentes quebram a ilusao",
+      "melhor_uso": "logistica, smart city, infraestrutura, processo",
+      "evitar": "retrato, emocao, storytelling humano"
+    },
+    "claymorphism": {
+      "family": "material_volume",
+      "mecanismo": "volume inflado + sombra interna e externa",
+      "surface": "pastel 3D, cantos 24-40px",
+      "text": "sans arredondada, peso medio",
+      "accent": "pastel saturado",
+      "shadow": "externa suave + interna clara (luz superior)",
+      "type": "sans rounded",
+      "risco": "contraste baixo por natureza do pastel",
+      "melhor_uso": "educacao, infantil, wellness, onboarding",
+      "evitar": "marca seria, dados, B2B"
+    },
+    "bento": {
+      "family": "estrutura_grid",
+      "mecanismo": "grid modular assimetrico",
+      "surface": "cards com superficie propria",
+      "text": "hierarquia por peso dentro de cada celula",
+      "accent": "1 cor por grupo de celulas",
+      "shadow": "sutil ou nenhuma",
+      "type": "sans neutra, escala consistente entre celulas",
+      "risco": "assimetria sem hierarquia vira bagunca",
+      "melhor_uso": "feature showcase, landing, social multiargumento",
+      "evitar": "conteudo unico e simples"
+    },
+    "neumorphism": {
+      "family": "material_volume",
+      "mecanismo": "sombra clara + escura sobre o mesmo tom",
+      "surface": "tom unico #E0E5EC-like",
+      "text": "cinza escuro, >=7:1 recomendado",
+      "accent": "obrigatorio em interativos (senao nao ha affordance)",
+      "shadow": "2 sombras opostas, blur 8-20px",
+      "type": "sans neutra",
+      "risco": "hostil a acessibilidade por design: contraste baixo estrutural",
+      "melhor_uso": "acento, toggle decorativo, nao interface inteira",
+      "evitar": "texto pequeno, dados, qualquer fluxo critico"
+    }
+  },
+  "proposta_nossa": {
+    "dark_cyberpunk": {
+      "geracao": "imagem",
+      "nota_geracao": "luz e clima vêm do modelo de imagem; numerais, texto e CTA por código",
+      "prompt_en": "near-black surfaces (#0B0D10 to #14161A), a single neon accent used on at most 10% of the area, glow only on the accent, never on body text"
+    },
+    "glassmorphism": {
+      "geracao": "hibrido",
+      "nota_geracao": "o fundo/foto vem do modelo; o painel de vidro, o scrim e o texto são montados por código",
+      "prompt_en": "frosted translucent panel (white fill 8-20%, 12-24px background blur, 1px light border) over a vivid backdrop, with a darkening scrim behind any text area"
+    },
+    "minimal_flat": {
+      "geracao": "codigo",
+      "nota_geracao": "vetor, grid e escala tipográfica exatos; o modelo de imagem só faz fundo ou ilustração",
+      "prompt_en": "flat solid surfaces, subtraction and generous negative space, strict grid, depth only through surface color, no gradients, no shadows"
+    },
+    "neo_brutalism": {
+      "geracao": "codigo",
+      "nota_geracao": "contorno duro e sombra offset exatos; o modelo de imagem só faz o clima",
+      "prompt_en": "hard 2-4px black outlines, solid offset shadow with zero blur, flat shock colors (2-3 max), few elements"
+    },
+    "material3": {
+      "geracao": "codigo",
+      "nota_geracao": "sistema de UI com papéis de cor: componentes por código; o modelo de imagem não é a ferramenta",
+      "prompt_en": "tonal surface elevation instead of drop shadows, fixed color roles (primary, secondary, tertiary, error), Material 3 type scale"
+    },
+    "skeuomorphism": {
+      "geracao": "imagem",
+      "nota_geracao": "texturas e relevo realistas são força do modelo; cuidado com a fonte de luz única",
+      "prompt_en": "realistic material textures (leather, paper, metal, wood) with embossed relief, one consistent light source, layered shadows"
+    },
+    "aurora": {
+      "geracao": "imagem",
+      "nota_geracao": "mesh gradient é fundo: o modelo gera; texto por código sobre scrim",
+      "prompt_en": "soft organic mesh gradient of 3-5 blurred color blobs as background only, no shadows, depth from blur"
+    },
+    "typographic": {
+      "geracao": "codigo",
+      "nota_geracao": "a tipografia é o estilo: composição por código; o modelo de imagem, no máximo, a textura de fundo",
+      "prompt_en": "typography as architecture: extreme-scale display type (4x the body size), monochrome or one color, one accent color on one keyword"
+    },
+    "retro_pixel": {
+      "geracao": "hibrido",
+      "nota_geracao": "o modelo imita pixel art, mas a grade exata exige código; conferir se há vetor suave misturado",
+      "prompt_en": "pixel grid with a limited 8-16 color palette, dithering instead of blur, pixel font only, no smooth vector shapes"
+    },
+    "brutalism": {
+      "geracao": "codigo",
+      "nota_geracao": "layout padrão do sistema: montar por código",
+      "prompt_en": "deliberately unstyled: system default type, plain white or gray, default link blue, broken layout on purpose"
+    },
+    "isometric": {
+      "geracao": "imagem",
+      "nota_geracao": "o modelo gera cenas isométricas; conferir se o ângulo é consistente",
+      "prompt_en": "30-degree axonometric projection, one light direction, neutral background, objects on a consistent grid, soft contact shadows"
+    },
+    "claymorphism": {
+      "geracao": "imagem",
+      "nota_geracao": "volume inflado e pastel são força do modelo; texto escuro por código",
+      "prompt_en": "inflated soft 3D clay volume, 24-40px rounded corners, soft outer shadow plus light inner shadow from the top, saturated pastels"
+    },
+    "bento": {
+      "geracao": "codigo",
+      "nota_geracao": "grid modular exato: montar por código; o modelo gera só o conteúdo de cada célula",
+      "prompt_en": "asymmetric modular card grid, each cell with its own surface, one color per cell group, clear visual anchor"
+    },
+    "neumorphism": {
+      "geracao": "codigo",
+      "nota_geracao": "sombra dupla exata e acento em interativos: UI por código; evitar para texto e fluxo crítico",
+      "prompt_en": "single-tone surface with a light and a dark opposing shadow (8-20px blur), strong accent color on interactive elements"
+    }
+  }
+}

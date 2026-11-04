@@ -5,6 +5,16 @@ Para quem for continuar (pessoa ou agente). Leia este arquivo, depois o `README.
 ## Objetivo
 Os agentes designer da Acelerai/Aurea geram imagens para clientes. O CEO observou que a imagem gerada dentro do chat do ChatGPT é melhor que a gerada por API. O fluxo atual ("Robocop") é um workflow (pedido, resposta); o ChatGPT é um harness de agente (orquestra, revisa, tem regras). Meta: um **clone do chat do ChatGPT via API, com melhorias**: o usuário pede, escolhe referências numa lista (celebridades, peças, marca) em vez de anexar arquivos, e recebe imagem de qualidade equivalente. Interface só de teste, sem design elaborado. Entrega por etapas, mostrando ao CEO "replicamos o GPT".
 
+## Atualização de 04/11/2026 (leia antes do resto)
+Depois deste texto foram adicionados (detalhes em `README.md` e `docs/09-mapa-fontes-design.md`):
+- **Chat estilo ChatGPT** (`test/run_chat.sh`): biblioteca do cliente (logo, referências), edição da imagem anterior, progresso ao vivo, modos **livre** (padrão, sem marca) e **com marca**, e chaves para ligar/desligar cada melhoria (designer, skills, critic, comparação com o GPT puro).
+- **Regras de design** (`docs/08`) e **8 skills** `skills/design-*` roteadas por pedido (`test/skills_router.py`).
+- **Fontes do Kelvin** em `docs/fontes/` e o estudo em `docs/09`: catálogo de 14 estilos (`prompts/estilos.json`, gerado), 12 gates de QA em código (`test/qa_gates.py`).
+- **Critic em camadas:** modelo da OpenAI como juiz, base neutra + pacotes por caso de uso (`prompts/rubric.json` v4; v3 e v2 guardadas).
+- **Testes sem chave e sem custo:** `cd test && python3 run_comparison.py --dry-run` (bateria offline) e `python3 e2e_chat.py` (ponta a ponta contra `fake_openai.py`, em pasta temporária).
+- **Atenção:** `test/clients/` e `test/chat_out/` guardam o uso real; nunca apague. Decisões abertas D1 a D5 em `docs/09`, seção 9.
+- **Ainda não testado com a API real:** nenhuma das melhorias acima. O primeiro teste útil é comparar "com a aplicação" contra "GPT puro" no chat.
+
 ## O que existe no repositório
 - `docs/01` a `07`: mapeamento dos prompts vazados, chat vs API, arquitetura, comparativo de fornecedores, evidências, rastreabilidade, filtro por arquivo.
 - `prompts/designer-imagegen.system.md` (v0.4): system prompt do diretor de arte, sem dependência de fornecedor. Parâmetros da ferramenta de imagem em `prompts/profiles/`.

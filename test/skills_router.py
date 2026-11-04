@@ -87,6 +87,24 @@ def compact(body):
     return re.sub(r"\n{3,}", "\n\n", "\n".join(kept)).strip()
 
 
+def packs_for(request="", size=None, has_inputs=False, mode="livre", has_edit=False):
+    """Pacotes da rubrica do critic (prompts/rubric.json) para este caso de uso. A base vale sempre; os pacotes só
+    entram quando o caso de uso os pede, para não julgar uma imagem livre por critérios de peça de marketing."""
+    sel = set(select(request, size, has_inputs))
+    packs = []
+    if "design-estrategia" in sel:
+        packs.append("marketing")
+    if mode == "marca":
+        packs.append("brand")
+    if "design-tipografia-texto" in sel or re.search(r'["“”]', request or ""):
+        packs.append("text")
+    if has_edit or "design-serie-marca" in sel:
+        packs.append("edit")
+    if "design-estilos" in sel:
+        packs.append("estilos")
+    return packs
+
+
 def render(names, full=False):
     """full=True devolve o texto completo das skills (leitura humana); o padrão é o compacto para o prompt."""
     allk = load_all()
@@ -137,6 +155,13 @@ def self_test():
     assert "design-formato-canal" in select("paisagem", size="1024x1536")
     assert "design-tipografia-texto" not in select("cadastro de clientes na foto")  # "ads" não casa em "cadastro"
     assert select("banner") == sorted(select("banner"), key=lambda n: allk[n]["order"])
+    # pacotes da rubrica por caso de uso
+    assert packs_for("um gato astronauta numa estação espacial") == []
+    assert packs_for("banner de promoção de verão") == ["marketing", "text"] or packs_for("banner de promoção de verão")[0] == "marketing"
+    assert packs_for("retrato de senhora idosa", mode="marca") == ["brand"]
+    assert "edit" in packs_for("deixe mais quente", has_edit=True)
+    assert "text" in packs_for('cartaz com a frase "Bom dia"')
+    assert "estilos" in packs_for("card glassmorphism sobre foto")
     # render e notas
     r = render(s1)
     assert all(f'name="{n}"' in r for n in s1) and "## Revisão (critic)" not in r  # o designer recebe a versão compacta

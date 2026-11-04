@@ -16,10 +16,10 @@ import argparse, base64, email, json, re, struct, sys, threading, time, zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 STATS = {"models": 0, "chat_writer": 0, "chat_critic": 0, "generations": 0, "edits": 0, "edit_images": [], "writer_images": [],
-         "critic_images": [], "auth": set(), "edit_fields": [], "last_writer_user": "", "writer_systems": [], "image_prompts": []}
+         "critic_images": [], "auth": set(), "edit_fields": [], "last_writer_user": "", "writer_systems": [], "image_prompts": [], "critic_systems": []}
 LOCK = threading.Lock()
 CRITIC_KEYS = ["subject", "style", "composition", "hierarchy", "legibility_size", "message_clarity", "craft", "color_contrast",
-               "text", "defects", "format", "binding_count", "invariants"]
+               "text", "defects", "format", "binding_count", "invariants", "brand_fit", "style_mechanism"]
 
 
 def png(w, h):
@@ -65,6 +65,8 @@ class H(BaseHTTPRequestHandler):
             if "revisor de qualidade" in system:
                 with LOCK:
                     STATS["chat_critic"] += 1; STATS["critic_images"].append(nimg); k = STATS["chat_critic"]
+                    STATS["critic_systems"].append({"hierarchy": "`hierarchy`" in system, "brand_fit": "`brand_fit`" in system, "text": "`text`" in system,
+                                                    "cta_vago": "`cta_vago`" in system, "subject": "`subject`" in system})
                 bad = k % 2 == 1
                 rv = {"issues": [{"criterion": "hierarchy", "evidence": "foco fraco", "severity": "media"}] if bad else [],
                       "scores": {c: (6 if bad else 9) for c in CRITIC_KEYS}, "veto": [], "fix": "aumentar o contraste do foco" if bad else ""}

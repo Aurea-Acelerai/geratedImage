@@ -12,7 +12,7 @@ Os exemplos ilustram forma, não conteúdo: escolha luz, hora do dia, paleta e c
 ### C1 — Contraste medido, não achado
 - **Por quê:** texto sobre imagem é o ponto onde mais peças falham.
 - **Aplicar:** mínimos WCAG: texto normal **4,5:1**; texto grande (≥ 18pt ou ≥ 14pt negrito) **3:1**; AA é o piso, não a meta. Elementos gráficos essenciais (borda de botão, ícone) **3:1** contra o fundo. Meça no **pior ponto** da região do texto, não na média. Se o fundo varia, o texto composto por código recebe um *scrim* (gradiente escuro ou claro sob o texto) ou uma caixa de cor sólida. Nunca dependa só da cor para distinguir informação (teste em tons de cinza).
-  Quando há texto planejado, peça ao modelo de imagem a região certa (forma): "calm, low-detail zone, dark enough for light text". Cores da marca: o código aplica os hex exatos; no prompt de imagem prefira o **nome** da cor ("deep navy blue, warm amber") ao código hex.
+  Quando há texto planejado, peça ao modelo de imagem a região certa (forma): "calm, low-detail zone, dark enough for light text". Cores da marca: o código aplica os hex exatos; no prompt de imagem prefira o **nome** da cor ("forest green, off-white") ao código hex.
 - **Verificar:** `checks.contrast_ok(fg, bg, size_pt, bold)` quando o texto é composto por código; o critic avalia a região reservada por inspeção e a nota de `legibility_size`.
 - **Falha típica:** texto branco sobre céu claro; "contraste bom" medido no centro da foto e não na borda.
 

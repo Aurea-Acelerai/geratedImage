@@ -12,9 +12,13 @@ order: 10
 
 Uma peça bonita sem hipótese é só output. Antes de escrever o briefing, registre **quatro linhas**: oferta, hook, ponto focal, ângulo. Se não der para preencher a oferta com o pedido e o contexto do cliente, **pergunte ao usuário** (uma pergunta curta); nunca invente número, preço, prazo ou condição (veto `dado_inventado`).
 
+## Ordem de decisão e perguntas
+Ordem: (1) a **única ação** desejada (oferta em uma frase e CTA); (2) **onde** será vista (proporção, safe zone, tempo de leitura); (3) **quem** lê e em que estado; (4) o **estilo** (só se o pedido ou a marca o definem; catálogo na skill `design-estilos`); (5) como provar (métrica, hipótese, uma variável por vez). **Não escolha estilo antes de saber onde a peça aparece.**
+Se faltar informação numa peça de marketing, faça **no máximo 2 perguntas: oferta e formato**; assuma o resto e **declare a suposição** no briefing. Nunca afirme resultado de desempenho sem dado do usuário.
+
 ### E1 — Oferta em uma frase
 - **Por quê:** é o que o espectador entende em 1,5 s. Se a oferta não cabe numa frase, a peça vai tentar dizer duas coisas e dirá nenhuma.
-- **Aplicar:** `[quem] recebe [benefício concreto] [condição/prazo]`. Ex.: "Mulheres que querem pele protegida levam 20% off em protetor solar até domingo". Teste: apague a imagem; a frase ainda faz sentido? Se o pedido é só institucional (sem oferta), a frase vira a **proposta de valor** ("moda praia que acompanha o seu dia").
+- **Aplicar:** `[quem] recebe [benefício concreto] [condição/prazo]`. Ex. (forma): "Quem treina em casa leva 20% off em halteres até domingo". Teste: apague a imagem; a frase ainda faz sentido? Se o pedido é só institucional (sem oferta), a frase vira a **proposta de valor** ("moda praia que acompanha o seu dia").
 - **Verificar:** a oferta aparece no briefing como uma linha; todo número vem do contexto do cliente ou do pedido.
 - **Falha típica:** "Confira nossas novidades" (não é oferta); desconto inventado para "dar força" à peça.
 

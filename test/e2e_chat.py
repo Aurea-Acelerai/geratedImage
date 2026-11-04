@@ -116,6 +116,20 @@ try:
     pb = run({"client": "71", "text": "garrafa de vidro", "review": False})[0]["message"]["prompt"]
     ok(pa != pb and "gato" in pa.lower() and "garrafa" in pb.lower() and "praia" not in (pa + pb).lower(), "pedidos diferentes geram briefings diferentes, sem cena do cliente")
 
+    # 8) o critic recebe só os critérios do caso de uso (base neutra + pacotes)
+    p, _ = run({"client": "71", "text": "um gato astronauta numa estacao espacial"}); m = p["message"]
+    _, s = call(FAKE, "/__stats"); cs = s["critic_systems"][-1]
+    ok(m["packs"] == [] and cs["subject"] and not cs["hierarchy"] and not cs["cta_vago"] and not cs["brand_fit"], f"imagem livre: critic só com a base ({cs})")
+    ok(m["score"] is not None, "imagem livre recebe nota")
+    p, _ = run({"client": "71", "text": "banner de promocao de verao"}); m = p["message"]
+    _, s = call(FAKE, "/__stats"); cs = s["critic_systems"][-1]
+    ok("marketing" in m["packs"] and cs["hierarchy"] and cs["cta_vago"] and not cs["brand_fit"], f"peça de marketing: base + marketing ({m['packs']})")
+    p, _ = run({"client": "71", "text": "retrato de senhora idosa rindo", "mode": "marca"}); m = p["message"]
+    _, s = call(FAKE, "/__stats"); cs = s["critic_systems"][-1]
+    ok(m["packs"] == ["brand"] and cs["brand_fit"] and not cs["hierarchy"], f"modo com marca: base + brand ({m['packs']})")
+    p, _ = run({"client": "71", "text": 'cartaz com a frase "Bom dia"'}); m = p["message"]
+    _, s = call(FAKE, "/__stats"); cs = s["critic_systems"][-1]
+    ok("text" in m["packs"] and cs["text"], "texto entre aspas: pacote de texto")
     print("\nTUDO OK")
 finally:
     for p in procs:

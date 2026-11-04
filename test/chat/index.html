@@ -254,7 +254,7 @@ function msgHtml(m) {
     const cyc = (m.cycles || []).map((c) => `tentativa ${c.cycle + 1}: ${c.score ?? '—'}${c.approved ? ' ✓' : ''}${(c.veto || []).length ? ' veto ' + c.veto.join(',') : ''}${c.fix ? '\n   correção pedida: ' + c.fix : ''}`).join('\n');
     const tries = (m.cycles || []).length > 1 ? `<div class="tries">${m.cycles.map((c) => `<figure class="${c.id === m.id ? 'best' : ''}"><img data-zoom="${c.url}" src="${c.url}" alt="">tentativa ${c.cycle + 1}${c.score != null ? ' · ' + c.score : ''}</figure>`).join('')}</div>` : '';
     const imp = m.improve || {};
-    const did = [`modo ${m.mode === 'marca' ? 'com marca' : 'livre'}`, imp.designer === false ? 'sem designer (texto direto)' : 'designer', ...(imp.designer !== false && imp.skills === false ? ['sem skills'] : (m.skills || []).length ? [`skills (${m.skills.length})`] : []), imp.review === false ? 'sem critic' : 'critic'].join(' · ');
+    const did = [`modo ${m.mode === 'marca' ? 'com marca' : 'livre'}`, imp.designer === false ? 'sem designer (texto direto)' : 'designer', ...(imp.designer !== false && imp.skills === false ? ['sem skills'] : (m.skills || []).length ? [`skills (${m.skills.length})`] : []), imp.review === false ? 'sem critic' : `critic (base${(m.packs || []).map((p) => ' + ' + p).join('')})`].join(' · ');
     const what = `<div class="what"><b>Seu pedido:</b> ${esc(m.request || '')}<br><b>O que a aplicação fez:</b> ${esc(did)}${imp.designer === false ? '' : `<br><b>Enviado ao modelo de imagem:</b> ${esc((m.prompt || '').replace(/\s+/g, ' ').slice(0, 320))}${(m.prompt || '').length > 320 ? '…' : ''}`}</div>`;
     const rawScore = m.raw && m.raw.score != null ? ` · nota ${m.raw.score}` : '';
     const hero = m.raw

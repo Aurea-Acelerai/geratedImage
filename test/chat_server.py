@@ -173,10 +173,10 @@ def make_image(prompt, size, quality, inputs, model):
     return r["data"][0]["b64_json"], "png"
 
 
-def do_review(ctx, text, briefing, b64, ext, size, inputs, model, notes=""):
+def do_review(ctx, text, briefing, b64, ext, size, inputs, model, notes="", packs=None):
     if MOCK:
         time.sleep(0.4)
-        rv = {"scores": {k: random.randint(6, 10) for k in rc.WEIGHTS}, "veto": random.choice([[], [], [], ["logo_inventado"]]),
+        rv = {"scores": {k: random.randint(6, 10) for k in critic.weights_for(packs)}, "veto": random.choice([[], [], [], ["logo_inventado"]]),
               "issues": [{"criterion": "composition", "evidence": "(mock) exemplo", "severity": "baixa"}],
               "fix": "(mock) aumentar contraste do primeiro plano"}
     else:
@@ -190,10 +190,10 @@ def do_review(ctx, text, briefing, b64, ext, size, inputs, model, notes=""):
         imgs = [("Imagem avaliada", b64)]
         for x in inputs:
             imgs.append((f"Referência fornecida ({x['kind']}): {x['name']}", base64.b64encode(x["bytes"]).decode()))
-        rv = critic.review(vlm, briefing, ctx, text, imgs, notes=notes)
+        rv = critic.review(vlm, briefing, ctx, text, imgs, notes=notes, packs=packs)
     if ext == "png":
         rv = checks.apply(rv, b64, size)
-    s, ok = critic.decide(rv)
+    s, ok = critic.decide(rv, packs=packs)
     return rv, s, ok
 
 
@@ -382,7 +382,9 @@ def run_chat(b, emit, cid, text, ctx, inputs):
     t0 = time.time()
     used = skills_router.select(text, size, bool(inputs)) if (imp["designer"] and imp["skills"]) else []
     notes = skills_router.review_notes(used)
+    packs = skills_router.packs_for(text, size, bool(inputs), mode, bool(b.get("edit_of")))
     on = [k for k, label in (("designer", "briefing do designer"), ("skills", "skills de design"), ("review", "critic"), ("compare_raw", "comparação com o GPT puro")) if imp.get(k)]
+    emit("Critic (modelo da OpenAI como juiz): critérios da base" + "".join(f" + {p}" for p in packs) + (" (imagem livre: sem critérios de marketing)" if not packs else ""))
     emit(f"Modo {'com marca do cliente' if mode == 'marca' else 'livre (sem marca)'} · melhorias ligadas: " + (", ".join(on) or "nenhuma (seu texto vai direto ao modelo)"))
     if used:
         emit("Skills de design aplicadas: " + ", ".join(s.replace("design-", "") for s in used))
@@ -419,7 +421,7 @@ def run_chat(b, emit, cid, text, ctx, inputs):
         entry = {"cycle": cycle, "prompt": brief["prompt"], "id": gid, "url": url}
         if do_rev:
             emit("O critic está revisando…")
-            rv, s, ok = do_review(ctx_critic, text, brief["prompt"], b64, ext, size, inputs, b.get("critic_model") or text_model, notes)
+            rv, s, ok = do_review(ctx_critic, text, brief["prompt"], b64, ext, size, inputs, b.get("critic_model") or text_model, notes, packs)
             entry.update(score=s, approved=ok, veto=rv.get("veto", []), fix=rv.get("fix"), review=rv)
             emit(f"Nota {s}: {'aprovada' if ok else 'reprovada'}" + (f" · vetos: {', '.join(rv.get('veto', []))}" if rv.get("veto") else "")
                  + (f" · correção: {rv.get('fix')}" if not ok and rv.get("fix") else ""))
@@ -438,7 +440,7 @@ def run_chat(b, emit, cid, text, ctx, inputs):
     e = best["entry"]
     msg = {"role": "assistant", "kind": "image", "id": e["id"], "url": e["url"], "score": best["score"], "approved": best["ok"],
            "veto": (best["rv"] or {}).get("veto", []), "review": best["rv"], "prompt": e["prompt"], "request": text, "cycles": cycles,
-           "skills": used, "mode": mode, "improve": imp, "generations": len(cycles), "seconds": round(time.time() - t0, 1), "size": size,
+           "skills": used, "packs": packs, "mode": mode, "improve": imp, "generations": len(cycles), "seconds": round(time.time() - t0, 1), "size": size,
            "inputs": [{"kind": x["kind"], "name": x["name"]} for x in inputs]}
     if imp["compare_raw"]:
         # o mesmo pedido, sem nada da aplicação: serve para ver o que as melhorias acrescentam
@@ -451,7 +453,7 @@ def run_chat(b, emit, cid, text, ctx, inputs):
         emit(f"Versão do GPT puro pronta em {round(time.time() - tr)}s.", image_url=raw["url"])
         if do_rev:
             emit("O critic está revisando a versão pura (mesma régua)…")
-            rv2, s2, ok2 = do_review(ctx_critic, text, text, b64, ext, size, inputs, b.get("critic_model") or text_model, "")
+            rv2, s2, ok2 = do_review(ctx_critic, text, text, b64, ext, size, inputs, b.get("critic_model") or text_model, "", packs)
             raw.update(score=s2, approved=ok2, veto=rv2.get("veto", []))
             emit(f"GPT puro: nota {s2}{' · vetos: ' + ', '.join(rv2.get('veto', [])) if rv2.get('veto') else ''}")
         msg["raw"] = raw

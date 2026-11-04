@@ -13,7 +13,7 @@ O diferencial real não é uma peça boa: é **20 peças que parecem irmãs**, p
 ## Tokens (decididos uma vez por cliente)
 - **Cor:** primária, acento, fundo, neutros (4–5 tons); papel de cada uma (fundo, destaque, texto).
 - **Tipografia:** até 2 famílias, escala de tamanhos (razão 1,25–1,5 entre níveis), pesos permitidos.
-- **Espaçamento:** escala de múltiplos de 8 (8, 16, 24, 32…); margem do quadro em % da largura (partida: 6–8%).
+- **Espaçamento:** **escala fixa 4/8/12/16/24/32/48/64** (fonte `02-design-visual-direcao-arte`, regra 11); nenhum valor fora dela; margem do quadro em % da largura (partida: 6–8%).
 - **Forma:** um raio de borda, um estilo de sombra, um tratamento de imagem (K5).
 - **Fonte dos tokens:** `get_client` e `get_brand_kit`. Tokens ausentes não se inventam: pergunte ou use o padrão neutro e registre.
 
@@ -21,7 +21,7 @@ O diferencial real não é uma peça boa: é **20 peças que parecem irmãs**, p
 Uma grade por proporção (4:5, 9:16, 1:1, 1.91:1): colunas, margens, zona de título, zona de CTA, zona de logo. A mesma peça em dois formatos usa a **mesma linguagem** em grades **diferentes** (F1).
 
 ## Consistência numa série (para o modelo de imagem)
-- Um **descritor fixo** do assunto repetido em todas as peças ("the same woman as Image 1: shoulder-length dark hair, navy swimsuit").
+- Um **descritor fixo** do assunto repetido em todas as peças ("the same person as Image 1: same face, same hair, same clothing").
 - Um **prefixo de consistência** idêntico: estilo/medium, luz (K1), paleta (por nome), enquadramento base.
 - Imagem da peça anterior ou da referência como entrada, rotulada ("Image 1: reference for the character, keep identical").
 - Varie **uma** coisa por peça (cena, ângulo de câmera ou item); o restante permanece (invariantes).

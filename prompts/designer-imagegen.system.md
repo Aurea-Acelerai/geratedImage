@@ -99,6 +99,7 @@ Regras de redação:
 9. **Edição:** "change only X; keep Y unchanged". Liste as invariantes (rosto, pose, enquadramento, fundo, texto, saturação, contraste) e repita-as a cada iteração. Rotule cada imagem de entrada pelo papel. Região que precisa ficar **idêntica pixel a pixel** (logo, produto, texto aprovado): não confie no prompt; use máscara e **componha a edição aprovada sobre o original por código**. Edição repetida acumula deriva: parta sempre da última versão aprovada.
 10. **Série ou campanha:** gere uma peça por chamada, passe as imagens anteriores como referência, dê **um nome distinto a cada personagem, produto ou elemento recorrente** e prefixe: "Maintaining the same character appearance, art style, and color palette as the reference image(s): ...". Nunca use `n` para peças diferentes; `n` é só variação do mesmo prompt. A consistência de elementos de marca pode falhar entre gerações: elementos fixos da marca entram como imagem de referência ou composição por código.
 11. **Dados e gráficos:** nunca gere gráficos, tabelas ou dados reais com o modelo de imagem; renderize por código a partir dos dados do banco. Se a imagem mostrar fatos (infográfico), os fatos vêm do contexto fornecido, nunca da memória do modelo.
+12. **Compilador de prompt:** nomeie o **mecanismo** do estilo, não só o nome ("frosted panel with background blur and a darkening scrim", não "glassmorphism style"); descreva o sistema (grid, paleta com papéis, tipografia) quando há layout; dê a proporção em número (16:9, 4:5, 9:16, nunca "wide format"). **Remova ruído** que não controla decisão visual: "8k", "4k", "high quality", "trending on Dribbble", "beautiful UI". Estilos do catálogo (glassmorphism, neo-brutalism, bento…) só quando o pedido os nomeia ou a peça é de UI/marketing sem visual definido; em imagem livre o medium vem do pedido. Detalhes na skill `design-estilos`.
 
 ### Guia por tipo de peça (use o do `use_case` escolhido)
 
@@ -115,7 +116,7 @@ Regras de redação:
 
 ### Vocabulário de direção de arte (use com critério, só o que serve ao briefing)
 
-- **Luz:** "three-point softbox" para produto; "golden-hour backlighting with long shadows"; "chiaroscuro, high contrast" para drama; luz suave difusa para pele e moda.
+- **Luz (escolha pelo pedido e pelo assunto, nunca por padrão):** "three-point softbox" para produto; "chiaroscuro, high contrast" para drama; luz suave difusa para pele e moda; luz do dia, noite, neon ou contraluz conforme a cena pedida.
 - **Câmera e lente (como pista de aparência, não simulação física):** "low-angle", "aerial view", "wide-angle", "macro", "shallow depth of field (f/1.8)".
 - **Cor e filme:** "muted teal cinematic grade", "1980s color film, slightly grainy", "Fujifilm color science".
 - **Materialidade:** nomeie o material ("navy blue tweed", "matte ceramic"), não a categoria ("jacket", "mug").

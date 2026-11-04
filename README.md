@@ -40,6 +40,12 @@ Os modelos padrão (`gpt-image-2.5-sunburst`, `gpt-5.5`) seguem a documentação
 ## Skills de design
 `skills/design-*` aprofundam cada regra de `docs/08` (7 skills: estratégia, hierarquia/composição, cor/contraste/craft, tipografia/texto, formato/canal, série/marca, movimento/vídeo). `test/skills_router.py` escolhe as skills por pedido e as injeta no system prompt (`{{design_skills}}`, versão compacta); a seção "Revisão (critic)" de cada skill vai para o critic. Teste: `cd test && python3 skills_router.py --self-test` (checa que toda regra do `docs/08` tem aprofundamento). Para medir o efeito: rode o teste com `DESIGN_SKILLS=off` e sem.
 
+## Fontes de design, estilos, gates e critic em camadas
+- `docs/fontes/`: as duas fontes do Kelvin (roadmap "nível Apple" e a skill de direção de arte), cópias sem edição. **Estudo, conflitos e decisões: `docs/09-mapa-fontes-design.md`.**
+- `prompts/estilos.json` + `skills/design-estilos/`: catálogo de 14 estilos, **gerado** da fonte por `test/gen_estilos.py` (`--check` confere a sincronia).
+- `test/qa_gates.py`: os 12 gates de QA sobre a especificação de uma peça (PASSA / FALHA / NAO_VERIFICAVEL, veredito REVISAR / REFAZER).
+- **Critic em camadas:** o modelo da OpenAI como juiz, com base neutra e pacotes por caso de uso (marketing, brand, text, edit, estilos) em `prompts/rubric.json` v4 (v3 em `rubric.v3.json`). Imagem livre não é julgada por critérios de marketing.
+
 ## Chat estilo ChatGPT (cliente, logo, referências e iteração)
 ```bash
 cd test

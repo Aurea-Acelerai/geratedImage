@@ -1,0 +1,106 @@
+{
+  "version": "3",
+  "pass_score": 8.0,
+  "max_cycles": 2,
+  "criteria": [
+    {
+      "key": "subject",
+      "weight": 2,
+      "description": "Assunto e ação conforme o briefing."
+    },
+    {
+      "key": "style",
+      "weight": 1,
+      "description": "Estilo e medium conforme o briefing e iguais ao do conjunto de peças do cliente."
+    },
+    {
+      "key": "composition",
+      "weight": 1,
+      "description": "Peso visual equilibrado e espaço negativo onde o texto entra (hero) ou quadro preenchido (cell). Sem elementos competindo pelo mesmo peso."
+    },
+    {
+      "key": "hierarchy",
+      "weight": 1.5,
+      "description": "Um único ponto focal claro e pelo menos 3 níveis de leitura com salto real de escala ou peso (ver docs/08, H1 a H3). A peça se entende em 1,5 s. Se for preciso decifrar a peça, a nota é baixa."
+    },
+    {
+      "key": "legibility_size",
+      "weight": 1,
+      "description": "Olhe a peça reduzida a cerca de 120 px de largura: o ponto focal e o texto principal ainda se leem? Contraste de texto >= 4,5:1 (>= 3:1 se grande). Use null se a peça não tem texto."
+    },
+    {
+      "key": "message_clarity",
+      "weight": 1,
+      "description": "Uma ideia por peça. Oferta ou hook compreensível sem ler o resto; CTA, quando pedido, é único, de alto contraste e descreve o benefício (nunca 'clique aqui' ou 'saiba mais'). Use null se o briefing não pede mensagem nem CTA."
+    },
+    {
+      "key": "craft",
+      "weight": 0.5,
+      "description": "Uma fonte de luz coerente entre todos os elementos, sombras proporcionais à escala do objeto, camadas integradas e sem aspecto de colagem ou plástico."
+    },
+    {
+      "key": "color_contrast",
+      "weight": 2,
+      "description": "Paleta da marca, contraste forte, foco nítido e profundidade tonal. Aspecto lavado, leitoso, chapado ou foco difuso derrubam a nota."
+    },
+    {
+      "key": "text",
+      "weight": 2,
+      "description": "Texto exato, legível e sem extras. Confira letra por letra. Use null se nenhum texto foi pedido e não há texto na imagem."
+    },
+    {
+      "key": "defects",
+      "weight": 1,
+      "description": "Sem defeitos de anatomia, mãos, objetos, perspectiva ou artefatos."
+    },
+    {
+      "key": "format",
+      "weight": 0.5,
+      "description": "Proporção e resolução corretas para o contêiner de uso, e conteúdo crítico (rosto, produto, texto, CTA) fora das áreas cobertas pela interface do canal (ver docs/08, F2). Se o canal não foi declarado, avalie só proporção e resolução."
+    },
+    {
+      "key": "binding_count",
+      "weight": 1,
+      "description": "Cada cor, objeto e propriedade ligado ao elemento certo; contagens corretas; negações respeitadas."
+    },
+    {
+      "key": "invariants",
+      "weight": 0.5,
+      "description": "Em edição: o que devia ficar igual ficou. Em série: personagem, produto e estilo consistentes com as imagens de referência. Use null se não for edição nem série."
+    }
+  ],
+  "vetos": [
+    {
+      "key": "logo_inventado",
+      "description": "Logo ou marca que não é a do cliente, ou logo do cliente redesenhado."
+    },
+    {
+      "key": "watermark",
+      "description": "Marca d'água ou assinatura visível."
+    },
+    {
+      "key": "texto_indevido",
+      "description": "Texto que ninguém pediu, ilegível ou com letras inventadas."
+    },
+    {
+      "key": "pessoa_real_sem_referencia",
+      "description": "Rosto de pessoa real sem foto de referência fornecida."
+    },
+    {
+      "key": "dado_inventado",
+      "description": "Número, preço, data ou fato exibido que não veio do contexto."
+    },
+    {
+      "key": "safe_zone_violada",
+      "description": "Texto, logo ou CTA dentro de área que a interface do canal declarado cobre (ver docs/08, F2). Só vale quando o canal consta no briefing."
+    },
+    {
+      "key": "cta_vago",
+      "description": "CTA pedido no briefing que aparece genérico ('clique aqui', 'saiba mais') ou que se mistura ao fundo. Só vale quando o briefing pede CTA."
+    },
+    {
+      "key": "formato_incorreto",
+      "description": "Dimensões da imagem diferentes do contêiner pedido. Checado por código (test/checks.py), não pelo critic."
+    }
+  ]
+}
