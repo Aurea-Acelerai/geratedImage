@@ -5,6 +5,8 @@
 
 Cenário A: orçamento da sessão = 0. O preflight tem que barrar ANTES do briefing pago e de qualquer imagem
            (a OpenAI falsa conta as chamadas: 0 redator de briefing, 0 gerações).
+Cenários C, D, E (texto): 429 transitório nas chamadas de texto é repetido e a tarefa conclui; orçamento de texto da
+           sessão = 0 ou da tarefa = 1 interrompe a tarefa com mensagem clara (nem o briefing nem a imagem acontecem).
 Cenário B: orçamento da tarefa = 1. O preflight limita o laço a 1 geração; o critic reprova (a falsa reprova o 1º
            review) e o resultado sai ESCALONADO para revisão humana, sem 2ª geração.
 """
@@ -101,6 +103,34 @@ def main():
         ok(any("Pré-checagem ok" in x["text"] for x in steps), "o passo 'Pré-checagem ok' aparece no progresso")
     finally:
         b.close()
+    print("== C: 429 transitório no texto")
+    c = Stack()
+    try:
+        p, steps = c.run({"client": "71", "text": "banner flaky429 de verao", "review": False})
+        s = c.stats()
+        ok(p["status"] == "done" and p["message"]["kind"] == "image", "a tarefa conclui com imagem apesar do 429 nas chamadas de texto")
+        ok(s["injected"] >= 2, f"houve falhas de texto injetadas e repetidas ({s['injected']} no total)")
+        ok(not [a for a in p["message"]["avisos"] if "não consegui resolver o contexto" in a], "o resolvedor se recuperou: sem aviso de contexto degradado")
+    finally:
+        c.close()
+    print("== D: orçamento de texto da sessão = 0")
+    d = Stack(TEXT_BUDGET_SESSION="0")
+    try:
+        p, steps = d.run({"client": "71", "text": "paisagem de praia", "review": False})
+        s = d.stats()
+        ok(p["status"] == "error" and "texto da sessão" in p["error"] and "esgotado" in p["error"], f"job para com erro claro: {p['error'][:90]}")
+        ok(s["chat_writer"] == 0 and s["generations"] == 0 and s["edits"] == 0 and s["resolver_users"] == [], "nenhuma chamada de texto nem de imagem chegou à OpenAI")
+    finally:
+        d.close()
+    print("== E: orçamento de texto da tarefa = 1")
+    e = Stack(TEXT_BUDGET_TASK="1")
+    try:
+        p, steps = e.run({"client": "71", "text": "paisagem de praia", "review": False})
+        s = e.stats()
+        ok(p["status"] == "error" and "texto da tarefa" in p["error"], f"job para quando a 2ª chamada de texto excede a tarefa: {p['error'][:90]}")
+        ok(len(s["resolver_users"]) == 1 and s["chat_writer"] == 0 and s["generations"] == 0, "o resolvedor usou a única chamada; o briefing e a imagem não aconteceram")
+    finally:
+        e.close()
     print("\nTUDO OK")
 
 

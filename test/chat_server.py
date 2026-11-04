@@ -146,6 +146,7 @@ def with_urls(cid, assets):
 
 
 # ---------- OpenAI (JSON, multipart) ----------
+ui.EVENT_SINK = lambda e: log_event(**e)  # trace das chamadas de texto no mesmo log das de imagem
 SESSION_BUDGET = provider_mod.Budget("sessão", int(os.getenv("IMAGE_BUDGET_SESSION", "200")))  # chamadas pagas de imagem por execução do servidor
 TASK_BUDGET_CALLS = int(os.getenv("IMAGE_BUDGET_TASK", "8"))  # por mensagem do chat (gerações, correções e repetições de rede)
 _IMAGES = None
@@ -179,7 +180,8 @@ def _storage_probe():
 
 def get_runner():
     """Runner com preflight leve (sem rede, sem custo). Montado a cada chamada: a chave e o store podem mudar."""
-    return runner_mod.Runner(images_client(), SESSION_BUDGET, key_fn=lambda: os.getenv("OPENAI_API_KEY"), storage_probe=_storage_probe)
+    return runner_mod.Runner(images_client(), SESSION_BUDGET, key_fn=lambda: os.getenv("OPENAI_API_KEY"), storage_probe=_storage_probe,
+                             text_session_budget=ui.TEXT_SESSION_BUDGET)
 
 
 def sniff_mime(b64):
@@ -1073,6 +1075,12 @@ def fetch_text(url, limit=2 * 1024 * 1024):
         raise ui.ApiError(502, f"Não consegui abrir a página: {getattr(e, 'reason', e)}")
 
 
+def _fatal(e):
+    """Falha LOCAL (orçamento esgotado 429, requisição inválida ou chave ausente 400): a tarefa tem que parar, não degradar em silêncio.
+    Falha do provedor (502, rede esgotada depois das repetições) continua degradando onde o fluxo já tolerava."""
+    return isinstance(e, ui.ApiError) and e.status in (400, 429)
+
+
 def resolve_turn(conv, text, avail, model, provider, has_files=False):
     """Entende a mensagem no contexto (como o ChatGPT): devolve intenção e um pedido autossuficiente. Nunca derruba o fluxo."""
     triv = {"intent": "new", "request": text, "use_last_image": False, "carry": list(conv["carry"])}
@@ -1111,6 +1119,8 @@ def resolve_turn(conv, text, avail, model, provider, has_files=False):
                 "research": (str(out["research"]).strip()[:160] if out.get("research") else None),
                 "carry": carry or list(conv["carry"])}, None
     except Exception as e:  # noqa: BLE001
+        if _fatal(e):
+            raise
         return triv, f"não consegui resolver o contexto ({type(e).__name__}); usei a sua mensagem como está"
 
 
@@ -1388,7 +1398,13 @@ def api_asset_kind(b):
     return {"ok": True}
 
 
-def run_chat(b, emit, cid, text, ctx, inputs, files=None, auto=None, stale=None, scope=None, detect=None, client_meta=None):
+def run_chat(*a, **k):
+    """Uma mensagem do chat = uma tarefa: o orçamento de chamadas de texto vale para tudo que ela chamar (nesta thread)."""
+    with provider_mod.task_scope(text=provider_mod.Budget("texto da tarefa", ui.TEXT_TASK_CALLS)):
+        return _run_chat(*a, **k)
+
+
+def _run_chat(b, emit, cid, text, ctx, inputs, files=None, auto=None, stale=None, scope=None, detect=None, client_meta=None):
     """cid = biblioteca de imagens (cliente, ou a pasta da conversa se ainda não há cliente); scope = pasta da conversa e das imagens geradas."""
     scope = scope or cid
     size = b.get("size") if b.get("size") in SIZES else "auto"
@@ -1496,6 +1512,8 @@ def run_chat(b, emit, cid, text, ctx, inputs, files=None, auto=None, stale=None,
                 region = {"mode": "local", "mask": regionedit.local_mask_png((ow, oh), boxes), "boxes": boxes, "orig": alvo_in["bytes"]}
                 emit("Edição localizada: " + "; ".join(f"{lbl or 'região'} {[round(v, 2) for v in box]}" for lbl, box in regs) + ". Fora disso o original volta idêntico.")
         except Exception as e:  # noqa: BLE001
+            if _fatal(e):
+                raise
             region = None
             avisos.append(f"Não consegui limitar a edição a uma região ({type(e).__name__}: {str(e)[:90]}); editei a imagem inteira.")
     pinned_ids = {x.get("id") for x in inputs}
@@ -1548,6 +1566,8 @@ def run_chat(b, emit, cid, text, ctx, inputs, files=None, auto=None, stale=None,
                     emit("Não achei um logo utilizável na web" + (f" ({'; '.join(why)})" if why else "") + ".")
                     avisos.append(f"Não consegui um logo oficial de {brand}; a peça sai sem logo desenhado. Envie o logo oficial para colocá-lo fiel.")
         except Exception as e:  # noqa: BLE001
+            if _fatal(e):
+                raise
             brand_brief = conv.get("brand_brief")
             avisos.append(f"A pesquisa na web não funcionou ({type(e).__name__}: {str(e)[:100]}); segui SEM fatos pesquisados e sem inventar slogan, oferta ou condição.")
     lib = {a["id"]: a for a in lib_assets(cid, conv["id"])}

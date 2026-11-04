@@ -127,6 +127,17 @@ def test_budget_preflight():
     ok(pv.Budget("x", None).remaining() is None and pv.Budget("x", 3).remaining() == 3, "Budget.remaining: sem limite e com limite")
 
 
+def test_text_budget_preflight():
+    images = pv.OpenAIImages("http://x/v1", "k", transport=Wire())
+    r = rn.Runner(images, key_fn=lambda: "k", text_session_budget=pv.Budget("texto da sessão", 0))
+    e = problems(r, **base())
+    ok(e and "orçamento de texto da sessão esgotado" in str(e), "orçamento de texto da sessão esgotado falha no preflight (briefing e critic dependem dele)")
+    r = rn.Runner(images, key_fn=lambda: "k", text_session_budget=pv.Budget("texto da sessão", 3))
+    ok("orcamento" in r.preflight(**base())["checks"], "texto com saldo passa")
+    r = rn.Runner(images, key_fn=lambda: "k", text_session_budget=pv.Budget("texto da sessão", None))
+    ok("orcamento" in r.preflight(**base())["checks"], "texto sem limite passa")
+
+
 def entries(*scores):
     """review/generate falsos: notas na ordem; aprova a partir de 8."""
     it = iter(scores)
@@ -223,7 +234,7 @@ def test_trace():
 
 
 def main():
-    for fn in (test_preflight, test_budget_preflight, test_loop, test_loop_budget_and_questions, test_trace):
+    for fn in (test_preflight, test_budget_preflight, test_text_budget_preflight, test_loop, test_loop_budget_and_questions, test_trace):
         print(f"== {fn.__name__}")
         fn()
     print(f"\nTUDO OK ({N['ok']} verificações)")

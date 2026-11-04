@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Adapter da OpenAI Images: validate_request, get_capabilities, generate e edit. Só stdlib.
+"""Adapters da OpenAI: OpenAIImages (generate, edit, validate_request, get_capabilities) e OpenAIText (post_json para chat
+completions e responses), sobre a mesma base OpenAIClient (retry, orçamento, concorrência, trace). Só stdlib.
 
 O que faz (e o que não faz):
 - Valida a requisição ANTES de qualquer chamada paga, contra provider_capabilities.json (dados por modelo, com
@@ -16,7 +17,11 @@ O que faz (e o que não faz):
   a espera do backoff. Uma chamada HTTP já enviada não é interrompida.
 - Verifica o arquivo devolvido: JSON válido, data não vazia, base64 válido, assinatura PNG/JPEG/WebP, dimensões
   quando legíveis (PNG) comparadas com o tamanho pedido. Divergência de tamanho vira aviso, não erro.
-- O trace de eventos nunca contém prompt, chave nem bytes de imagem.
+- O trace de eventos nunca contém prompt, chave nem bytes de imagem; `usage` entra só com campos numéricos.
+- Texto (OpenAIText): mesma política de retry. Orçamentos separados dos de imagem; o da TAREFA vem do contexto da thread
+  (`with task_scope(text=Budget(...))`), então os pontos de chamada não precisam carregá-lo. Valida o payload (endpoint,
+  modelo, messages/input, JSON serializável) e a resposta (JSON, choices/content, recusa); não valida modelo nem
+  parâmetros contra a documentação (não há tabela de capacidades para texto).
 """
 import base64, binascii, json, os, random, re, socket, struct, threading, time, urllib.error, urllib.request, uuid
 from email.utils import parsedate_to_datetime
@@ -123,13 +128,38 @@ def parse_retry_after(value, now=None):
     except (TypeError, ValueError):
         return None
 
+_CTX = threading.local()
 
-class OpenAIImages:
-    def __init__(self, base_url, api_key, capabilities=None, budgets=(), max_retries=2, backoff_base=1.0, backoff_cap=20.0,
+
+class task_scope:
+    """Orçamento da tarefa corrente, por thread: with task_scope(text=Budget(...)): ... Os clientes somam este orçamento aos seus."""
+
+    def __init__(self, **budgets):
+        self.budgets = budgets
+
+    def __enter__(self):
+        self._prev = getattr(_CTX, "budgets", {})
+        _CTX.budgets = {**self._prev, **self.budgets}
+        return self
+
+    def __exit__(self, *exc):
+        _CTX.budgets = self._prev
+
+
+def current_task_budgets(kind):
+    b = getattr(_CTX, "budgets", {}).get(kind)
+    return [b] if b else []
+
+
+
+class OpenAIClient:
+    """Base: envio com retry seguro, Retry-After, orçamento, concorrência, cancelamento e trace. Sem regra de endpoint."""
+    budget_kind = "image"
+
+    def __init__(self, base_url, api_key, budgets=(), max_retries=2, backoff_base=1.0, backoff_cap=20.0,
                  max_retry_after=30.0, timeout=300, max_concurrency=2, transport=None, sleep=None, rng=None, on_event=None):
         self.base_url = base_url.rstrip("/")
         self._api_key = api_key  # callable ou string: lido a cada chamada (a chave pode ser colada depois de subir o servidor)
-        self.caps = capabilities if capabilities is not None else load_capabilities()
         self.budgets = list(budgets)
         self.max_retries, self.backoff_base, self.backoff_cap = max_retries, backoff_base, backoff_cap
         self.max_retry_after, self.timeout = max_retry_after, timeout
@@ -138,6 +168,121 @@ class OpenAIImages:
         self._sleep = sleep
         self._rng = rng or random.Random()
         self._on_event = on_event
+
+    # ---------- execução com retry ----------
+    def _event(self, **f):
+        if self._on_event:
+            try:
+                self._on_event(f)
+            except Exception:
+                pass  # observabilidade nunca derruba a geração
+
+    def _wait(self, seconds, cancel):
+        if self._sleep:
+            self._sleep(seconds)
+            if cancel is not None and cancel.is_set():
+                raise ProviderError("cancelled", "Cancelado durante a espera entre tentativas.")
+        elif cancel is not None:
+            if cancel.wait(seconds):
+                raise ProviderError("cancelled", "Cancelado durante a espera entre tentativas.")
+        else:
+            time.sleep(seconds)
+
+    def _call(self, op, path, body, ctype, model, size, quality, finalize, cancel, extra_budgets, prompt_chars, timeout=None):
+        timeout = timeout or self.timeout
+        key = self._api_key() if callable(self._api_key) else self._api_key
+        if not key:
+            raise ProviderError("auth", "Defina OPENAI_API_KEY antes de iniciar o servidor (ou use --mock).", status=400)
+        client_id = uuid.uuid4().hex
+        headers = {"Authorization": f"Bearer {key}", "Content-Type": ctype, "X-Client-Request-Id": client_id}
+        attempt, last = 0, None
+        with self._sem:
+            while True:
+                attempt += 1
+                if cancel is not None and cancel.is_set():
+                    raise ProviderError("cancelled", "Cancelado antes de enviar.", attempts=attempt - 1)
+                for b in self.budgets + list(extra_budgets) + current_task_budgets(self.budget_kind):
+                    try:
+                        b.reserve()
+                    except ProviderError as e:
+                        e.attempts = attempt - 1
+                        raise
+                t0 = time.time()
+                try:
+                    status, rh, raw = self._transport("POST", self.base_url + path, headers, body, timeout)
+                except TransportError as e:
+                    self._event(kind="provider_call", op=op, model=model, size=size, quality=quality, attempt=attempt,
+                                client_request_id=client_id, error=e.kind, ms=round((time.time() - t0) * 1000), prompt_chars=prompt_chars)
+                    if e.kind == "timeout":  # pode ter sido processado e cobrado: não repete
+                        raise ProviderError("timeout", f"A OpenAI não respondeu em {timeout}s; não repeti a chamada para não cobrar duas vezes.", attempts=attempt)
+                    last = ProviderError("network", f"Falha de rede: {e}", retryable=(e.kind == "connect"), attempts=attempt)
+                    if e.kind != "connect" or attempt > self.max_retries:
+                        raise last
+                    self._wait(self._delay(attempt, None), cancel)
+                    continue
+                ms = round((time.time() - t0) * 1000)
+                rid = rh.get("x-request-id")
+                common = dict(kind="provider_call", op=op, model=model, size=size, quality=quality, attempt=attempt, request_id=rid,
+                              client_request_id=client_id, ms=ms, prompt_chars=prompt_chars)
+                if status == 200:
+                    try:
+                        res = finalize(raw, rid, client_id, attempt, ms)
+                    except ProviderError as e:
+                        self._event(**common, status=status, error=e.kind)
+                        raise
+                    u = res.get("usage") if isinstance(res, dict) else None
+                    self._event(**common, status=status, usage={k: v for k, v in u.items() if isinstance(v, int)} if isinstance(u, dict) else None)
+                    return res
+                self._event(**common, status=status)
+                err = self._http_error(status, raw, rh, rid, attempt)
+                if not err.retryable or attempt > self.max_retries:
+                    raise err
+                delay = err.retry_after if err.retry_after is not None else self._delay(attempt, None)
+                if delay > self.max_retry_after:
+                    raise ProviderError(err.kind, f"{err} (Retry-After de {delay:.0f}s acima do limite de espera de {self.max_retry_after:.0f}s)",
+                                        status=status, request_id=rid, retry_after=delay, attempts=attempt)
+                self._wait(delay, cancel)
+
+    def _delay(self, attempt, _):
+        return min(self.backoff_cap, self.backoff_base * (2 ** (attempt - 1))) * (0.5 + self._rng.random() / 2)
+
+    def _http_error(self, status, raw, rh, rid, attempt):
+        try:
+            e = json.loads(raw.decode("utf-8", "replace"))["error"]
+            msg, code = str(e.get("message") or ""), str(e.get("code") or "")
+        except Exception:
+            msg, code = raw.decode("utf-8", "replace")[:500], ""
+        text = f"OpenAI {status}: {msg}"
+        ra = parse_retry_after(rh.get("retry-after"))
+        kw = dict(status=status, request_id=rid, attempts=attempt)
+        if code in REFUSAL_CODES:
+            return ProviderError("refused", text, **kw)
+        if status == 429:
+            if code == "insufficient_quota":
+                return ProviderError("quota", text, **kw)
+            return ProviderError("rate_limit", text, retryable=True, retry_after=ra, **kw)
+        if status in RETRY_STATUS:
+            return ProviderError("transient", text, retryable=True, retry_after=ra, **kw)
+        if status == 401:
+            return ProviderError("auth", text, **kw)
+        if status == 403:
+            return ProviderError("forbidden", text, **kw)  # inclui organização sem verificação para o modelo
+        if status == 404:
+            return ProviderError("model", text, **kw)
+        if status == 400:
+            m = re.search(r"(?:unknown|unsupported|unrecognized)[^']*parameter[^']*'([a-z_]+)'", msg, re.I) or \
+                re.search(r"'([a-z_]+)'[^.]*(?:not supported|is not allowed|unknown)", msg, re.I)
+            if m:
+                return ProviderError("unsupported_param", text, param=m.group(1), **kw)
+        return ProviderError("bad_request", text, **kw)
+
+
+class OpenAIImages(OpenAIClient):
+    budget_kind = "image"
+
+    def __init__(self, base_url, api_key, capabilities=None, **kw):
+        super().__init__(base_url, api_key, **kw)
+        self.caps = capabilities if capabilities is not None else load_capabilities()
 
     # ---------- capacidades e validação ----------
     def get_capabilities(self, model):
@@ -222,7 +367,7 @@ class OpenAIImages:
         if quality:
             body["quality"] = quality
         return self._call("generate", "/images/generations", json.dumps(body).encode(), "application/json", model, size, quality,
-                          warnings, cancel, extra_budgets, len(prompt))
+                          lambda raw, rid, cid, att, ms: self._parse(raw, "generate", model, size, warnings, rid, cid, att, ms), cancel, extra_budgets, len(prompt))
 
     def edit(self, prompt, model, size, quality=None, inputs=(), mask=None, fidelity=None, n=1, cancel=None, extra_budgets=()):
         warnings = self.validate_request("edit", model, size, quality, inputs=inputs, mask=mask, n=n)
@@ -236,105 +381,8 @@ class OpenAIImages:
         if mask:  # vale para a primeira imagem; transparente = onde o modelo pode editar
             files.append(("mask", "mask.png", "image/png", mask))
         body, ctype = _multipart(fields, files)
-        return self._call("edit", "/images/edits", body, ctype, model, size, quality, warnings, cancel, extra_budgets, len(prompt))
-
-    # ---------- execução com retry ----------
-    def _event(self, **f):
-        if self._on_event:
-            try:
-                self._on_event(f)
-            except Exception:
-                pass  # observabilidade nunca derruba a geração
-
-    def _wait(self, seconds, cancel):
-        if self._sleep:
-            self._sleep(seconds)
-            if cancel is not None and cancel.is_set():
-                raise ProviderError("cancelled", "Cancelado durante a espera entre tentativas.")
-        elif cancel is not None:
-            if cancel.wait(seconds):
-                raise ProviderError("cancelled", "Cancelado durante a espera entre tentativas.")
-        else:
-            time.sleep(seconds)
-
-    def _call(self, op, path, body, ctype, model, size, quality, warnings, cancel, extra_budgets, prompt_chars):
-        key = self._api_key() if callable(self._api_key) else self._api_key
-        if not key:
-            raise ProviderError("auth", "Defina OPENAI_API_KEY antes de iniciar o servidor (ou use --mock).", status=400)
-        client_id = uuid.uuid4().hex
-        headers = {"Authorization": f"Bearer {key}", "Content-Type": ctype, "X-Client-Request-Id": client_id}
-        attempt, last = 0, None
-        with self._sem:
-            while True:
-                attempt += 1
-                if cancel is not None and cancel.is_set():
-                    raise ProviderError("cancelled", "Cancelado antes de enviar.", attempts=attempt - 1)
-                for b in self.budgets + list(extra_budgets):
-                    try:
-                        b.reserve()
-                    except ProviderError as e:
-                        e.attempts = attempt - 1
-                        raise
-                t0 = time.time()
-                try:
-                    status, rh, raw = self._transport("POST", self.base_url + path, headers, body, self.timeout)
-                except TransportError as e:
-                    self._event(kind="provider_call", op=op, model=model, size=size, quality=quality, attempt=attempt,
-                                client_request_id=client_id, error=e.kind, ms=round((time.time() - t0) * 1000), prompt_chars=prompt_chars)
-                    if e.kind == "timeout":  # pode ter sido processado e cobrado: não repete
-                        raise ProviderError("timeout", f"A OpenAI não respondeu em {self.timeout}s; não repeti a chamada para não cobrar duas vezes.", attempts=attempt)
-                    last = ProviderError("network", f"Falha de rede: {e}", retryable=(e.kind == "connect"), attempts=attempt)
-                    if e.kind != "connect" or attempt > self.max_retries:
-                        raise last
-                    self._wait(self._delay(attempt, None), cancel)
-                    continue
-                ms = round((time.time() - t0) * 1000)
-                rid = rh.get("x-request-id")
-                self._event(kind="provider_call", op=op, model=model, size=size, quality=quality, attempt=attempt, status=status,
-                            request_id=rid, client_request_id=client_id, ms=ms, prompt_chars=prompt_chars)
-                if status == 200:
-                    return self._parse(raw, op, model, size, warnings, rid, client_id, attempt, ms)
-                err = self._http_error(status, raw, rh, rid, attempt)
-                if not err.retryable or attempt > self.max_retries:
-                    raise err
-                delay = err.retry_after if err.retry_after is not None else self._delay(attempt, None)
-                if delay > self.max_retry_after:
-                    raise ProviderError(err.kind, f"{err} (Retry-After de {delay:.0f}s acima do limite de espera de {self.max_retry_after:.0f}s)",
-                                        status=status, request_id=rid, retry_after=delay, attempts=attempt)
-                self._wait(delay, cancel)
-
-    def _delay(self, attempt, _):
-        return min(self.backoff_cap, self.backoff_base * (2 ** (attempt - 1))) * (0.5 + self._rng.random() / 2)
-
-    def _http_error(self, status, raw, rh, rid, attempt):
-        try:
-            e = json.loads(raw.decode("utf-8", "replace"))["error"]
-            msg, code = str(e.get("message") or ""), str(e.get("code") or "")
-        except Exception:
-            msg, code = raw.decode("utf-8", "replace")[:500], ""
-        text = f"OpenAI {status}: {msg}"
-        ra = parse_retry_after(rh.get("retry-after"))
-        kw = dict(status=status, request_id=rid, attempts=attempt)
-        if code in REFUSAL_CODES:
-            return ProviderError("refused", text, **kw)
-        if status == 429:
-            if code == "insufficient_quota":
-                return ProviderError("quota", text, **kw)
-            return ProviderError("rate_limit", text, retryable=True, retry_after=ra, **kw)
-        if status in RETRY_STATUS:
-            return ProviderError("transient", text, retryable=True, retry_after=ra, **kw)
-        if status == 401:
-            return ProviderError("auth", text, **kw)
-        if status == 403:
-            return ProviderError("forbidden", text, **kw)  # inclui organização sem verificação para o modelo
-        if status == 404:
-            return ProviderError("model", text, **kw)
-        if status == 400:
-            m = re.search(r"(?:unknown|unsupported|unrecognized)[^']*parameter[^']*'([a-z_]+)'", msg, re.I) or \
-                re.search(r"'([a-z_]+)'[^.]*(?:not supported|is not allowed|unknown)", msg, re.I)
-            if m:
-                return ProviderError("unsupported_param", text, param=m.group(1), **kw)
-        return ProviderError("bad_request", text, **kw)
+        return self._call("edit", "/images/edits", body, ctype, model, size, quality,
+                          lambda raw, rid, cid, att, ms: self._parse(raw, "edit", model, size, warnings, rid, cid, att, ms), cancel, extra_budgets, len(prompt))
 
     def _parse(self, raw, op, model, size, warnings, rid, client_id, attempts, ms):
         ctx = dict(request_id=rid, attempts=attempts)
@@ -365,7 +413,74 @@ class OpenAIImages:
                 "attempts": attempts, "ms": ms, "model": model, "op": op, "warnings": warnings}
 
 
+class OpenAIText(OpenAIClient):
+    """Chamadas JSON de texto (chat completions e responses): briefing, critic, resolvedor, localização e pesquisa.
+    Mesma política de retry, Retry-After, orçamento (separado do de imagens), concorrência e trace do adapter de imagens.
+    Orçamento da tarefa: vem do contexto da thread (task_scope), para os pontos de chamada não precisarem carregá-lo."""
+    budget_kind = "text"
+    PATHS = ("/chat/completions", "/responses")
+    ROLES = ("system", "developer", "user", "assistant", "tool")
+
+    def validate_payload(self, path, payload):
+        problems = []
+        if path not in self.PATHS:
+            problems.append(f"endpoint de texto não suportado: {path!r}")
+        if not isinstance(payload, dict):
+            problems.append("payload deve ser um objeto JSON")
+        else:
+            if not isinstance(payload.get("model"), str) or not payload.get("model"):
+                problems.append("modelo ausente")
+            if path == "/chat/completions":
+                msgs = payload.get("messages")
+                if not isinstance(msgs, list) or not msgs:
+                    problems.append("messages ausente ou vazio")
+                else:
+                    for i, m in enumerate(msgs):
+                        if not isinstance(m, dict) or m.get("role") not in self.ROLES:
+                            problems.append(f"messages[{i}] sem role válido")
+            if path == "/responses" and not payload.get("input"):
+                problems.append("input ausente")
+            try:
+                json.dumps(payload)
+            except (TypeError, ValueError):
+                problems.append("payload não serializável em JSON")
+        if problems:
+            raise ProviderError("validation", "Requisição inválida, nada foi enviado: " + "; ".join(problems))
+
+    def post_json(self, path, payload, timeout=None, cancel=None, extra_budgets=()):
+        self.validate_payload(path, payload)
+        body = json.dumps(payload).encode()
+        return self._call("text", path, body, "application/json", payload["model"], None, None,
+                          lambda raw, rid, cid, att, ms: self._parse_json(path, raw, rid, att), cancel, extra_budgets, len(body), timeout)
+
+    def _parse_json(self, path, raw, rid, attempts):
+        ctx = dict(request_id=rid, attempts=attempts)
+        try:
+            doc = json.loads(raw.decode("utf-8"))
+        except Exception:
+            raise ProviderError("bad_response", "Resposta da OpenAI não é JSON válido.", **ctx)
+        if not isinstance(doc, dict):
+            raise ProviderError("bad_response", "Resposta da OpenAI não é um objeto JSON.", **ctx)
+        if path == "/chat/completions":
+            ch = doc.get("choices")
+            msg = ch[0].get("message") if isinstance(ch, list) and ch and isinstance(ch[0], dict) else None
+            if not isinstance(msg, dict):
+                raise ProviderError("bad_response", "Resposta de texto sem choices[0].message.", **ctx)
+            if msg.get("refusal"):
+                raise ProviderError("refused", "O modelo recusou o pedido: " + str(msg["refusal"])[:200], **ctx)
+            if not msg.get("content") and not msg.get("tool_calls"):
+                raise ProviderError("bad_response", "Resposta de texto vazia (sem content).", **ctx)
+        elif doc.get("error"):
+            raise ProviderError("bad_response", "Resposta com erro: " + str(doc["error"])[:200], **ctx)
+        return doc
+
+
 def from_env(budgets=(), on_event=None, **kw):
     """Instância padrão do servidor: base e chave vêm do ambiente (a chave é lida a cada chamada)."""
     base = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
     return OpenAIImages(base, lambda: os.getenv("OPENAI_API_KEY"), budgets=budgets, on_event=on_event, **kw)
+
+
+def text_from_env(budgets=(), on_event=None, **kw):
+    base = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1")
+    return OpenAIText(base, lambda: os.getenv("OPENAI_API_KEY"), budgets=budgets, on_event=on_event, **kw)

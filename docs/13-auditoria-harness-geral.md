@@ -72,7 +72,7 @@ Decisão: o protótipo é referência de ideias (gates por código, contrato de 
 | C | Edição com máscara enviava o alvo no formato original (JPEG) e a máscara em PNG; a documentação exige o **mesmo formato e tamanho** | **Corrigido** (alvo convertido para PNG antes da chamada; coberto por teste com Pillow) |
 | D | `vercel.json` não incluiria `provider_capabilities.json` no pacote; a função falharia em produção na 1ª imagem | **Corrigido** |
 | E | `input_fidelity=high` é enviado por padrão. A documentação só diz que `gpt-image-2` não aceita o parâmetro; para os modelos 2.5 **não verifiquei**. O recuo automático existente trata a recusa | Aberto (registrado em `provider_capabilities.json`) |
-| F | Chamadas de texto/critic (`ui.openai_post`, `/chat/completions`) seguem sem retry nem orçamento | Aberto |
+| F | Chamadas de texto/critic (`ui.openai_post`, `/chat/completions`) sem retry nem orçamento | **Corrigido na rodada 4** (§11) |
 | G | Não há `ExecutionService`/Runner: o preflight está espalhado em `run_chat` | **Corrigido na rodada 3** (`test/runner.py`, ver §10). Falta estender retry/orçamento às chamadas de texto (F) |
 | H | Estado da conversa, resolução de imagem-base, critic e `checks.py`: não auditados a fundo | Aberto |
 
@@ -101,7 +101,7 @@ Modelos `gpt-image-2.5-sunburst` e `gpt-image-2.5-flare`; tamanhos custom com la
 ## 8. Plano incremental (próximas rodadas, uma melhoria por vez)
 
 1. ~~**Obsidian → repositório**~~ (feito na rodada 2): `tools/obsidian_sync.py` com origem explícita, manifesto com hashes, dry-run por padrão, conflitos, sem sobrescrita nem exclusão, contenção de caminho. Antes: decidir o `.gitignore` de `.claude/agents` e quais agentes `eng-*` adaptar (propostos: `eng-api`, `eng-qa-revisor`, `eng-arquiteto`; um agente de direção de arte precisa ser **criado**, pois o vault não tem).
-2. ~~**Runner com preflight leve**~~ (feito na rodada 3, §10; falta o item F): reunir validação de schema, referências, parâmetros, credenciais, orçamento e imagem-base ambígua num serviço testável, e estender retry/orçamento às chamadas de texto/critic (achado F).
+2. ~~**Runner com preflight leve**~~ (feito nas rodadas 3 e 4, §10 e §11): reunir validação de schema, referências, parâmetros, credenciais, orçamento e imagem-base ambígua num serviço testável, e estender retry/orçamento às chamadas de texto/critic (achado F).
 3. **Estado e versões de imagem**: `parent_id`, modelo, parâmetros e versão do prompt por imagem; teste "mude só a cor" resolvendo a base antes da chamada.
 4. **Benchmark versionado** (dev e avaliação final separados) com casos gerais, não só marketing; rodada com a API real **só com orçamento aprovado pelo Kelvin**; baseline externo apenas por comparação cega com referências obtidas legitimamente.
 5. **Avaliação de texto**: OCR com limites explícitos para fidelidade textual; revisão humana nos casos subjetivos.
@@ -128,4 +128,20 @@ python3 -I test_provider.py      # só o adapter
 
 **Testes novos:** `test_runner.py` (45 verificações; 14 mutações no Runner, todas mortas) e `e2e_preflight.py` (a falha acontece antes do briefing: 0 chamadas ao redator e 0 imagens; escalonamento por orçamento). Os e2e existentes passam inalterados, inclusive nas variantes `E2E_STORE=memory` e `E2E_INLINE=1`.
 
-**Ainda aberto:** (F) chamadas de texto e do critic sem retry nem orçamento; concorrência só é aplicada na hora da chamada (semáforo), não no preflight; sem `parent_id` entre versões de imagem; benchmark; OCR. Nada disso foi medido com a API real.
+**Ainda aberto:** (F, resolvido na rodada 4) chamadas de texto e do critic sem retry nem orçamento; concorrência só é aplicada na hora da chamada (semáforo), não no preflight; sem `parent_id` entre versões de imagem; benchmark; OCR. Nada disso foi medido com a API real.
+
+## 11. Rodada 4: retry e orçamento nas chamadas de texto
+
+**O que mudou** (`test/provider.py`, `test/ui_server.py`, `test/chat_server.py`):
+
+- O adapter foi dividido numa base `OpenAIClient` (retry seguro, `Retry-After`, orçamento, concorrência, cancelamento, trace) com duas especializações: `OpenAIImages` (como antes) e `OpenAIText.post_json` (chat completions e responses). `ui.openai_post` agora usa o cliente de texto; por isso **todas** as chamadas de texto herdam o comportamento: briefing, critic, resolvedor de contexto, localização de região e pesquisa de marca. Os 74 testes de imagem passaram sem alteração depois da refatoração.
+- **Retry:** mesma política das imagens (429 sem `insufficient_quota`, 5xx, falha de conexão antes do envio; timeout de leitura não repete).
+- **Orçamento de texto, separado do de imagem:** por sessão (`TEXT_BUDGET_SESSION`, padrão 2000) e por mensagem do chat (`TEXT_BUDGET_TASK`, padrão 40); concorrência `TEXT_CONCURRENCY` (padrão 4). **Os padrões são escolhas do harness, não fatos do provedor.** O orçamento da tarefa vem do contexto da thread (`task_scope`), então nenhum ponto de chamada precisou mudar. O preflight barra a tarefa se o orçamento de texto da sessão estiver esgotado.
+- **Validação de payload e de resposta:** endpoint suportado, modelo, `messages`/`input`, JSON serializável; resposta JSON, `choices[0].message`, conteúdo não vazio (ou chamada de ferramenta), recusa (`refusal`) e `error` em `/responses`. Não há tabela de capacidades de texto, então modelo e parâmetros de texto **não** são validados contra a documentação.
+- **Trace:** cada chamada de texto vai ao mesmo `events.jsonl` (operação, modelo, tentativa, status, `request_id`, latência, tamanho do corpo e `usage` só com campos numéricos). As chamadas de imagem também passaram a registrar `usage`. Nunca prompt, chave nem imagem.
+- **Bug achado na integração:** `resolve_turn`, a localização de região e a pesquisa capturam qualquer exceção ("nunca derruba o fluxo"), o que engoliria orçamento esgotado, requisição inválida e chave ausente como um aviso genérico. Agora essas falhas **locais** (400/429) interrompem a tarefa com a mensagem clara; falha do provedor (502, depois das repetições) segue degradando como antes.
+- `ui_server.api_image` (interface de teste) passou a usar o adapter de imagens.
+
+**Testes:** `test_provider.py` foi de 75 para 114 verificações; `test_runner.py` tem 48; `e2e_preflight.py` ganhou 3 cenários (429 de texto repetido e tarefa concluída; texto da sessão = 0 e da tarefa = 1 interrompem antes do briefing e da imagem). 11 mutações no código novo (e a regra de falha local) foram todas mortas; uma mutação no preflight de texto também.
+
+**Ainda aberto:** `GET /models` (gratuito) segue sem retry; as chamadas de busca na web (Wikimedia) e de download de imagem não passam por este adapter; pesquisa de marca (`/responses` com busca) pode custar mais por chamada do que o orçamento por contagem reflete (o orçamento conta chamadas, não tokens); parent_id entre versões; benchmark; OCR. Nada foi medido com a API real.

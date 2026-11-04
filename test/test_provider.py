@@ -302,9 +302,144 @@ def test_make_image_wiring():
     cs._IMAGES = None
 
 
+def chat_ok(content="{\"a\": 1}", usage=None):
+    doc = {"choices": [{"message": {"content": content}}]}
+    if usage is not None:
+        doc["usage"] = usage
+    return 200, {"x-request-id": "req_t"}, json.dumps(doc).encode()
+
+
+def make_text(*responses, **kw):
+    t = Script(*responses)
+    sleeps = []
+    kw.setdefault("sleep", sleeps.append)
+    kw.setdefault("rng", type("R", (), {"random": lambda self: 1.0})())
+    return pv.OpenAIText("http://x/v1", kw.pop("key", "k-test"), transport=t, **kw), t, sleeps
+
+
+CHAT = {"model": "gpt-5.5", "messages": [{"role": "system", "content": "s"}, {"role": "user", "content": "u"}]}
+
+
+def test_text_adapter():
+    p, t, _ = make_text(chat_ok(usage={"prompt_tokens": 11, "completion_tokens": 5, "details": {"x": 1}}))
+    r = p.post_json("/chat/completions", CHAT)
+    ok(t.calls[0]["url"] == "http://x/v1/chat/completions" and json.loads(t.calls[0]["body"]) == CHAT and r["choices"][0]["message"]["content"] == "{\"a\": 1}",
+       "post_json envia o payload intacto e devolve o JSON da resposta (contrato que os chamadores já usavam)")
+    ok(t.calls[0]["timeout"] == 300, "timeout padrão do cliente")
+    p.post_json("/chat/completions", CHAT, timeout=7)
+    ok(t.calls[1]["timeout"] == 7, "timeout por chamada (a pesquisa usa o seu)")
+    for path, payload, frag in (("/images/generations", CHAT, "não suportado"), ("/chat/completions", {"model": "", "messages": CHAT["messages"]}, "modelo ausente"),
+                                ("/chat/completions", {"model": "m"}, "messages ausente"), ("/chat/completions", {"model": "m", "messages": [{"role": "robo", "content": "x"}]}, "role"),
+                                ("/chat/completions", {"model": "m", "messages": ["x"]}, "role"), ("/chat/completions", [1], "objeto"),
+                                ("/responses", {"model": "m"}, "input ausente"), ("/chat/completions", {"model": "m", "messages": [{"role": "user", "content": {1, 2}}]}, "serializável")):
+        p2, t2, _ = make_text(chat_ok())
+        e = raises(lambda: p2.post_json(path, payload), "validation")
+        ok(e is not None and frag in str(e) and t2.calls == [], f"texto inválido barrado antes de enviar ({frag})")
+    p, t, sleeps = make_text(err(429, "slow", "rate_limit_exceeded", {"retry-after": "3"}), chat_ok())
+    p.post_json("/chat/completions", CHAT)
+    ok(len(t.calls) == 2 and sleeps == [3.0], "texto: 429 espera o Retry-After e repete")
+    p, t, sleeps = make_text(err(502), err(503), chat_ok())
+    p.post_json("/chat/completions", CHAT)
+    ok(len(t.calls) == 3 and sleeps == [1.0, 2.0], "texto: 502 e 503 com backoff exponencial")
+    p, t, _ = make_text(err(500))
+    e = raises(lambda: p.post_json("/chat/completions", CHAT), "transient")
+    ok(e is not None and len(t.calls) == 3 and "OpenAI 500" in str(e), "texto: erro persistente para em 3 tentativas com a mensagem de sempre")
+    p, t, _ = make_text(pv.TransportError("timeout", "t"))
+    ok(raises(lambda: p.post_json("/chat/completions", CHAT), "timeout") is not None and len(t.calls) == 1, "texto: timeout de leitura não repete")
+    for status, kind in ((400, "bad_request"), (401, "auth"), (404, "model")):
+        p, t, _ = make_text(err(status, "x"))
+        ok(raises(lambda: p.post_json("/chat/completions", CHAT), kind) is not None and len(t.calls) == 1, f"texto: HTTP {status} não repete")
+    for resp, kind, frag in (((200, {}, b"lixo"), "bad_response", "JSON"), ((200, {}, b"[1]"), "bad_response", "objeto"), ((200, {}, b'{"choices": []}'), "bad_response", "choices"),
+                             ((200, {}, json.dumps({"choices": [{"message": {"content": ""}}]}).encode()), "bad_response", "vazia"),
+                             ((200, {}, json.dumps({"choices": [{"message": {"content": None, "refusal": "não posso"}}]}).encode()), "refused", "recusou")):
+        e = raises(lambda: make_text(resp)[0].post_json("/chat/completions", CHAT), kind)
+        ok(e is not None and frag in str(e), f"resposta de texto inválida tratada ({frag})")
+    ok(make_text((200, {}, json.dumps({"choices": [{"message": {"content": None, "tool_calls": [{"id": "1"}]}}]}).encode()))[0].post_json("/chat/completions", CHAT), "chamada de ferramenta sem content é resposta válida")
+    ok(raises(lambda: make_text((200, {}, b'{"error": {"message": "x"}}'))[0].post_json("/responses", {"model": "m", "input": "x"}), "bad_response") is not None, "/responses com campo error é recusado")
+    make_text((200, {}, b'{"output_text": "ok", "error": null}'))[0].post_json("/responses", {"model": "m", "input": "x"})
+    ok(True, "/responses sem erro passa")
+    ok(raises(lambda: make_text(chat_ok(), key=None)[0].post_json("/chat/completions", CHAT), "auth") is not None, "texto sem chave: erro claro antes do transporte")
+
+    print("-- orçamento de texto")
+    sess = pv.Budget("texto da sessão", 2)
+    p, t, _ = make_text(chat_ok(), budgets=[sess])
+    p.post_json("/chat/completions", CHAT); p.post_json("/chat/completions", CHAT)
+    e = raises(lambda: p.post_json("/chat/completions", CHAT), "budget")
+    ok(e is not None and len(t.calls) == 2 and "texto da sessão" in str(e), "orçamento de texto da sessão barra a 3ª chamada antes de enviar")
+    task = pv.Budget("texto da tarefa", 2)
+    p, t, _ = make_text(chat_ok())
+    with pv.task_scope(text=task):
+        p.post_json("/chat/completions", CHAT); p.post_json("/chat/completions", CHAT)
+        e = raises(lambda: p.post_json("/chat/completions", CHAT), "budget")
+    ok(e is not None and len(t.calls) == 2 and task.calls == 2, "dentro de task_scope o orçamento da tarefa vale sem ser passado a cada chamada")
+    p.post_json("/chat/completions", CHAT)
+    ok(len(t.calls) == 3 and task.calls == 2, "fora do task_scope o orçamento da tarefa não se aplica")
+    task = pv.Budget("texto da tarefa", 5)
+    p, t, _ = make_text(err(500), chat_ok())
+    with pv.task_scope(text=task):
+        p.post_json("/chat/completions", CHAT)
+    ok(task.calls == 2, "a repetição também consome o orçamento de texto da tarefa")
+    img = pv.Budget("imagem da tarefa", 1)
+    p, t, _ = make_text(chat_ok())
+    with pv.task_scope(image=img):
+        p.post_json("/chat/completions", CHAT)
+    ok(img.calls == 0, "orçamento de imagem não é consumido por chamada de texto")
+    a, b = pv.Budget("a", 1), pv.Budget("b", 1)
+    seen = {}
+
+    def worker(name, budget):
+        with pv.task_scope(text=budget):
+            p2, _, _ = make_text(chat_ok())
+            p2.post_json("/chat/completions", CHAT)
+            seen[name] = pv.current_task_budgets("text")[0].name
+    th = [threading.Thread(target=worker, args=("a", a)), threading.Thread(target=worker, args=("b", b))]
+    [x.start() for x in th]; [x.join() for x in th]
+    ok(seen == {"a": "a", "b": "b"} and a.calls == 1 and b.calls == 1 and pv.current_task_budgets("text") == [], "task_scope é por thread: duas tarefas não dividem orçamento e nada vaza")
+    with pv.task_scope(text=pv.Budget("externo", 9)):
+        with pv.task_scope(text=pv.Budget("interno", 9)):
+            inner = pv.current_task_budgets("text")[0].name
+        outer = pv.current_task_budgets("text")[0].name
+    ok((inner, outer) == ("interno", "externo"), "task_scope aninhado restaura o anterior ao sair")
+
+    print("-- trace de texto")
+    events = []
+    p, t, _ = make_text(chat_ok(usage={"prompt_tokens": 11, "completion_tokens": 5, "details": {"x": 1}}), on_event=events.append)
+    p.post_json("/chat/completions", {"model": "gpt-5.5", "messages": [{"role": "user", "content": "PROMPT-SECRETO-XYZ"}]})
+    dump = json.dumps(events)
+    ok(len(events) == 1 and events[0]["op"] == "text" and events[0]["usage"] == {"prompt_tokens": 11, "completion_tokens": 5} and events[0]["request_id"] == "req_t",
+       "trace de texto: operação, request_id e consumo (só campos numéricos)")
+    ok("PROMPT-SECRETO-XYZ" not in dump and "k-test" not in dump, "trace de texto não contém prompt nem chave")
+    events = []
+    p, _, _ = make_text(chat_ok(""), on_event=events.append)
+    raises(lambda: p.post_json("/chat/completions", CHAT), "bad_response")
+    ok(events[0]["error"] == "bad_response" and events[0]["status"] == 200, "resposta inválida deixa rastro no trace com o tipo do erro")
+
+    print("-- ui.openai_post")
+    import ui_server as ui
+    ui._TEXT = pv.OpenAIText("http://x/v1", "k", transport=Script(err(429, "x", "insufficient_quota")))
+    try:
+        ui.openai_post("/chat/completions", CHAT)
+        ok(False, "deveria levantar ApiError")
+    except ui.ApiError as e:
+        ok(e.status == 502 and "OpenAI 429" in str(e), "ui.openai_post: erro do provedor vira ApiError 502 com a mensagem de sempre")
+    ui._TEXT = pv.OpenAIText("http://x/v1", "k", transport=Script(chat_ok()))
+    try:
+        ui.openai_post("/chat/completions", {"model": "m", "messages": []})
+        ok(False, "deveria levantar ApiError")
+    except ui.ApiError as e:
+        ok(e.status == 400, "ui.openai_post: requisição inválida vira ApiError 400")
+    ui._TEXT = pv.OpenAIText("http://x/v1", "k", transport=Script(chat_ok()), budgets=[pv.Budget("x", 0)])
+    try:
+        ui.openai_post("/chat/completions", CHAT)
+        ok(False, "deveria levantar ApiError")
+    except ui.ApiError as e:
+        ok(e.status == 429, "ui.openai_post: orçamento esgotado vira ApiError 429")
+    ui._TEXT = None
+
+
 def main():
     for fn in (test_validation, test_invalid_never_sent, test_success_and_response_checks, test_edit_request, test_retry, test_budget,
-               test_cancel_key_trace_concurrency, test_http_against_fake, test_make_image_wiring):
+               test_cancel_key_trace_concurrency, test_http_against_fake, test_make_image_wiring, test_text_adapter):
         print(f"== {fn.__name__}")
         fn()
     print(f"\nTUDO OK ({N['ok']} verificações)")

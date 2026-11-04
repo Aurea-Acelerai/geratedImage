@@ -36,9 +36,10 @@ class Decision:
 
 
 class Runner:
-    def __init__(self, images, session_budget=None, key_fn=None, storage_probe=None, clock=time.time):
+    def __init__(self, images, session_budget=None, key_fn=None, storage_probe=None, clock=time.time, text_session_budget=None):
         self.images = images
         self.session_budget = session_budget
+        self.text_session_budget = text_session_budget
         self.key_fn = key_fn
         self.storage_probe = storage_probe  # callable -> None (ok) ou texto do problema
         self.clock = clock
@@ -109,6 +110,8 @@ class Runner:
                 elif left < planned_calls:
                     warnings.append(f"orçamento {name} permite só {left} de {planned_calls} chamadas planejadas (repetições de rede também consomem)")
                 allowed = min(allowed, left)
+        if self.text_session_budget is not None and self.text_session_budget.remaining() is not None and self.text_session_budget.remaining() < 1:
+            problems.append("orçamento de texto da sessão esgotado")  # o briefing e o critic precisam de chamadas de texto
         if not any("orçamento" in p for p in problems):
             checks.append("orcamento")
 

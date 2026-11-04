@@ -13,6 +13,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 ROOT = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
+import provider as pv  # noqa: E402
 import run_comparison as rc  # noqa: E402
 
 MOCK = False
@@ -33,25 +34,31 @@ def env_models():
     }
 
 
+TEXT_SESSION_BUDGET = pv.Budget("texto da sessão", int(os.getenv("TEXT_BUDGET_SESSION", "2000")))  # chamadas pagas de texto por execução do servidor
+TEXT_TASK_CALLS = int(os.getenv("TEXT_BUDGET_TASK", "40"))  # por mensagem do chat (resolvedor, pesquisa, briefings, critic, localização)
+EVENT_SINK = None  # o chat_server aponta para o seu log_event; o trace nunca leva prompt, chave nem imagem
+_TEXT = None
+
+
+def text_client():
+    global _TEXT
+    if _TEXT is None:
+        _TEXT = pv.OpenAIText(OPENAI, lambda: os.getenv("OPENAI_API_KEY"), budgets=[TEXT_SESSION_BUDGET],
+                              max_concurrency=int(os.getenv("TEXT_CONCURRENCY", "4")), on_event=lambda e: EVENT_SINK and EVENT_SINK(e))
+    return _TEXT
+
+
+def api_error(e):
+    return ApiError({"validation": 400, "auth": 400, "budget": 429}.get(e.kind, 502), str(e))
+
+
 def openai_post(path, payload, timeout=240):
-    key = os.getenv("OPENAI_API_KEY")
-    if not key:
-        raise ApiError(400, "Defina OPENAI_API_KEY antes de iniciar o servidor (ou use --mock).")
-    req = urllib.request.Request(
-        OPENAI + path, data=json.dumps(payload).encode(), method="POST",
-        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"})
+    """Chamada JSON de texto (chat completions ou responses) pelo adapter: valida, repete só erro seguro, respeita
+    Retry-After e os orçamentos (sessão e tarefa). Imagens NÃO passam por aqui (use provider.OpenAIImages)."""
     try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            return json.loads(r.read())
-    except urllib.error.HTTPError as e:
-        body = e.read().decode("utf-8", "replace")
-        try:
-            msg = json.loads(body)["error"]["message"]
-        except Exception:
-            msg = body[:500]
-        raise ApiError(502, f"OpenAI {e.code}: {msg}")
-    except urllib.error.URLError as e:
-        raise ApiError(502, f"Falha de rede: {e.reason}")
+        return text_client().post_json(path, payload, timeout=timeout)
+    except pv.ProviderError as e:
+        raise api_error(e)
 
 
 # ---------- handlers ----------
@@ -118,10 +125,11 @@ def api_image(b):
                f"<text x='50%' y='50%' font-size='{w // 14}' fill='white' text-anchor='middle'>mock {size}</text></svg>")
         import base64
         return {"b64": base64.b64encode(svg.encode()).decode(), "mime": "image/svg+xml", "seconds": round(time.time() - t0, 1)}
-    r = openai_post("/images/generations", {
-        "model": b.get("image_model") or env_models()["image_model"],
-        "prompt": b["prompt"], "size": size, "quality": quality, "n": 1})
-    return {"b64": r["data"][0]["b64_json"], "mime": "image/png", "seconds": round(time.time() - t0, 1)}
+    try:
+        r = pv.from_env().generate(b["prompt"], b.get("image_model") or env_models()["image_model"], size, quality)
+    except pv.ProviderError as e:
+        raise api_error(e)
+    return {"b64": r["b64"], "mime": r["mime"], "seconds": round(time.time() - t0, 1)}
 
 
 def api_review(b):

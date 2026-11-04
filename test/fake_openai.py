@@ -11,13 +11,14 @@ código monta as requisições e trata as respostas. Comportamentos de teste:
 - pedido com "wrongsize" devolve uma imagem de 512x512 (o veto formato_incorreto tem que aparecer);
 - pedido com "perguntar" faz o designer devolver uma pergunta;
 - --models-missing lista só modelos antigos (o aviso de modelo ausente tem que aparecer);
-- injeção de falhas nas imagens (para provider.py): "flaky429" responde 429 com Retry-After: 0 na 1ª chamada daquele
-  prompt e funciona na seguinte; "always500" responde sempre 500; "moderated" responde 400 moderation_blocked.
+- injeção de falhas (para provider.py), nas imagens e no texto (chat): "flaky429" responde 429 com Retry-After: 0 na 1ª
+  chamada com aquele conteúdo e funciona na seguinte; "always500" responde sempre 500; "moderated" responde 400
+  moderation_blocked. STATS["injected"] conta as falhas servidas.
 """
 import argparse, base64, email, json, re, struct, sys, threading, time, zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-STATS = {"models": 0, "chat_writer": 0, "chat_critic": 0, "generations": 0, "edits": 0, "edit_images": [], "writer_images": [],
+STATS = {"injected": 0, "models": 0, "chat_writer": 0, "chat_critic": 0, "generations": 0, "edits": 0, "edit_images": [], "writer_images": [],
          "critic_images": [], "auth": set(), "edit_fields": [], "last_writer_user": "", "writer_systems": [], "image_prompts": [], "critic_systems": [], "resolver_users": [], "web_queries": [], "locator_calls": 0, "edit_masks": [], "edit_first_sizes": []}
 LOCK = threading.Lock()
 SEEN = {}  # prompt -> chamadas já vistas (injeção de falhas)
@@ -78,6 +79,8 @@ class H(BaseHTTPRequestHandler):
             parts = user if isinstance(user, list) else [{"type": "text", "text": user}]
             utext = "\n".join(p["text"] for p in parts if p["type"] == "text")
             nimg = sum(1 for p in parts if p["type"] == "image_url")
+            if self._inject_failure("chat:" + utext):
+                return
             if "caixas NORMALIZADAS" in system:
                 with LOCK:
                     STATS["locator_calls"] += 1
@@ -168,11 +171,15 @@ class H(BaseHTTPRequestHandler):
             SEEN[prompt] = SEEN.get(prompt, 0) + 1
             n = SEEN[prompt]
         if "flaky429" in low and n == 1:
+            with LOCK:
+                STATS["injected"] += 1
             d = json.dumps({"error": {"message": "Rate limit reached", "code": "rate_limit_exceeded"}}).encode()
             self.send_response(429); self.send_header("Retry-After", "0"); self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(d))); self.end_headers(); self.wfile.write(d)
             return True
         if "always500" in low:
+            with LOCK:
+                STATS["injected"] += 1
             self._json(500, {"error": {"message": "server error"}})
             return True
         if "moderated" in low:
