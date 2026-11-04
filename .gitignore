@@ -11,4 +11,9 @@ test/conversations/
 test/logs/
 test/train_data/
 test/train_out/
-.claude/
+.claude/worktrees/
+.claude/settings.local.json
+# originais copiados do Obsidian: privados; só o manifesto e o log entram no git
+agents/obsidian-origin/*
+!agents/obsidian-origin/MANIFEST.json
+!agents/obsidian-origin/SYNC_LOG.jsonl

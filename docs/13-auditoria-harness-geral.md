@@ -40,8 +40,8 @@ Conclusões:
 - **O vault não tem agente de imagem, direção de arte nem avaliação de imagem.** O "Ive" citado no `HANDOFF.md` não foi localizado por nome; fica pendente com o Kelvin.
 - Os agentes `eng-*` são notas longas (14 a 17 KB) em formato de vault, não definições de subagente. Importar exige: frontmatter do Claude Code (`name`, `description`, `tools`, `model`), corpo enxuto e remoção de links `[[...]]` e referências a Linear/Orquestrador. Nada disso foi ativado.
 - Os agentes de segurança do `.agents` declaram ferramentas que não existem; precisam de mapeamento antes de qualquer uso.
-- O `.gitignore` do repositório ignora `.claude/` inteiro: agentes locais em `.claude/agents/` **não seriam versionados**. Mudar para ignorar só `.claude/worktrees/` e `settings.local.json` é uma decisão pendente (afeta como o time compartilha agentes).
-- A sincronização Obsidian → repositório (manifesto, hashes, dry-run, sem sobrescrita nem exclusão, contenção de caminho) **não foi implementada nesta rodada**.
+- O `.gitignore` ignorava `.claude/` inteiro, o que impediria versionar agentes locais. **Atualização (rodada 2):** passou a ignorar só `.claude/worktrees/` e `settings.local.json`.
+- **Atualização (rodada 2):** a sincronização Obsidian → repositório foi implementada (`tools/obsidian_sync.py`, 32 verificações) e 3 agentes estão em `.claude/agents/`; registro de origem, hashes e alterações em `agents/IMPORTACAO.md`.
 
 ## 4. Auditoria do protótipo `aurora-harness.zip`
 
@@ -95,12 +95,12 @@ Modelos `gpt-image-2.5-sunburst` e `gpt-image-2.5-flare`; tamanhos custom com la
 
 - **Nada foi medido com a API real.** Todos os testes usam transporte injetado ou a OpenAI falsa. Os resultados provam montagem de requisição e tratamento de resposta, não qualidade de imagem nem paridade com o ChatGPT. **Paridade com o ChatGPT: ainda não demonstrada.**
 - Orçamento em dinheiro não existe (os modelos 2.5 cobram por tokens e a página não dá preço por imagem).
-- Sem Runner, sem registro de pais/filhos entre versões de imagem, sem benchmark versionado, sem importação de agentes, sem sincronização Obsidian, sem CLAUDE.md, sem hooks.
+- (Rodada 1) Sem Runner, sem registro de pais/filhos entre versões de imagem, sem benchmark versionado, sem hooks. Importação de agentes, sincronização Obsidian e `CLAUDE.md` entraram na rodada 2.
 - A verificação de tamanho do arquivo devolvido só lê PNG; JPEG e WebP têm só a assinatura checada.
 
 ## 8. Plano incremental (próximas rodadas, uma melhoria por vez)
 
-1. **Obsidian → repositório**: `tools/obsidian_sync.py` com origem explícita, manifesto com hashes, dry-run por padrão, conflitos, sem sobrescrita nem exclusão, contenção de caminho. Antes: decidir o `.gitignore` de `.claude/agents` e quais agentes `eng-*` adaptar (propostos: `eng-api`, `eng-qa-revisor`, `eng-arquiteto`; um agente de direção de arte precisa ser **criado**, pois o vault não tem).
+1. ~~**Obsidian → repositório**~~ (feito na rodada 2): `tools/obsidian_sync.py` com origem explícita, manifesto com hashes, dry-run por padrão, conflitos, sem sobrescrita nem exclusão, contenção de caminho. Antes: decidir o `.gitignore` de `.claude/agents` e quais agentes `eng-*` adaptar (propostos: `eng-api`, `eng-qa-revisor`, `eng-arquiteto`; um agente de direção de arte precisa ser **criado**, pois o vault não tem).
 2. **Runner com preflight leve**: reunir validação de schema, referências, parâmetros, credenciais, orçamento e imagem-base ambígua num serviço testável, e estender retry/orçamento às chamadas de texto/critic (achado F).
 3. **Estado e versões de imagem**: `parent_id`, modelo, parâmetros e versão do prompt por imagem; teste "mude só a cor" resolvendo a base antes da chamada.
 4. **Benchmark versionado** (dev e avaliação final separados) com casos gerais, não só marketing; rodada com a API real **só com orçamento aprovado pelo Kelvin**; baseline externo apenas por comparação cega com referências obtidas legitimamente.

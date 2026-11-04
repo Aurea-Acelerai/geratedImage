@@ -1,0 +1,17 @@
+{
+  "files": {
+    "eng-api.md": {
+      "sha256": "766947fb747aac01661992e412cc0397143bbe6418759ac19278a13009ffb7f8",
+      "size": 14170,
+      "src": "Agentes/API e Integrações/01 - Agente Guardião de API.md",
+      "synced_at": "2026-11-04T16:27:08-0300"
+    },
+    "eng-qa-revisor.md": {
+      "sha256": "4ebb8185969e6e72f7350c46eb69efb3362ce889a909748dcda6a554c8274746",
+      "size": 14572,
+      "src": "Agentes/Qualidade e Testes/01 - Agente QA Revisor.md",
+      "synced_at": "2026-11-04T16:27:08-0300"
+    }
+  },
+  "version": 1
+}

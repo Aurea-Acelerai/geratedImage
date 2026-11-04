@@ -1,0 +1,8 @@
+{
+  "_comment": "Lista de permissão da sincronização Obsidian -> repositório (tools/obsidian_sync.py). Só entram arquivos listados aqui. Os originais ficam em agents/obsidian-origin/ (ignorado pelo git; só MANIFEST.json e SYNC_LOG.jsonl são versionados). Os agentes ativos são as ADAPTAÇÕES em .claude/agents/.",
+  "dest": "agents/obsidian-origin",
+  "files": [
+    {"src": "Agentes/API e Integrações/01 - Agente Guardião de API.md", "dest": "eng-api.md"},
+    {"src": "Agentes/Qualidade e Testes/01 - Agente QA Revisor.md", "dest": "eng-qa-revisor.md"}
+  ]
+}

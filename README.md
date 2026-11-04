@@ -77,7 +77,7 @@ Sem `OPENAI_API_KEY`, a interface usa o **Claude (Sonnet) via CLI `claude`**, co
 Escolha um caso (ou escreva um pedido), edite o JSON do cliente e clique em **Rodar**: briefing do system prompt → imagem → critic. Dá para editar o prompt final e regerar, aplicar a correção sugerida pelo critic e comparar com o prompt cru (braço A). O `prompts/designer-imagegen.system.md` é relido a cada execução: edite e rode de novo, sem reiniciar.
 
 ## Adapter da OpenAI Images, testes e CI
-`test/provider.py` é a camada única das chamadas de imagem (validação contra `test/provider_capabilities.json`, retry só para erro seguro, Retry-After, orçamento por sessão `IMAGE_BUDGET_SESSION` e por mensagem `IMAGE_BUDGET_TASK`, trace sem prompt). Testes: `cd test && sh run_tests.sh` (sem chave, sem custo; o mesmo comando roda no CI). **Auditoria, limites e plano: `docs/13-auditoria-harness-geral.md`.** Nada disso foi medido com a API real.
+`test/provider.py` é a camada única das chamadas de imagem (validação contra `test/provider_capabilities.json`, retry só para erro seguro, Retry-After, orçamento por sessão `IMAGE_BUDGET_SESSION` e por mensagem `IMAGE_BUDGET_TASK`, trace sem prompt). Testes: `cd test && sh run_tests.sh` (sem chave, sem custo; o mesmo comando roda no CI). **Auditoria, limites e plano: `docs/13-auditoria-harness-geral.md`.** Nada disso foi medido com a API real. Agentes do Claude Code em `.claude/agents/` e importação controlada do Obsidian (`tools/obsidian_sync.py`): `agents/IMPORTACAO.md`.
 
 ## Pendências
 - Ligar `get_client` ao banco real (Kelvin).

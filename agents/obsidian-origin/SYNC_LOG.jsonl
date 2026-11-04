@@ -1,0 +1,2 @@
+{"t": "2026-11-04T16:27:08-0300", "action": "novo", "dest": "eng-api.md", "src": "Agentes/API e Integrações/01 - Agente Guardião de API.md", "old_sha256": null, "new_sha256": "766947fb747aac01661992e412cc0397143bbe6418759ac19278a13009ffb7f8"}
+{"t": "2026-11-04T16:27:08-0300", "action": "novo", "dest": "eng-qa-revisor.md", "src": "Agentes/Qualidade e Testes/01 - Agente QA Revisor.md", "old_sha256": null, "new_sha256": "4ebb8185969e6e72f7350c46eb69efb3362ce889a909748dcda6a554c8274746"}
