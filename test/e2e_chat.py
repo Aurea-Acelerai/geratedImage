@@ -130,6 +130,43 @@ try:
     p, _ = run({"client": "71", "text": 'cartaz com a frase "Bom dia"'}); m = p["message"]
     _, s = call(FAKE, "/__stats"); cs = s["critic_systems"][-1]
     ok("text" in m["packs"] and cs["text"], "texto entre aspas: pacote de texto")
+    # 9) memória da conversa, referência de pessoa fixa, edição por contexto, fidelidade e identidade
+    import pathlib
+    PNGB = base64.b64encode(png(64, 64)).decode()
+    pid = call(CHAT, "/api/asset", {"client": "71", "kind": "pessoa", "name": "rodrigo.webp", "mime": "image/png", "b64": PNGB})[1]["asset"]["id"]
+    conv = "convmem1"
+    p, _ = run({"client": "71", "conv": conv, "text": "gere uma imagem com o Rodrigo Faro na praia", "asset_ids": [pid], "review": False}); m1 = p["message"]
+    _, s = call(FAKE, "/__stats")
+    ok(m1["kind"] == "image" and "identity" in m1["packs"] and any(i["kind"] == "pessoa" for i in m1["inputs"]), f"pessoa anexada: pacote de identidade ({m1['packs']})")
+    ok("input_fidelity" in s["edit_fields"][-1], "edição com pessoa pede input_fidelity=high")
+    p, steps = run({"client": "71", "conv": conv, "text": "agora com camisa azul", "asset_ids": [pid], "review": False}); m2 = p["message"]
+    _, s = call(FAKE, "/__stats")
+    ok(m2["intent"] == "edit" and "Rodrigo Faro" in m2["resolved"] and "camisa azul" in m2["resolved"], f"o contexto lembra o Rodrigo: {m2['resolved']!r}")
+    ok([i["kind"] for i in m2["inputs"]] == ["alvo", "pessoa"] and s["edit_images"][-1] == 2, f"edição usa a última imagem como alvo + a pessoa fixada ({[i['kind'] for i in m2['inputs']]})")
+    ok("Rodrigo Faro" in s["last_writer_user"] and "EDIÇÃO" in s["last_writer_user"] and "Memória da conversa" in s["last_writer_user"], "o designer recebe memória, pedido resolvido e intenção")
+    ok(any(x["text"].startswith("Memória: entendi como edição") for x in steps), "o progresso mostra o que a IA entendeu")
+    p, _ = run({"client": "71", "conv": conv, "text": "preciso perguntar uma coisa", "review": False}); mq = p["message"]
+    ok(mq["kind"] == "text", "designer pergunta")
+    p, _ = run({"client": "71", "conv": conv, "text": "30% off", "asset_ids": [pid], "review": False}); m4 = p["message"]
+    ok("preciso perguntar uma coisa" in m4["resolved"] and "30% off" in m4["resolved"] and m4["intent"] == "new", f"resposta à pergunta completa o pedido original: {m4['resolved']!r}")
+    cfile = pathlib.Path(tmp.name) / "conversations" / "71" / f"{conv}.json"
+    cv = json.loads(cfile.read_text(encoding="utf-8"))
+    ok(cfile.exists() and len(cv["turns"]) == 4 and cv["turns"][2].get("question") and cv["turns"][1]["intent"] == "edit", f"conversa salva em disco com {len(cv['turns'])} turnos")
+    # conversa nova não herda memória
+    p, _ = run({"client": "71", "conv": "convnova", "text": "agora com camisa azul", "review": False}); m5 = p["message"]
+    ok(m5["intent"] == "new" and m5["resolved"] == "agora com camisa azul", "conversa nova começa sem memória")
+    # fidelidade: o modelo recusa o parâmetro -> repete sem ele e avisa
+    n0 = len(call(FAKE, "/__stats")[1]["edit_fields"])
+    p, _ = run({"client": "71", "conv": "convfid", "text": "foto com a pessoa rejectfidelity", "asset_ids": [pid], "review": False}); mf = p["message"]
+    ef = call(FAKE, "/__stats")[1]["edit_fields"][n0:]
+    ok(len(ef) == 2 and "input_fidelity" in ef[0] and "input_fidelity" not in ef[1] and any("input_fidelity" in a for a in mf["avisos"]), "input_fidelity recusado: repete sem ele e avisa")
+    # critic de identidade
+    p, _ = run({"client": "71", "conv": "convid", "text": "retrato com a pessoa", "asset_ids": [pid]}); mi = p["message"]
+    cs = call(FAKE, "/__stats")[1]["critic_systems"][-1]
+    ok("identity" in mi["packs"] and cs["identity_match"], "critic recebe o critério identity_match quando há pessoa de referência")
+    # retag do tipo na biblioteca
+    ok(call(CHAT, "/api/asset/kind", {"client": "71", "id": pid, "kind": "referencia"})[0] == 200, "tipo da imagem pode ser corrigido")
+    ok(call(CHAT, "/api/asset/kind", {"client": "71", "id": pid, "kind": "invalido"})[0] == 400, "tipo inválido recusado")
     print("\nTUDO OK")
 finally:
     for p in procs:

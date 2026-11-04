@@ -29,11 +29,11 @@ CLIENTS, OUT = DATA / "clients", DATA / "chat_out"
 MOCK = False
 MIME_EXT = {"image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/svg+xml": "svg"}
 KIND_ROLE = {
-    "logo": "LOGO oficial do cliente: deve aparecer idêntico, nunca redesenhado nem alterado",
     "referencia": "REFERÊNCIA de estilo, cena ou assunto: inspire-se, não copie",
+    "pessoa": "FOTO de pessoa real com autorização: é a IDENTIDADE a preservar (mesmo rosto, cabelo e traços); nunca substitua por sósia ou modelo genérico",
+    "logo": "LOGO oficial do cliente: deve aparecer idêntico, nunca redesenhado nem alterado",
     "peca": "PEÇA já entregue ao cliente: mantenha o mesmo estilo e a mesma linguagem visual",
     "produto": "PRODUTO do cliente: deve aparecer fiel ao original (forma, cor, rótulo)",
-    "pessoa": "FOTO de pessoa real com autorização: use como referência de rosto",
 }
 SIZES = {"1024x1024", "1536x1024", "1024x1536"}
 
@@ -107,9 +107,19 @@ def data_url(inp):
 
 
 # ---------- etapas ----------
-def build_user(text, size, history, inputs, feedback=None, prev=None):
-    u = f"Pedido atual: {text}\nContêiner/tamanho: {size}\n"
-    if history:
+def build_user(text, size, history, inputs, feedback=None, prev=None, memory="", intent="new", original=None):
+    u = f"Pedido atual (já resolvido com o contexto da conversa): {text}\n"
+    if original and original.strip() != text.strip():
+        u += f"Mensagem original do usuário: {original}\n"
+    u += f"Contêiner/tamanho: {size}\n"
+    if intent == "edit":
+        u += ("Intenção: EDIÇÃO da Image 1 (a última imagem gerada): escreva 'change only X; keep everything else unchanged' e repita as invariantes "
+              "(rosto, pose, enquadramento, fundo, texto).\n")
+    elif intent == "variation":
+        u += "Intenção: VARIAÇÃO da Image 1: mantenha o conceito, a pessoa/produto/marca e o estilo; mude só o que o pedido indicar.\n"
+    if memory:
+        u += "\n" + memory + "\n"
+    elif history:
         u += "\nConversa até aqui (mais antiga primeiro):\n" + "\n".join(
             f"- {'Usuário' if h.get('role') == 'user' else 'Designer'}: {str(h.get('text', ''))[:400]}" for h in history[-6:]) + "\n"
     if inputs:
@@ -126,7 +136,8 @@ def build_user(text, size, history, inputs, feedback=None, prev=None):
     return u
 
 
-def write_briefing(ctx, text, size, history, inputs, feedback=None, prev=None, model=None, provider="openai", mode="livre", use_skills=True):
+def write_briefing(ctx, text, size, history, inputs, feedback=None, prev=None, model=None, provider="openai", mode="livre", use_skills=True,
+                   memory="", intent="new", original=None):
     if MOCK:
         time.sleep(0.5)
         if re.search(r"\bperguntar\b", text):
@@ -137,7 +148,7 @@ def write_briefing(ctx, text, size, history, inputs, feedback=None, prev=None, m
                           + f"Input images: {len(inputs)}"
                           + (f"\n[mock: corrigido -> {feedback}]" if feedback else "")}
     system = rc.load_system_prompt(ctx, request=text, size=size, has_inputs=bool(inputs), mode=mode, use_skills=use_skills)
-    user = build_user(text, size, history, inputs, feedback, prev)
+    user = build_user(text, size, history, inputs, feedback, prev, memory, intent, original)
     if provider == "claude":
         import run_briefings_claude as rbc
         return rbc.briefing(user, ctx, "sonnet", size, mode=mode, use_skills=use_skills, tail="")
@@ -155,7 +166,7 @@ def write_briefing(ctx, text, size, history, inputs, feedback=None, prev=None, m
     return json.loads(r["choices"][0]["message"]["content"])
 
 
-def make_image(prompt, size, quality, inputs, model):
+def make_image(prompt, size, quality, inputs, model, fidelity=None, notes=None):
     if MOCK:
         time.sleep(0.8)
         w, h = (int(x) for x in size.split("x"))
@@ -167,7 +178,19 @@ def make_image(prompt, size, quality, inputs, model):
         return base64.b64encode(svg.encode()).decode(), "svg"
     if inputs:
         files = [("image[]", f"in{i}.{MIME_EXT.get(x['mime'], 'png')}", x["mime"], x["bytes"]) for i, x in enumerate(inputs)]
-        r = openai_multipart("/images/edits", {"model": model, "prompt": prompt, "size": size, "quality": quality, "n": 1}, files)
+        fields = {"model": model, "prompt": prompt, "size": size, "quality": quality, "n": 1}
+        if fidelity:
+            fields["input_fidelity"] = fidelity  # alta fidelidade preserva rosto, logo e produto das imagens de entrada
+        try:
+            r = openai_multipart("/images/edits", fields, files)
+        except ui.ApiError as e:
+            if fidelity and "input_fidelity" in str(e):  # o modelo não aceita o parâmetro: repete sem ele e avisa
+                fields.pop("input_fidelity")
+                if notes is not None:
+                    notes.append("O modelo de imagem não aceitou input_fidelity=high; repeti sem ele. A fidelidade ao rosto, logo ou produto de referência pode cair.")
+                r = openai_multipart("/images/edits", fields, files)
+            else:
+                raise
     else:
         r = ui.openai_post("/images/generations", {"model": model, "prompt": prompt, "size": size, "quality": quality, "n": 1})
     return r["data"][0]["b64_json"], "png"
@@ -367,6 +390,107 @@ def api_chat(b):
     return {"job": start_job(lambda emit: run_chat(b, emit, cid, text, ctx, inputs))}
 
 
+# ---------- memória da conversa (em disco; sobrevive a reinício e a atualizar a página) ----------
+CONV_DIR = DATA / "conversations"
+MEMORY_PROMPT_PATH = ROOT.parent / "prompts" / "memory.system.md"
+IDENTITY_KINDS = ("pessoa", "logo", "produto")
+EDIT_WORDS = re.compile(r"\b(mude|muda|troque|troca|tire|tira|remova|remove|adicione|coloque|agora|mais|menos|deixe|deixa|altere|ajuste)\b", re.I)
+
+
+def conv_path(cid, conv_id):
+    return CONV_DIR / slug(cid) / f"{slug(conv_id)}.json"
+
+
+def load_conv(cid, conv_id):
+    p = conv_path(cid, conv_id)
+    if p.exists():
+        return json.loads(p.read_text(encoding="utf-8"))
+    return {"id": slug(conv_id), "client": slug(cid), "created": time.strftime("%Y-%m-%d %H:%M:%S"), "turns": [], "carry": []}
+
+
+def save_conv(conv):
+    p = conv_path(conv["client"], conv["id"])
+    p.parent.mkdir(parents=True, exist_ok=True)
+    tmp = p.with_suffix(".tmp")
+    tmp.write_text(json.dumps(conv, ensure_ascii=False, indent=2), encoding="utf-8")
+    tmp.replace(p)
+
+
+def last_image(cid, conv):
+    for t in reversed(conv["turns"]):
+        if t.get("image_id"):
+            try:
+                return find_out(cid, t["image_id"]), t["image_id"]
+            except ui.ApiError:
+                return None, None
+    return None, None
+
+
+def memory_text(conv):
+    """O que o designer e o resolvedor 'lembram': pedidos, o que foi gerado e perguntas pendentes."""
+    if not conv["turns"] and not conv["carry"]:
+        return ""
+    lines = ["Memória da conversa (mais antigo primeiro):"]
+    for t in conv["turns"][-8:]:
+        if t.get("question"):
+            lines.append(f'{t["n"]}. Pedido: {t["resolved"][:300]} | o designer PERGUNTOU: "{t["question"]}" (sem imagem)')
+        else:
+            lines.append(f'{t["n"]}. Pedido: {t["resolved"][:300]} | intenção: {t["intent"]} | resultado: imagem {t["image_id"]} '
+                         f'(nota {t["score"]}, {"aprovada" if t["approved"] else "reprovada"}) | briefing final: {t["briefing"][:600]}')
+    if conv["carry"]:
+        lines.append("Instruções duradouras do usuário: " + "; ".join(conv["carry"]))
+    last = conv["turns"][-1] if conv["turns"] else None
+    if last and last.get("question"):
+        lines.append(f'PERGUNTA PENDENTE: o último turno terminou numa pergunta do designer; a nova mensagem provavelmente a responde '
+                     f'(pedido original: {last["resolved"][:300]})')
+    return "\n".join(lines)
+
+
+def resolve_turn(conv, text, avail, model, provider):
+    """Entende a mensagem no contexto (como o ChatGPT): devolve intenção e um pedido autossuficiente. Nunca derruba o fluxo."""
+    triv = {"intent": "new", "request": text, "use_last_image": False, "carry": list(conv["carry"])}
+    if provider != "openai" or not (conv["turns"] or conv["carry"]):
+        return triv, None
+    mem = memory_text(conv)
+    last = conv["turns"][-1]
+    if MOCK:
+        if last.get("question"):
+            return {**triv, "request": f'{last["resolved"]} {text}'}, None
+        if EDIT_WORDS.search(text):
+            return {**triv, "intent": "edit", "request": f'{last["resolved"]}; {text}', "use_last_image": True}, None
+        return triv, None
+    user = f"{mem}\n\nImagens disponíveis agora: {avail}\n\nNova mensagem do usuário: {text}"
+    try:
+        r = ui.openai_post("/chat/completions", {"model": model, "response_format": {"type": "json_object"},
+                                                 "messages": [{"role": "system", "content": MEMORY_PROMPT_PATH.read_text(encoding="utf-8")},
+                                                              {"role": "user", "content": user}]})
+        out = json.loads(r["choices"][0]["message"]["content"])
+        if out.get("intent") not in ("new", "edit", "variation") or not str(out.get("request", "")).strip():
+            raise ValueError("resposta do resolvedor inválida")
+        carry = [str(c)[:160] for c in (out.get("carry") or []) if str(c).strip()][:8]
+        return {"intent": out["intent"], "request": str(out["request"]).strip(),
+                "use_last_image": bool(out.get("use_last_image")) and out["intent"] in ("edit", "variation"), "carry": carry or list(conv["carry"])}, None
+    except Exception as e:  # noqa: BLE001
+        return triv, f"não consegui resolver o contexto ({type(e).__name__}); usei a sua mensagem como está"
+
+
+def api_conv(b):
+    return load_conv(b["client"], b.get("conv") or "x")
+
+
+def api_asset_kind(b):
+    cid = b["client"]
+    if b.get("kind") not in KIND_ROLE:
+        raise ui.ApiError(400, f"tipo inválido; use um de {list(KIND_ROLE)}")
+    assets = load_assets(cid)
+    hit = [a for a in assets if a["id"] == b["id"]]
+    if not hit:
+        raise ui.ApiError(404, "imagem não encontrada na biblioteca")
+    hit[0]["kind"] = b["kind"]
+    (cdir(cid) / "assets.json").write_text(json.dumps(assets, ensure_ascii=False, indent=2), encoding="utf-8")
+    return {"ok": True}
+
+
 def run_chat(b, emit, cid, text, ctx, inputs):
     size = b.get("size") if b.get("size") in SIZES else "1024x1024"
     quality = b.get("quality") or ui.env_models()["quality"]
@@ -374,15 +498,38 @@ def run_chat(b, emit, cid, text, ctx, inputs):
     text_model, image_model = b.get("text_model") or em["text_model"], b.get("image_model") or em["image_model"]
     history = b.get("history") or []
     provider = "claude" if (not MOCK and not os.getenv("OPENAI_API_KEY")) else "openai"
-    # modo: livre (qualquer imagem, sem marca) ou marca (aplica o cliente onde o pedido é omisso)
     mode = "marca" if b.get("mode") == "marca" else "livre"
     imp = {"designer": True, "skills": True, "review": b.get("review", True), "compare_raw": False, **(b.get("improve") or {})}
     ctx_eff = ctx if mode == "marca" else {}
     ctx_critic = ctx if mode == "marca" else {"modo": "livre (sem marca do cliente): julgue assunto, estilo e paleta só pelo pedido e pelo briefing"}
     t0 = time.time()
-    used = skills_router.select(text, size, bool(inputs)) if (imp["designer"] and imp["skills"]) else []
+    avisos = []
+
+    # --- memória: entender a mensagem no contexto da conversa ---
+    conv = load_conv(cid, b.get("conv") or uuid.uuid4().hex[:10])
+    lastp, last_id = last_image(cid, conv)
+    avail = (f"última imagem gerada (id {last_id}); " if last_id else "nenhuma imagem gerada ainda; ") + \
+            ("fixadas na conversa: " + ", ".join(f"{x['name']} ({x['kind']})" for x in inputs if x["kind"] not in ("alvo",)) if inputs else "nenhuma imagem fixada")
+    resolved, warn = resolve_turn(conv, text, avail, text_model, provider)
+    if warn:
+        avisos.append(warn)
+    text_eff, intent = resolved["request"], resolved["intent"]
+    if b.get("edit_of") and intent == "new":
+        intent = "edit"  # o botão "Editar esta imagem" vale mais que a leitura do resolvedor
+    if resolved["use_last_image"] and lastp and not any(x["kind"] == "alvo" for x in inputs):
+        role = ("ALVO DE EDIÇÃO: a última imagem gerada; mude só o que o pedido atual pede e mantenha o resto idêntico" if intent == "edit"
+                else "IMAGEM-BASE da variação: mantenha o conceito, a pessoa/produto/marca e o estilo; mude só o que o pedido indicar")
+        inputs = [dict(kind="alvo" if intent == "edit" else "variacao", name=lastp.name, mime="image/svg+xml" if lastp.suffix == ".svg" else "image/png",
+                       bytes=lastp.read_bytes(), role_text=role)] + list(inputs)
+    memory = memory_text(conv)
+    if conv["turns"] or text_eff != text:
+        emit(f"Memória: entendi como {'edição da imagem anterior' if intent == 'edit' else 'variação' if intent == 'variation' else 'pedido novo'}"
+             + (f" · pedido resolvido: «{text_eff[:220]}»" if text_eff != text else ""))
+
+    used = skills_router.select(text_eff, size, bool(inputs)) if (imp["designer"] and imp["skills"]) else []
     notes = skills_router.review_notes(used)
-    packs = skills_router.packs_for(text, size, bool(inputs), mode, bool(b.get("edit_of")))
+    packs = skills_router.packs_for(text_eff, size, bool(inputs), mode, bool(b.get("edit_of")) or intent in ("edit", "variation"),
+                                    [x["kind"] for x in inputs])
     on = [k for k, label in (("designer", "briefing do designer"), ("skills", "skills de design"), ("review", "critic"), ("compare_raw", "comparação com o GPT puro")) if imp.get(k)]
     emit("Critic (modelo da OpenAI como juiz): critérios da base" + "".join(f" + {p}" for p in packs) + (" (imagem livre: sem critérios de marketing)" if not packs else ""))
     emit(f"Modo {'com marca do cliente' if mode == 'marca' else 'livre (sem marca)'} · melhorias ligadas: " + (", ".join(on) or "nenhuma (seu texto vai direto ao modelo)"))
@@ -390,11 +537,20 @@ def run_chat(b, emit, cid, text, ctx, inputs):
         emit("Skills de design aplicadas: " + ", ".join(s.replace("design-", "") for s in used))
     if inputs:
         emit("Imagens de entrada: " + ", ".join(f"{x['kind']} {x['name']}" for x in inputs))
+
+    def record(**turn):
+        n = len(conv["turns"]) + 1
+        conv["turns"].append({"n": n, "t": time.strftime("%H:%M:%S"), "request": text, "resolved": text_eff, "intent": intent, **turn})
+        conv["carry"] = resolved["carry"]
+        save_conv(conv)
+
     if imp["designer"]:
         emit("O designer está escrevendo o briefing…")
-        brief = write_briefing(ctx_eff, text, size, history, inputs, model=text_model, provider=provider, mode=mode, use_skills=imp["skills"])
+        brief = write_briefing(ctx_eff, text_eff, size, history, inputs, model=text_model, provider=provider, mode=mode, use_skills=imp["skills"],
+                               memory=memory, intent=intent, original=text)
         if brief.get("question"):
-            return {"role": "assistant", "kind": "text", "text": brief["question"]}
+            record(question=brief["question"])
+            return {"role": "assistant", "kind": "text", "text": brief["question"], "conv": conv["id"]}
         if provider == "claude":
             return {"role": "assistant", "kind": "text", "briefing_only": True,
                     "text": "Sem OPENAI_API_KEY: gerei só o briefing, sem imagem.\n\n" + brief.get("prompt", "")}
@@ -402,18 +558,19 @@ def run_chat(b, emit, cid, text, ctx, inputs):
     else:
         if provider == "claude":
             return {"role": "assistant", "kind": "text", "text": "Sem OPENAI_API_KEY não há como gerar a imagem."}
-        brief = {"prompt": text}
+        brief = {"prompt": text_eff}
         emit("Sem briefing do designer: o seu texto vai direto ao modelo de imagem.")
     do_rev = bool(imp["review"])
-    max_cycle = critic.MAX_CYCLES if imp["designer"] else 0  # sem designer não há quem corrija o briefing
+    max_cycle = critic.MAX_CYCLES if imp["designer"] else 0
+    fidelity = "high" if any(x["kind"] in IDENTITY_KINDS + ("alvo", "variacao") for x in inputs) else None
     mid = re.sub(r"[^a-z0-9]", "", time.strftime("%Y%m%d%H%M%S") + uuid.uuid4().hex[:4])
     (OUT / slug(cid)).mkdir(parents=True, exist_ok=True)
     cycles, best = [], None
     for cycle in range(max_cycle + 1):
         how = "editando com as imagens de entrada" if inputs else "gerando"
-        emit(f"Tentativa {cycle + 1}: {how} ({image_model}, {size}, {quality})…")
+        emit(f"Tentativa {cycle + 1}: {how} ({image_model}, {size}, {quality}" + (", fidelidade alta" if fidelity else "") + ")…")
         tg = time.time()
-        b64, ext = make_image(brief["prompt"], size, quality, inputs, image_model)
+        b64, ext = make_image(brief["prompt"], size, quality, inputs, image_model, fidelity, avisos)
         gid = f"{mid}c{cycle}"
         (OUT / slug(cid) / f"{gid}.{ext}").write_bytes(base64.b64decode(b64))
         url = f"/files/{slug(cid)}/out/{gid}.{ext}"
@@ -421,7 +578,7 @@ def run_chat(b, emit, cid, text, ctx, inputs):
         entry = {"cycle": cycle, "prompt": brief["prompt"], "id": gid, "url": url}
         if do_rev:
             emit("O critic está revisando…")
-            rv, s, ok = do_review(ctx_critic, text, brief["prompt"], b64, ext, size, inputs, b.get("critic_model") or text_model, notes, packs)
+            rv, s, ok = do_review(ctx_critic, text_eff, brief["prompt"], b64, ext, size, inputs, b.get("critic_model") or text_model, notes, packs)
             entry.update(score=s, approved=ok, veto=rv.get("veto", []), fix=rv.get("fix"), review=rv)
             emit(f"Nota {s}: {'aprovada' if ok else 'reprovada'}" + (f" · vetos: {', '.join(rv.get('veto', []))}" if rv.get("veto") else "")
                  + (f" · correção: {rv.get('fix')}" if not ok and rv.get("fix") else ""))
@@ -433,27 +590,32 @@ def run_chat(b, emit, cid, text, ctx, inputs):
         if not do_rev or ok or cycle == max_cycle:
             break
         emit("Corrigindo o briefing com a sugestão do critic…")
-        brief = write_briefing(ctx_eff, text, size, history, inputs, feedback=rv.get("fix"), prev=brief["prompt"],
-                               model=text_model, provider=provider, mode=mode, use_skills=imp["skills"])
+        brief = write_briefing(ctx_eff, text_eff, size, history, inputs, feedback=rv.get("fix"), prev=brief["prompt"],
+                               model=text_model, provider=provider, mode=mode, use_skills=imp["skills"], memory=memory, intent=intent, original=text)
         if brief.get("question"):
             break
     e = best["entry"]
+    if "identidade_divergente" in ((best["rv"] or {}).get("veto") or []):
+        avisos.append("A imagem não manteve a identidade da referência (pessoa, produto ou logo). Confira a foto anexada e o tipo dela; "
+                      "a API de imagem pode não preservar o rosto de uma pessoa real.")
     msg = {"role": "assistant", "kind": "image", "id": e["id"], "url": e["url"], "score": best["score"], "approved": best["ok"],
-           "veto": (best["rv"] or {}).get("veto", []), "review": best["rv"], "prompt": e["prompt"], "request": text, "cycles": cycles,
-           "skills": used, "packs": packs, "mode": mode, "improve": imp, "generations": len(cycles), "seconds": round(time.time() - t0, 1), "size": size,
+           "veto": (best["rv"] or {}).get("veto", []), "review": best["rv"], "prompt": e["prompt"], "request": text, "resolved": text_eff,
+           "intent": intent, "conv": conv["id"], "avisos": avisos, "cycles": cycles, "skills": used, "packs": packs, "mode": mode, "improve": imp,
+           "generations": len(cycles), "seconds": round(time.time() - t0, 1), "size": size,
            "inputs": [{"kind": x["kind"], "name": x["name"]} for x in inputs]}
+    record(briefing=e["prompt"], image_id=e["id"], score=best["score"], approved=bool(best["ok"]),
+           inputs=[{"kind": x["kind"], "name": x["name"]} for x in inputs], mode=mode, packs=packs)
     if imp["compare_raw"]:
-        # o mesmo pedido, sem nada da aplicação: serve para ver o que as melhorias acrescentam
         emit("Gerando a versão do GPT puro (o seu texto, sem a aplicação) para comparar…")
         tr = time.time()
-        b64, ext = make_image(text, size, quality, inputs, image_model)
+        b64, ext = make_image(text_eff, size, quality, inputs, image_model, fidelity, avisos)
         rid = f"{mid}raw"
         (OUT / slug(cid) / f"{rid}.{ext}").write_bytes(base64.b64decode(b64))
-        raw = {"id": rid, "url": f"/files/{slug(cid)}/out/{rid}.{ext}", "prompt": text}
+        raw = {"id": rid, "url": f"/files/{slug(cid)}/out/{rid}.{ext}", "prompt": text_eff}
         emit(f"Versão do GPT puro pronta em {round(time.time() - tr)}s.", image_url=raw["url"])
         if do_rev:
             emit("O critic está revisando a versão pura (mesma régua)…")
-            rv2, s2, ok2 = do_review(ctx_critic, text, text, b64, ext, size, inputs, b.get("critic_model") or text_model, "", packs)
+            rv2, s2, ok2 = do_review(ctx_critic, text_eff, text_eff, b64, ext, size, inputs, b.get("critic_model") or text_model, "", packs)
             raw.update(score=s2, approved=ok2, veto=rv2.get("veto", []))
             emit(f"GPT puro: nota {s2}{' · vetos: ' + ', '.join(rv2.get('veto', [])) if rv2.get('veto') else ''}")
         msg["raw"] = raw
@@ -461,7 +623,8 @@ def run_chat(b, emit, cid, text, ctx, inputs):
 
 
 POST = {"/api/client": api_client, "/api/client/save": api_client_save, "/api/asset": api_asset,
-        "/api/asset/delete": api_asset_delete, "/api/chat": api_chat, "/api/job": api_job}
+        "/api/asset/delete": api_asset_delete, "/api/asset/kind": api_asset_kind, "/api/chat": api_chat, "/api/job": api_job,
+        "/api/conv": api_conv}
 
 
 class H(BaseHTTPRequestHandler):

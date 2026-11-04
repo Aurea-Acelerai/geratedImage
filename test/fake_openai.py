@@ -16,10 +16,10 @@ import argparse, base64, email, json, re, struct, sys, threading, time, zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 STATS = {"models": 0, "chat_writer": 0, "chat_critic": 0, "generations": 0, "edits": 0, "edit_images": [], "writer_images": [],
-         "critic_images": [], "auth": set(), "edit_fields": [], "last_writer_user": "", "writer_systems": [], "image_prompts": [], "critic_systems": []}
+         "critic_images": [], "auth": set(), "edit_fields": [], "last_writer_user": "", "writer_systems": [], "image_prompts": [], "critic_systems": [], "resolver_users": []}
 LOCK = threading.Lock()
 CRITIC_KEYS = ["subject", "style", "composition", "hierarchy", "legibility_size", "message_clarity", "craft", "color_contrast",
-               "text", "defects", "format", "binding_count", "invariants", "brand_fit", "style_mechanism"]
+               "text", "defects", "format", "binding_count", "invariants", "brand_fit", "style_mechanism", "identity_match"]
 
 
 def png(w, h):
@@ -62,11 +62,25 @@ class H(BaseHTTPRequestHandler):
             parts = user if isinstance(user, list) else [{"type": "text", "text": user}]
             utext = "\n".join(p["text"] for p in parts if p["type"] == "text")
             nimg = sum(1 for p in parts if p["type"] == "image_url")
+            if "resolve o contexto" in system:
+                msg = re.search(r"Nova mensagem do usuário: (.*)", utext, re.S).group(1).strip()
+                with LOCK:
+                    STATS["resolver_users"].append(utext)
+                pend = re.search(r"PERGUNTA PENDENTE.*?\(pedido original: (.*?)\)\s*$", utext.split("\n\nImagens disponíveis")[0], re.S | re.M)
+                lasts = re.findall(r"Pedido: (.*?) \|", utext.split("\n\nImagens disponíveis")[0])
+                if pend:
+                    out = {"intent": "new", "request": f"{pend.group(1)} {msg}", "use_last_image": False, "carry": []}
+                elif re.search(r"\b(mude|troque|tire|agora|mais|deixe)\b", msg, re.I) and lasts:
+                    out = {"intent": "edit", "request": f"{lasts[-1]}; {msg}", "use_last_image": True, "carry": []}
+                else:
+                    out = {"intent": "new", "request": msg, "use_last_image": False, "carry": []}
+                return self._json(200, {"choices": [{"message": {"content": json.dumps(out)}}]})
             if "revisor de qualidade" in system:
                 with LOCK:
                     STATS["chat_critic"] += 1; STATS["critic_images"].append(nimg); k = STATS["chat_critic"]
                     STATS["critic_systems"].append({"hierarchy": "`hierarchy`" in system, "brand_fit": "`brand_fit`" in system, "text": "`text`" in system,
-                                                    "cta_vago": "`cta_vago`" in system, "subject": "`subject`" in system})
+                                                    "cta_vago": "`cta_vago`" in system, "subject": "`subject`" in system,
+                                                    "identity_match": "`identity_match`" in system})
                 bad = k % 2 == 1
                 rv = {"issues": [{"criterion": "hierarchy", "evidence": "foco fraco", "severity": "media"}] if bad else [],
                       "scores": {c: (6 if bad else 9) for c in CRITIC_KEYS}, "veto": [], "fix": "aumentar o contraste do foco" if bad else ""}
@@ -74,10 +88,10 @@ class H(BaseHTTPRequestHandler):
             with LOCK:
                 STATS["chat_writer"] += 1; STATS["writer_images"].append(nimg); STATS["last_writer_user"] = utext
                 STATS["writer_systems"].append({"livre": "MODO LIVRE" in system, "marca": "MODO COM MARCA" in system, "setor_no_prompt": "moda praia" in system})
-            if "perguntar" in utext.lower():
+            if "perguntar" in utext.lower() and "o designer PERGUNTOU" not in utext:  # pergunta uma vez; depois a memória já tem a resposta
                 out = {"question": "Qual é a oferta da peça?"}
             else:
-                m = re.search(r"Pedido atual: (.*)", utext)
+                m = re.search(r"Pedido atual[^:]*: (.*)", utext)
                 out = {"use_case": "ads-marketing", "role": "cell",
                        "prompt": f"Use case: ads-marketing\nPrimary request: {m.group(1) if m else ''}\nInput images: {nimg}"}
             return self._json(200, {"choices": [{"message": {"content": json.dumps(out)}}]})
@@ -98,6 +112,8 @@ class H(BaseHTTPRequestHandler):
             with LOCK:
                 STATS["edits"] += 1; STATS["edit_images"].append(imgs); STATS["edit_fields"].append(sorted(fields))
                 STATS["image_prompts"].append(fields.get("prompt", b"").decode())
+            if "rejectfidelity" in fields.get("prompt", b"").decode().lower() and "input_fidelity" in fields:
+                return self._json(400, {"error": {"message": "Unknown parameter: 'input_fidelity'."}})
             size = fields.get("size", b"1024x1024").decode()
             w, h = (512, 512) if "wrongsize" in fields.get("prompt", b"").decode().lower() else map(int, size.split("x"))
             return self._json(200, {"data": [{"b64_json": base64.b64encode(png(w, h)).decode()}]})

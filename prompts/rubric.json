@@ -148,6 +148,22 @@
         }
       ],
       "vetos": []
+    },
+    "identity": {
+      "quando": "há pessoa, logo ou produto de referência anexado",
+      "criteria": [
+        {
+          "key": "identity_match",
+          "weight": 3,
+          "description": "A pessoa, o produto ou o logo da imagem é o das referências rotuladas: mesmo rosto, cabelo e traços (pessoa), mesmo produto (forma, cor, rótulo), logo idêntico. Compare com cuidado a imagem avaliada com cada referência. Outra pessoa, um sósia genérico, um modelo qualquer no lugar da pessoa ou um logo redesenhado é falha grave (nota <= 3)."
+        }
+      ],
+      "vetos": [
+        {
+          "key": "identidade_divergente",
+          "description": "A pessoa, o produto ou o logo da imagem não corresponde à referência fornecida (outra pessoa ou sósia genérico, produto trocado, logo redesenhado)."
+        }
+      ]
     }
   }
 }

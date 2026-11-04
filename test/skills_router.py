@@ -87,7 +87,7 @@ def compact(body):
     return re.sub(r"\n{3,}", "\n\n", "\n".join(kept)).strip()
 
 
-def packs_for(request="", size=None, has_inputs=False, mode="livre", has_edit=False):
+def packs_for(request="", size=None, has_inputs=False, mode="livre", has_edit=False, ref_kinds=()):
     """Pacotes da rubrica do critic (prompts/rubric.json) para este caso de uso. A base vale sempre; os pacotes só
     entram quando o caso de uso os pede, para não julgar uma imagem livre por critérios de peça de marketing."""
     sel = set(select(request, size, has_inputs))
@@ -102,6 +102,8 @@ def packs_for(request="", size=None, has_inputs=False, mode="livre", has_edit=Fa
         packs.append("edit")
     if "design-estilos" in sel:
         packs.append("estilos")
+    if any(k in ("pessoa", "logo", "produto") for k in ref_kinds):
+        packs.append("identity")  # a identidade da referência precisa ser conferida, senão um sósia passa
     return packs
 
 
@@ -162,6 +164,7 @@ def self_test():
     assert "edit" in packs_for("deixe mais quente", has_edit=True)
     assert "text" in packs_for('cartaz com a frase "Bom dia"')
     assert "estilos" in packs_for("card glassmorphism sobre foto")
+    assert "identity" in packs_for("foto com a pessoa", has_inputs=True, ref_kinds=["pessoa"]) and "identity" not in packs_for("foto", has_inputs=True, ref_kinds=["referencia"])
     # render e notas
     r = render(s1)
     assert all(f'name="{n}"' in r for n in s1) and "## Revisão (critic)" not in r  # o designer recebe a versão compacta

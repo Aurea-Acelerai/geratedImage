@@ -32,6 +32,7 @@
   .asset.sel { border-color: var(--accent); }
   .asset img { width: 100%; height: 100%; object-fit: contain; display: block; }
   .asset .k { position: absolute; left: 3px; bottom: 3px; font-size: 10px; background: rgba(0,0,0,.65); color: #fff; padding: 0 5px; border-radius: 4px; }
+  .asset select.k { position: absolute; left: 3px; bottom: 3px; font-size: 10px; background: rgba(0,0,0,.72); color: #fff; border: none; border-radius: 4px; padding: 0 2px; max-width: 70px; }
   .asset .x { position: absolute; right: 3px; top: 3px; font-size: 11px; background: rgba(0,0,0,.65); color: #fff; width: 18px; height: 18px; line-height: 18px; text-align: center; border-radius: 9px; display: none; }
   .asset:hover .x { display: block; }
   .hint { color: var(--muted); font-size: 12px; margin-top: 6px; }
@@ -64,6 +65,10 @@
   .what b { color: var(--ink); }
   .chk { display: flex; gap: 8px; align-items: flex-start; margin-top: 8px; font-size: 13px; }
   .chk input { margin-top: 3px; flex: none; }
+  .mem { font-size: 12px; color: var(--muted); }
+  .mem .it { margin-top: 6px; padding-left: 8px; border-left: 3px solid var(--line); }
+  .mem b { color: var(--ink); }
+  .pin { font-size: 11px; color: var(--muted); margin-bottom: 4px; }
   .tries { display: flex; gap: 8px; margin-top: 8px; flex-wrap: wrap; }
   .tries figure { margin: 0; font-size: 11px; color: var(--muted); }
   .tries img { width: 88px; height: 88px; object-fit: cover; border-radius: 8px; border: 2px solid var(--line); display: block; cursor: zoom-in; }
@@ -119,6 +124,8 @@
   <input type="file" id="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" multiple hidden>
   <div id="assets" class="assets"></div>
   <p class="hint">Clique para anexar ao próximo pedido (contorno verde). Passe o mouse e use × para apagar. Logo: use PNG com fundo transparente.</p>
+  <h2>Memória da conversa</h2>
+  <div class="mem" id="mem">Vazia: a IA ainda não lembra de nada.</div>
   <h2>Geração</h2>
   <div class="row"><span>Tamanho</span><select id="size" autocomplete="off"></select></div>
   <div class="row"><span>Qualidade</span><select id="quality" autocomplete="off"><option>low</option><option selected>medium</option><option>high</option></select></div>
@@ -163,13 +170,15 @@
 <div id="lightbox"><img alt=""></div>
 <script>
 const $ = (id) => document.getElementById(id);
-const S = { state: null, client: null, clientId: null, assets: [], selected: new Set(), editOf: null, history: [], busy: false, live: null, lastBody: null };
+const S = { conv: null, state: null, client: null, clientId: null, assets: [], selected: new Set(), editOf: null, history: [], busy: false, live: null, lastBody: null };
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const store = {
   get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* sem storage: a conversa só vive na página */ } },
   del(k) { try { localStorage.removeItem(k); } catch { /* ignora */ } },
 };
+function newConv(client) { const id = Math.random().toString(16).slice(2, 12); store.set('conv:' + client, id); return id; }
+const saveSel = () => store.set('sel:' + S.clientId, [...S.selected]);
 const logKey = () => 'chat:' + S.clientId, jobKey = () => 'job:' + S.clientId;
 const saveLog = () => store.set(logKey(), S.history);
 
@@ -209,12 +218,14 @@ async function checkModels() {
 
 async function loadClient(id) {
   const r = await api('/api/client', { id });
-  S.clientId = r.id; S.client = r.client; S.assets = r.assets; S.selected.clear(); S.editOf = null; S.live = null;
+  S.clientId = r.id; S.client = r.client; S.assets = r.assets; S.editOf = null; S.live = null;
+  S.conv = store.get('conv:' + r.id) || newConv(r.id);
+  S.selected = new Set((store.get('sel:' + r.id) || []).filter((id) => r.assets.some((a) => a.id === id)));
   $('client').value = r.id;
   $('clientName').textContent = r.client.name || r.id;
   $('clientJson').value = JSON.stringify(r.client, null, 2);
   S.history = store.get(logKey()) || [];
-  drawAssets(); drawChips(); drawLog();
+  drawAssets(); drawChips(); drawLog(); loadMem();
   const pending = store.get(jobKey());
   if (pending && pending.id) resumeJob(pending);
 }
@@ -222,7 +233,7 @@ async function loadClient(id) {
 function drawAssets() {
   $('assets').innerHTML = S.assets.map((a) => `
     <div class="asset ${S.selected.has(a.id) ? 'sel' : ''}" data-id="${a.id}" title="${esc(a.name)}">
-      <img src="${a.url}" alt="${esc(a.name)}"><span class="k">${esc(a.kind)}</span><span class="x" data-del="${a.id}">×</span>
+      <img src="${a.url}" alt="${esc(a.name)}"><select class="k" data-kind="${a.id}" title="Tipo da imagem: a IA trata cada tipo de um jeito">${(S.state.kinds || []).map((k) => `<option ${k === a.kind ? 'selected' : ''}>${k}</option>`).join('')}</select><span class="x" data-del="${a.id}">×</span>
     </div>`).join('') || '<div class="hint" style="grid-column:1/-1">Nenhuma imagem ainda. Envie a logo e peças do cliente.</div>';
 }
 
@@ -233,7 +244,7 @@ function drawChips() {
     const a = S.assets.find((x) => x.id === id);
     if (a) chips.push(`<span class="chip"><img src="${a.url}" alt="">${esc(a.kind)}: ${esc(a.name)}<button data-unsel="${id}">×</button></span>`);
   }
-  $('chips').innerHTML = chips.join('');
+  $('chips').innerHTML = (S.selected.size ? '<div class="pin" style="width:100%">📌 Imagens fixadas nesta conversa: valem em todas as mensagens até você remover (×).</div>' : '') + chips.join('');
 }
 
 function thumbs(list) {
@@ -255,7 +266,7 @@ function msgHtml(m) {
     const tries = (m.cycles || []).length > 1 ? `<div class="tries">${m.cycles.map((c) => `<figure class="${c.id === m.id ? 'best' : ''}"><img data-zoom="${c.url}" src="${c.url}" alt="">tentativa ${c.cycle + 1}${c.score != null ? ' · ' + c.score : ''}</figure>`).join('')}</div>` : '';
     const imp = m.improve || {};
     const did = [`modo ${m.mode === 'marca' ? 'com marca' : 'livre'}`, imp.designer === false ? 'sem designer (texto direto)' : 'designer', ...(imp.designer !== false && imp.skills === false ? ['sem skills'] : (m.skills || []).length ? [`skills (${m.skills.length})`] : []), imp.review === false ? 'sem critic' : `critic (base${(m.packs || []).map((p) => ' + ' + p).join('')})`].join(' · ');
-    const what = `<div class="what"><b>Seu pedido:</b> ${esc(m.request || '')}<br><b>O que a aplicação fez:</b> ${esc(did)}${imp.designer === false ? '' : `<br><b>Enviado ao modelo de imagem:</b> ${esc((m.prompt || '').replace(/\s+/g, ' ').slice(0, 320))}${(m.prompt || '').length > 320 ? '…' : ''}`}</div>`;
+    const what = `<div class="what"><b>Seu pedido:</b> ${esc(m.request || '')}${m.resolved && m.resolved !== m.request ? `<br><b>Como a IA entendeu (com a memória):</b> ${esc(m.resolved)}` : ''}${m.intent && m.intent !== 'new' ? `<br><b>Intenção:</b> ${m.intent === 'edit' ? 'edição da imagem anterior' : 'variação'}` : ''}${(m.avisos || []).map((a) => `<br><b style="color:var(--warn)">Aviso:</b> ${esc(a)}`).join('')}<br><b>O que a aplicação fez:</b> ${esc(did)}${imp.designer === false ? '' : `<br><b>Enviado ao modelo de imagem:</b> ${esc((m.prompt || '').replace(/\s+/g, ' ').slice(0, 320))}${(m.prompt || '').length > 320 ? '…' : ''}`}</div>`;
     const rawScore = m.raw && m.raw.score != null ? ` · nota ${m.raw.score}` : '';
     const hero = m.raw
       ? `<div class="cmp"><figure><img data-zoom="${m.url}" src="${m.url}" alt="com a aplicação"><b>Com a aplicação</b>${sc != null ? ' · nota ' + sc : ''}</figure>
@@ -306,7 +317,7 @@ async function uploadFiles(files, kind) {
     const b64 = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result.split(',')[1]); r.onerror = rej; r.readAsDataURL(f); });
     try {
       const { asset } = await api('/api/asset', { client: S.clientId, kind, name: f.name || 'colado.png', mime: f.type, b64 });
-      S.assets.push(asset); S.selected.add(asset.id);
+      S.assets.push(asset); S.selected.add(asset.id); saveSel();
     } catch (e) { $('status').textContent = 'Erro ao enviar: ' + e.message; }
   }
   drawAssets(); drawChips();
@@ -316,6 +327,17 @@ function setModeHint() {
   $('modeHint').textContent = $('mode').value === 'livre'
     ? 'O seu pedido manda. Nada do cliente (setor, paleta, estilo) entra no briefing.'
     : 'Aplica paleta, estilo e tom do cliente só onde o pedido não disser. O pedido continua mandando.';
+}
+async function loadMem() {
+  try {
+    const c = await api('/api/conv', { client: S.clientId, conv: S.conv });
+    const pins = [...S.selected].map((id) => S.assets.find((a) => a.id === id)).filter(Boolean);
+    const parts = [];
+    if (pins.length) parts.push(`<div class="it"><b>Imagens fixadas:</b> ${pins.map((a) => esc(a.name + ' (' + a.kind + ')')).join(', ')}</div>`);
+    if ((c.carry || []).length) parts.push(`<div class="it"><b>Instruções duradouras:</b> ${c.carry.map(esc).join('; ')}</div>`);
+    (c.turns || []).slice(-6).forEach((x) => parts.push(`<div class="it"><b>${x.n}.</b> ${esc((x.resolved || '').slice(0, 140))}${x.question ? ' <i>(a IA perguntou: ' + esc(x.question.slice(0, 80)) + ')</i>' : ' → ' + esc(x.intent) + (x.score != null ? ', nota ' + x.score : '')}</div>`));
+    $('mem').innerHTML = parts.join('') || 'Vazia: a IA ainda não lembra de nada.';
+  } catch { /* sem painel: não atrapalha o chat */ }
 }
 function setBusy(b) { S.busy = b; $('send').disabled = b; }
 
@@ -341,10 +363,10 @@ async function poll(jobId, since) {
 
 async function finish(jobId, res) {
   S.live.done = true;
-  if (res.message) { if (!S.history.some((m) => m.job === jobId)) S.history.push({ ...res.message, job: jobId }); S.selected.clear(); S.editOf = null; }
+  if (res.message) { if (!S.history.some((m) => m.job === jobId)) S.history.push({ ...res.message, job: jobId }); S.editOf = null; }
   else S.history.push({ role: 'assistant', kind: 'text', error: true, text: 'Erro: ' + res.error, job: jobId });
   S.live = null; store.del(jobKey()); setBusy(false); $('status').textContent = '';
-  saveLog(); drawLog(); drawAssets(); drawChips(); $('text').focus();
+  saveLog(); drawLog(); drawAssets(); drawChips(); loadMem(); $('text').focus();
 }
 
 async function resumeJob(p) {
@@ -360,7 +382,7 @@ async function send(textOverride, bodyOverride) {
   const attached = [...S.selected].map((id) => S.assets.find((a) => a.id === id)).filter(Boolean).map((a) => ({ kind: a.kind, name: a.name, url: a.url }));
   if (S.editOf) attached.unshift({ kind: 'imagem anterior', name: 'edição', url: (S.history.find((m) => m.id === S.editOf) || {}).url || '' });
   const history = S.history.map((m) => ({ role: m.role, text: m.text || (m.kind === 'image' ? '[imagem gerada]' : '') }));
-  const body = bodyOverride || { client: S.clientId, text, asset_ids: [...S.selected], edit_of: S.editOf, history,
+  const body = bodyOverride || { client: S.clientId, conv: S.conv, text, asset_ids: [...S.selected], edit_of: S.editOf, history,
     size: $('size').value, quality: $('quality').value, review: $('doReview').checked, mode: $('mode').value,
     improve: { designer: $('impDesigner').checked, skills: $('impSkills').checked, compare_raw: $('impRaw').checked },
     image_model: $('imageModel').value, text_model: $('textModel').value };
@@ -382,14 +404,22 @@ document.addEventListener('click', async (e) => {
   if (t.closest('#lightbox')) { $('lightbox').classList.remove('on'); return; }
   if (t.dataset.zoom) { zoom(t.dataset.zoom); return; }
   if (t.dataset.del) { e.stopPropagation(); await api('/api/asset/delete', { client: S.clientId, id: t.dataset.del });
-    S.assets = S.assets.filter((a) => a.id !== t.dataset.del); S.selected.delete(t.dataset.del); drawAssets(); drawChips(); return; }
+    S.assets = S.assets.filter((a) => a.id !== t.dataset.del); S.selected.delete(t.dataset.del); saveSel(); drawAssets(); drawChips(); return; }
   const card = t.closest('.asset');
-  if (card) { const id = card.dataset.id; S.selected.has(id) ? S.selected.delete(id) : S.selected.add(id); drawAssets(); drawChips(); return; }
-  if (t.dataset.unsel) { S.selected.delete(t.dataset.unsel); drawAssets(); drawChips(); }
+  if (t.tagName === 'SELECT') return;
+  if (card) { const id = card.dataset.id; S.selected.has(id) ? S.selected.delete(id) : S.selected.add(id); saveSel(); drawAssets(); drawChips(); return; }
+  if (t.dataset.unsel) { S.selected.delete(t.dataset.unsel); saveSel(); drawAssets(); drawChips(); }
   if (t.dataset.unedit) { S.editOf = null; drawChips(); }
   if (t.dataset.edit) { S.editOf = t.dataset.edit; drawChips(); $('text').focus(); $('text').placeholder = 'O que mudar nesta imagem? (o resto fica igual)'; }
   if (t.dataset.sugg) { $('text').value = t.dataset.sugg; autosize(); $('text').focus(); }
   if (t.dataset.retry && S.lastBody) { S.history = S.history.filter((m, i) => !(i === S.history.length - 1 && m.error)); send(S.lastBody.text, S.lastBody); }
+});
+document.addEventListener('change', async (e) => {
+  const t = e.target;
+  if (t.dataset && t.dataset.kind) {
+    try { await api('/api/asset/kind', { client: S.clientId, id: t.dataset.kind, kind: t.value }); const a = S.assets.find((x) => x.id === t.dataset.kind); if (a) a.kind = t.value; drawChips(); }
+    catch (err) { $('status').textContent = 'Erro: ' + err.message; }
+  }
 });
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') $('lightbox').classList.remove('on'); });
 $('send').onclick = () => send();
@@ -400,7 +430,7 @@ $('addAsset').onclick = () => $('file').click();
 $('file').onchange = async (e) => { await uploadFiles([...e.target.files], $('kind').value); e.target.value = ''; };
 $('client').onchange = () => loadClient($('client').value);
 $('mode').onchange = setModeHint;
-$('newChat').onclick = () => { S.history = []; S.editOf = null; saveLog(); drawLog(); drawChips(); };
+$('newChat').onclick = () => { S.history = []; S.editOf = null; S.selected = new Set(); saveSel(); S.conv = newConv(S.clientId); saveLog(); drawLog(); drawAssets(); drawChips(); loadMem(); };
 $('saveClient').onclick = async () => {
   try { const c = JSON.parse($('clientJson').value); await api('/api/client/save', { id: S.clientId, client: c }); S.client = c; $('clientName').textContent = c.name || S.clientId; $('status').textContent = 'Dados salvos'; }
   catch (e) { $('status').textContent = 'JSON inválido: ' + e.message; }
