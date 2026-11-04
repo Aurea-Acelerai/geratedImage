@@ -144,6 +144,17 @@
       "size": "auto",
       "mode": "livre",
       "expect_texts": []
+    },
+    {
+      "id": "T7",
+      "title": "Pedido curto de outra marca com pessoa e logo de outra marca anexados (não pode perguntar)",
+      "text": "agora quero uma campanha para a decolar",
+      "assets": [
+        "pessoa"
+      ],
+      "size": "auto",
+      "mode": "livre",
+      "expect_texts": []
     }
   ]
 }
