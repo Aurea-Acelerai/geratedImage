@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chat do designer</title>
+<style>
+  :root {
+    --bg: #ffffff; --panel: #f7f7f8; --ink: #1d1d1f; --muted: #6e6e73; --line: #e3e3e6;
+    --user: #ececf0; --accent: #10a37f; --accent-ink: #ffffff; --bad: #c0392b; --ok: #10a37f; --warn: #b7791f;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #212121; --panel: #171717; --ink: #ececec; --muted: #9a9a9f; --line: #333336;
+            --user: #2f2f32; --accent: #10a37f; --bad: #ff6b5e; --ok: #3ccf9c; --warn: #e0b04a; }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { background: var(--bg); color: var(--ink); font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; display: flex; }
+  button, select, input, textarea { font: inherit; color: inherit; }
+  aside { width: 300px; background: var(--panel); border-right: 1px solid var(--line); padding: 16px; overflow-y: auto; flex: none; }
+  aside h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 18px 0 8px; font-weight: 600; }
+  aside h1 { font-size: 16px; margin: 0 0 12px; }
+  select, textarea.box, input.box { width: 100%; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 7px 9px; }
+  textarea.box { font: 12px/1.45 ui-monospace, Menlo, monospace; min-height: 150px; resize: vertical; }
+  .row { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+  .row > * { flex: 1; }
+  .btn { border: 1px solid var(--line); background: var(--bg); border-radius: 8px; padding: 6px 10px; cursor: pointer; }
+  .btn:hover { border-color: var(--muted); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); }
+  .btn:disabled { opacity: .5; cursor: default; }
+  .assets { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 8px; }
+  .asset { position: relative; border: 2px solid transparent; border-radius: 8px; overflow: hidden; background: var(--bg); cursor: pointer; aspect-ratio: 1; }
+  .asset.sel { border-color: var(--accent); }
+  .asset img { width: 100%; height: 100%; object-fit: contain; display: block; }
+  .asset .k { position: absolute; left: 3px; bottom: 3px; font-size: 10px; background: rgba(0,0,0,.65); color: #fff; padding: 0 5px; border-radius: 4px; }
+  .asset .x { position: absolute; right: 3px; top: 3px; font-size: 11px; background: rgba(0,0,0,.65); color: #fff; width: 18px; height: 18px; line-height: 18px; text-align: center; border-radius: 9px; display: none; }
+  .asset:hover .x { display: block; }
+  .hint { color: var(--muted); font-size: 12px; margin-top: 6px; }
+  main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  header { padding: 12px 20px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  header .title { font-weight: 600; }
+  .badge { font-size: 11px; padding: 2px 8px; border-radius: 99px; border: 1px solid var(--line); color: var(--muted); }
+  .badge.warn { color: var(--warn); border-color: var(--warn); }
+  #log { flex: 1; overflow-y: auto; padding: 24px 20px; }
+  .wrap { max-width: 760px; margin: 0 auto; }
+  .msg { margin-bottom: 22px; display: flex; flex-direction: column; }
+  .msg.user { align-items: flex-end; }
+  .bubble { background: var(--user); border-radius: 18px; padding: 9px 15px; max-width: 85%; white-space: pre-wrap; }
+  .msg.assistant .bubble { background: none; padding: 0; max-width: 100%; }
+  .chips { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+  .chip { font-size: 12px; background: var(--panel); border: 1px solid var(--line); border-radius: 99px; padding: 2px 4px 2px 10px; display: inline-flex; align-items: center; gap: 6px; }
+  .chip button { border: none; background: none; cursor: pointer; color: var(--muted); padding: 0 6px; }
+  .imgcard img { max-width: min(100%, 520px); border-radius: 12px; border: 1px solid var(--line); display: block; }
+  .meta { display: flex; gap: 8px; align-items: center; margin-top: 8px; flex-wrap: wrap; font-size: 13px; }
+  .score { font-weight: 650; }
+  .score.ok { color: var(--ok); } .score.bad { color: var(--bad); }
+  .veto { color: var(--bad); font-size: 12px; }
+  details { margin-top: 8px; font-size: 13px; }
+  details summary { cursor: pointer; color: var(--muted); }
+  pre { white-space: pre-wrap; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px; font: 12px/1.45 ui-monospace, Menlo, monospace; }
+  .typing { color: var(--muted); }
+  .typing::after { content: "…"; animation: blink 1s steps(3) infinite; }
+  @keyframes blink { 0% { opacity: .2 } 50% { opacity: 1 } 100% { opacity: .2 } }
+  .empty { text-align: center; color: var(--muted); margin-top: 12vh; }
+  .empty h2 { color: var(--ink); font-size: 22px; }
+  .sugg { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin-top: 14px; }
+  #composer { padding: 0 20px 20px; }
+  .box2 { max-width: 760px; margin: 0 auto; border: 1px solid var(--line); border-radius: 22px; background: var(--panel); padding: 10px 12px; }
+  .box2.drag { border-color: var(--accent); }
+  #text { width: 100%; border: none; outline: none; background: none; resize: none; max-height: 200px; padding: 4px 6px; }
+  .bar { display: flex; align-items: center; gap: 8px; margin-top: 4px; flex-wrap: wrap; }
+  .bar .sp { flex: 1; }
+  .round { width: 34px; height: 34px; border-radius: 50%; border: none; background: var(--accent); color: var(--accent-ink); cursor: pointer; font-size: 17px; }
+  .round:disabled { opacity: .4; cursor: default; }
+  .tiny { font-size: 12px; background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 3px 6px; }
+  .err { color: var(--bad); }
+  @media (max-width: 800px) { aside { display: none; } }
+</style>
+</head>
+<body>
+<aside>
+  <h1>Designer · teste</h1>
+  <h2>Cliente</h2>
+  <select id="client"></select>
+  <details style="margin-top:8px"><summary>Dados do cliente (JSON)</summary>
+    <textarea id="clientJson" class="box" spellcheck="false"></textarea>
+    <div class="row"><button class="btn" id="saveClient">Salvar dados</button></div>
+  </details>
+  <h2>Biblioteca do cliente</h2>
+  <div class="row">
+    <select id="kind" class="tiny"></select>
+    <button class="btn" id="addAsset">Enviar imagem</button>
+  </div>
+  <input type="file" id="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" multiple hidden>
+  <div id="assets" class="assets"></div>
+  <p class="hint">Clique para anexar ao próximo pedido (contorno verde). Passe o mouse e use × para apagar. Logo e peças ficam salvos no cliente.</p>
+  <h2>Geração</h2>
+  <div class="row"><span>Tamanho</span><select id="size" autocomplete="off"></select></div>
+  <div class="row"><span>Qualidade</span><select id="quality" autocomplete="off"><option>low</option><option selected>medium</option><option>high</option></select></div>
+  <label class="row" style="gap:6px"><input type="checkbox" id="doReview" checked autocomplete="off" style="flex:none"> <span>Revisar com o critic (até 2 correções)</span></label>
+  <p class="hint" id="cfg"></p>
+</aside>
+<main>
+  <header>
+    <span class="title" id="clientName">Chat</span>
+    <span class="badge" id="modeBadge"></span>
+    <span style="flex:1"></span>
+    <button class="btn" id="newChat">Nova conversa</button>
+  </header>
+  <div id="log"><div class="wrap" id="wrap"></div></div>
+  <div id="composer">
+    <div class="box2" id="box2">
+      <div class="chips" id="chips"></div>
+      <textarea id="text" rows="1" placeholder="Peça uma imagem (ex.: banner de promoção de verão com a nossa logo)"></textarea>
+      <div class="bar">
+        <button class="btn" id="attach" title="Anexar imagem">＋ Anexar</button>
+        <span class="hint" id="status"></span>
+        <span class="sp"></span>
+        <button class="round" id="send" title="Enviar">↑</button>
+      </div>
+    </div>
+  </div>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const S = { state: null, client: null, clientId: null, assets: [], selected: new Set(), editOf: null, history: [], busy: false };
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const store = {
+  get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* sem storage: a conversa só vive na página */ } },
+};
+
+async function api(path, body) {
+  const r = await fetch(path, body === undefined ? {} : { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const j = await r.json().catch(() => ({ error: 'resposta inválida do servidor' }));
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+}
+
+function logKey() { return 'chat:' + S.clientId; }
+function saveLog() { store.set(logKey(), S.history); }
+
+async function init() {
+  S.state = await api('/api/state');
+  $('kind').innerHTML = S.state.kinds.map((k) => `<option>${k}</option>`).join('');
+  $('size').innerHTML = S.state.sizes.map((s) => `<option ${s === '1024x1024' ? 'selected' : ''}>${s}</option>`).join('');
+  $('client').innerHTML = S.state.clients.map((c) => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('');
+  $('modeBadge').textContent = S.state.mock ? 'MOCK (imagens falsas)' : S.state.has_key ? 'API OpenAI' : S.state.has_claude ? 'sem chave: só briefing (Claude)' : 'sem chave';
+  if (!S.state.mock && !S.state.has_key) $('modeBadge').classList.add('warn');
+  $('cfg').textContent = `texto: ${S.state.text_model} · imagem: ${S.state.image_model} · nota mínima ${S.state.pass_score}`;
+  await loadClient($('client').value || '71');
+}
+
+async function loadClient(id) {
+  const r = await api('/api/client', { id });
+  S.clientId = r.id; S.client = r.client; S.assets = r.assets; S.selected.clear(); S.editOf = null;
+  $('client').value = r.id;
+  $('clientName').textContent = r.client.name || r.id;
+  $('clientJson').value = JSON.stringify(r.client, null, 2);
+  S.history = store.get(logKey()) || [];
+  drawAssets(); drawChips(); drawLog();
+}
+
+function drawAssets() {
+  $('assets').innerHTML = S.assets.map((a) => `
+    <div class="asset ${S.selected.has(a.id) ? 'sel' : ''}" data-id="${a.id}" title="${esc(a.name)}">
+      <img src="${a.url}" alt="${esc(a.name)}"><span class="k">${esc(a.kind)}</span><span class="x" data-del="${a.id}">×</span>
+    </div>`).join('') || '<div class="hint" style="grid-column:1/-1">Nenhuma imagem ainda. Envie a logo e peças do cliente.</div>';
+}
+
+function drawChips() {
+  const chips = [];
+  if (S.editOf) chips.push(`<span class="chip">✎ editando a imagem anterior<button data-unedit="1">×</button></span>`);
+  for (const id of S.selected) {
+    const a = S.assets.find((x) => x.id === id);
+    if (a) chips.push(`<span class="chip">${esc(a.kind)}: ${esc(a.name)}<button data-unsel="${id}">×</button></span>`);
+  }
+  $('chips').innerHTML = chips.join('');
+}
+
+function msgHtml(m, i) {
+  if (m.role === 'user') {
+    const att = (m.attached || []).map((n) => `<span class="chip">${esc(n)}</span>`).join('');
+    return `<div class="msg user"><div class="bubble">${esc(m.text)}</div>${att ? `<div class="chips">${att}</div>` : ''}</div>`;
+  }
+  if (m.kind === 'image') {
+    const ok = m.approved, sc = m.score;
+    const scoreHtml = sc == null ? '<span class="hint">sem revisão</span>'
+      : `<span class="score ${ok ? 'ok' : 'bad'}">${ok ? '✓ aprovada' : '✕ reprovada'} · nota ${sc}</span>`;
+    const veto = (m.veto || []).length ? `<span class="veto">vetos: ${m.veto.map(esc).join(', ')}</span>` : '';
+    const issues = ((m.review && m.review.issues) || []).map((x) => typeof x === 'string' ? x : `[${x.severity || ''}] ${x.criterion}: ${x.evidence}`).join('\n');
+    const scores = m.review ? Object.entries(m.review.scores || {}).map(([k, v]) => `${k}: ${v}`).join('  ·  ') : '';
+    const cyc = (m.cycles || []).map((c) => `ciclo ${c.cycle}: ${c.score ?? '—'}${c.approved ? ' ✓' : ''}${(c.veto || []).length ? ' veto ' + c.veto.join(',') : ''}${c.fix ? '\n   correção pedida: ' + c.fix : ''}`).join('\n');
+    return `<div class="msg assistant"><div class="imgcard">
+      <a href="${m.url}" target="_blank"><img src="${m.url}" alt="imagem gerada"></a>
+      <div class="meta">${scoreHtml}${veto}<span class="hint">${m.generations} geração(ões) · ${m.seconds}s · ${esc(m.size)}</span></div>
+      <div class="meta"><button class="btn" data-edit="${m.id}">✎ Editar esta imagem</button>
+        <a class="btn" href="${m.url}" download="${m.id}">Baixar</a></div>
+      <details><summary>Briefing, revisão e tentativas</summary>
+        <pre>${esc(m.prompt)}</pre>
+        ${scores ? `<pre>${esc(scores)}${issues ? '\n\n' + esc(issues) : ''}</pre>` : ''}
+        ${cyc ? `<pre>${esc(cyc)}</pre>` : ''}
+        ${(m.inputs || []).length ? `<pre>entradas: ${m.inputs.map((x) => esc(x.kind + ' ' + x.name)).join(', ')}</pre>` : ''}
+      </details></div></div>`;
+  }
+  return `<div class="msg assistant"><div class="bubble ${m.error ? 'err' : ''}">${esc(m.text)}</div></div>`;
+}
+
+function drawLog() {
+  const w = $('wrap');
+  if (!S.history.length) {
+    w.innerHTML = `<div class="empty"><h2>O que vamos criar para ${esc(S.client.name || S.clientId)}?</h2>
+      <div>Anexe a logo e referências, descreva o pedido e itere na imagem como no ChatGPT.</div>
+      <div class="sugg">${['Banner de promoção de verão para feed, com a nossa logo', 'Post de lançamento de coleção, fundo solar, espaço para título', 'Story 9:16 com a modelo ao pôr do sol']
+        .map((s) => `<button class="btn" data-sugg="${esc(s)}">${esc(s)}</button>`).join('')}</div></div>`;
+  } else {
+    w.innerHTML = S.history.map(msgHtml).join('');
+  }
+  const l = $('log'); l.scrollTop = l.scrollHeight;
+}
+
+async function uploadFiles(files, kind) {
+  for (const f of files) {
+    if (!f.type.startsWith('image/')) continue;
+    const b64 = await new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result.split(',')[1]); r.onerror = rej; r.readAsDataURL(f); });
+    try {
+      const { asset } = await api('/api/asset', { client: S.clientId, kind, name: f.name || 'colado.png', mime: f.type, b64 });
+      S.assets.push(asset); S.selected.add(asset.id);
+    } catch (e) { $('status').textContent = 'Erro ao enviar: ' + e.message; }
+  }
+  drawAssets(); drawChips();
+}
+
+async function send(textOverride) {
+  const text = (textOverride ?? $('text').value).trim();
+  if (!text || S.busy) return;
+  S.busy = true; $('send').disabled = true;
+  const attached = [...S.selected].map((id) => S.assets.find((a) => a.id === id)).filter(Boolean).map((a) => `${a.kind}: ${a.name}`);
+  if (S.editOf) attached.unshift('imagem anterior');
+  const history = S.history.map((m) => ({ role: m.role, text: m.text || (m.kind === 'image' ? '[imagem gerada]' : '') }));
+  S.history.push({ role: 'user', text, attached });
+  drawLog(); $('wrap').insertAdjacentHTML('beforeend', '<div class="msg assistant" id="typing"><div class="typing">Pensando, gerando e revisando (pode levar 1 a 3 minutos)</div></div>');
+  $('log').scrollTop = $('log').scrollHeight;
+  $('text').value = ''; autosize();
+  const t0 = Date.now(), timer = setInterval(() => { $('status').textContent = Math.round((Date.now() - t0) / 1000) + 's'; }, 1000);
+  const body = { client: S.clientId, text, asset_ids: [...S.selected], edit_of: S.editOf, history,
+    size: $('size').value, quality: $('quality').value, review: $('doReview').checked };
+  try {
+    const { message } = await api('/api/chat', body);
+    S.history.push(message);
+    S.selected.clear(); S.editOf = null;
+  } catch (e) {
+    S.history.push({ role: 'assistant', kind: 'text', error: true, text: 'Erro: ' + e.message });
+  } finally {
+    clearInterval(timer); $('status').textContent = ''; S.busy = false; $('send').disabled = false;
+    saveLog(); drawLog(); drawAssets(); drawChips(); $('text').focus();
+  }
+}
+
+function autosize() { const t = $('text'); t.style.height = 'auto'; t.style.height = Math.min(t.scrollHeight, 200) + 'px'; }
+
+document.addEventListener('click', async (e) => {
+  const t = e.target;
+  if (t.dataset.del) { e.stopPropagation(); await api('/api/asset/delete', { client: S.clientId, id: t.dataset.del });
+    S.assets = S.assets.filter((a) => a.id !== t.dataset.del); S.selected.delete(t.dataset.del); drawAssets(); drawChips(); return; }
+  const card = t.closest('.asset');
+  if (card) { const id = card.dataset.id; S.selected.has(id) ? S.selected.delete(id) : S.selected.add(id); drawAssets(); drawChips(); return; }
+  if (t.dataset.unsel) { S.selected.delete(t.dataset.unsel); drawAssets(); drawChips(); }
+  if (t.dataset.unedit) { S.editOf = null; drawChips(); }
+  if (t.dataset.edit) { S.editOf = t.dataset.edit; drawChips(); $('text').focus(); $('text').placeholder = 'O que mudar nesta imagem? (o resto fica igual)'; }
+  if (t.dataset.sugg) { $('text').value = t.dataset.sugg; autosize(); $('text').focus(); }
+});
+$('send').onclick = () => send();
+$('text').addEventListener('input', autosize);
+$('text').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } });
+$('attach').onclick = $('addAsset').onclick = () => $('file').click();
+$('file').onchange = async (e) => { await uploadFiles([...e.target.files], $('kind').value); e.target.value = ''; };
+$('client').onchange = () => loadClient($('client').value);
+$('newChat').onclick = () => { S.history = []; S.editOf = null; saveLog(); drawLog(); drawChips(); };
+$('saveClient').onclick = async () => {
+  try { const c = JSON.parse($('clientJson').value); await api('/api/client/save', { id: S.clientId, client: c }); S.client = c; $('clientName').textContent = c.name || S.clientId; $('status').textContent = 'Dados salvos'; }
+  catch (e) { $('status').textContent = 'JSON inválido: ' + e.message; }
+};
+const box = $('box2');
+['dragover', 'dragenter'].forEach((ev) => box.addEventListener(ev, (e) => { e.preventDefault(); box.classList.add('drag'); }));
+['dragleave', 'drop'].forEach((ev) => box.addEventListener(ev, () => box.classList.remove('drag')));
+box.addEventListener('drop', (e) => { e.preventDefault(); uploadFiles([...e.dataTransfer.files], $('kind').value); });
+$('text').addEventListener('paste', (e) => { const f = [...(e.clipboardData?.files || [])]; if (f.length) { e.preventDefault(); uploadFiles(f, $('kind').value); } });
+init().catch((e) => { $('wrap').innerHTML = `<div class="empty err">Falha ao iniciar: ${esc(e.message)}</div>`; });
+</script>
+</body>
+</html>

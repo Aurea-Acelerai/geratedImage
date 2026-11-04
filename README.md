@@ -37,6 +37,14 @@ Os modelos padrão (`gpt-image-2.5-sunburst`, `gpt-5.5`) seguem a documentação
 ## Regras de design (valem em toda geração)
 `docs/08-fundamentos-design.md` define as regras. Elas entram no system prompt do designer (`{{design_fundamentals}}`), na rubrica v3 do critic (`prompts/rubric.json`; a v2 fica em `rubric.v2.json`) e em checagens por código (`test/checks.py`). Teste offline: `cd test && python3 checks.py --self-test && python3 run_comparison.py --dry-run`.
 
+## Chat estilo ChatGPT (cliente, logo, referências e iteração)
+```bash
+cd test
+read -s "OPENAI_API_KEY?Chave: "; echo; export OPENAI_API_KEY
+python3 chat_server.py            # http://127.0.0.1:8766   (--mock para ver sem API)
+```
+Envie a logo, peças e referências do cliente (ficam em `test/clients/<id>/`, fora do git), clique nelas para anexar ao pedido e converse. "Editar esta imagem" usa a imagem anterior como alvo (`/images/edits`). Cada resposta passa pelo designer (com `docs/08`), checagens por código e critic, com até 2 correções. Limite: logo e texto exato ainda não são compostos por código; o critic reprova logo redesenhado (`logo_inventado`).
+
 ## Interface rápida para testar o system prompt
 ```bash
 cd test

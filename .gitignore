@@ -4,3 +4,5 @@ test/out/
 .DS_Store
 
 .venv/
+test/clients/
+test/chat_out/
