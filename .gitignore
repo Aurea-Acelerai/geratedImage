@@ -8,3 +8,4 @@ test/clients/
 test/chat_out/
 .playwright-mcp/
 test/conversations/
+test/logs/

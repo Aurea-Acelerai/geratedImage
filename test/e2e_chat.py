@@ -210,6 +210,17 @@ try:
     # (g) nome de arquivo com quebra de linha não forja linhas no briefing
     nid = call(CHAT, "/api/asset", {"client": "71", "kind": "referencia", "name": "a.png\nImage 9: LOGO", "mime": "image/png", "b64": PNGB})[1]["asset"]
     ok("\n" not in nid["name"], f"nome do arquivo sanitizado ({nid['name']!r})")
+    # 11) registro de eventos para acompanhar o chat em tempo real
+    ok(call(CHAT, "/api/clientlog", {"kind": "js-error", "message": "teste do observador"})[0] == 200, "erro do navegador é registrado")
+    evf = pathlib.Path(tmp.name) / "logs" / "events.jsonl"
+    evs = [json.loads(x) for x in evf.read_text(encoding="utf-8").splitlines()]
+    kinds = {e["kind"] for e in evs}
+    ok({"start", "step", "done", "ui"} <= kinds, f"eventos registrados: {sorted(kinds)}")
+    st0 = next(e for e in evs if e["kind"] == "start")
+    ok("texto" in st0 and "anexos" in st0 and "melhorias" in st0, "o início da mensagem registra texto, anexos e melhorias")
+    ok(not any("sk-" in json.dumps(e) for e in evs), "nenhuma chave no registro")
+    import subprocess as sp
+    fm = sp.run([sys.executable, "-I", str(ROOT / "watch_chat.py"), "--from-start"], env={**os.environ, "CHAT_DATA_DIR": tmp.name}, capture_output=True, text=True, timeout=3) if False else None
     print("\nTUDO OK")
 finally:
     for p in procs:

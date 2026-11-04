@@ -26,7 +26,9 @@ import ui_server as ui  # noqa: E402  (openai_post, ApiError, env_models)
 # CHAT_DATA_DIR separa os dados do uso real dos dos testes automáticos (nunca apague a pasta de uso)
 DATA = pathlib.Path(os.getenv("CHAT_DATA_DIR") or ROOT)
 CLIENTS, OUT = DATA / "clients", DATA / "chat_out"
+LOG_DIR = DATA / "logs"
 MOCK = False
+LOG_LOCK = threading.Lock()
 CONV_LOCK = threading.Lock()  # duas tarefas da mesma conversa não podem se sobrescrever
 FIDELITY_REJECTED = set()  # modelos que recusaram input_fidelity (não insiste a cada tentativa)
 FIDELITY_MSG = "O modelo de imagem não aceitou input_fidelity=high; usei sem ele. A fidelidade ao rosto, logo ou produto de referência pode cair."
@@ -39,6 +41,17 @@ KIND_ROLE = {
     "produto": "PRODUTO do cliente: deve aparecer fiel ao original (forma, cor, rótulo)",
 }
 SIZES = {"1024x1024", "1536x1024", "1024x1536"}
+
+
+def log_event(kind, **fields):
+    """Uma linha JSON por evento em logs/events.jsonl. Nunca derruba o chat. Não registra chaves nem imagens."""
+    try:
+        LOG_DIR.mkdir(parents=True, exist_ok=True)
+        line = json.dumps({"t": time.strftime("%H:%M:%S"), "kind": kind, **fields}, ensure_ascii=False)
+        with LOG_LOCK, open(LOG_DIR / "events.jsonl", "a", encoding="utf-8") as f:
+            f.write(line + "\n")
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def slug(s):
@@ -175,9 +188,10 @@ def make_image(prompt, size, quality, inputs, model, fidelity=None, notes=None):
         w, h = (int(x) for x in size.split("x"))
         hue = random.randint(0, 360)
         svg = (f"<svg xmlns='http://www.w3.org/2000/svg' width='{w}' height='{h}'><rect width='100%' height='100%' "
-               f"fill='hsl({hue},55%,52%)'/><text x='50%' y='48%' font-size='{w // 16}' fill='white' text-anchor='middle'>"
-               f"mock {size}</text><text x='50%' y='56%' font-size='{w // 28}' fill='white' text-anchor='middle'>"
-               f"{len(inputs)} imagem(ns) de entrada</text></svg>")
+               f"fill='hsl({hue},55%,52%)'/><text x='50%' y='42%' font-size='{w // 14}' fill='white' text-anchor='middle' font-weight='bold'>"
+               f"DEMONSTRAÇÃO</text><text x='50%' y='52%' font-size='{w // 26}' fill='white' text-anchor='middle'>"
+               f"imagem FALSA: a OpenAI não foi chamada</text><text x='50%' y='60%' font-size='{w // 34}' fill='white' text-anchor='middle'>"
+               f"para imagens reais rode ./run_chat.sh com a chave ({len(inputs)} entrada(s))</text></svg>")
         return base64.b64encode(svg.encode()).decode(), "svg"
     if inputs:
         files = [("image[]", f"in{i}.{MIME_EXT.get(x['mime'], 'png')}", x["mime"], x["bytes"]) for i, x in enumerate(inputs)]
@@ -358,24 +372,33 @@ def api_models(_):
 JOBS = {}
 
 
-def start_job(fn):
+def start_job(fn, meta=None):
     jid = uuid.uuid4().hex[:10]
     job = {"id": jid, "status": "running", "steps": [], "message": None, "error": None, "t0": time.time()}
     for old in sorted(JOBS.values(), key=lambda j: j["t0"])[:-40]:
         JOBS.pop(old["id"], None)
     JOBS[jid] = job
+    log_event("start", job=jid, **(meta or {}))
 
     def emit(text, **extra):
-        job["steps"].append({"t": round(time.time() - job["t0"], 1), "text": text, **extra})
+        step = {"t": round(time.time() - job["t0"], 1), "text": text, **extra}
+        job["steps"].append(step)
+        log_event("step", job=jid, t=step["t"], text=text, **{k: v for k, v in extra.items() if k in ("image_url", "prompt")})
 
     def runner():
         try:
             job["message"] = fn(emit)
             job["status"] = "done"
+            m = job["message"] or {}
+            log_event("done", job=jid, tipo=m.get("kind"), intent=m.get("intent"), packs=m.get("packs"), score=m.get("score"),
+                      approved=m.get("approved"), veto=m.get("veto"), avisos=m.get("avisos"), resolved=m.get("resolved"),
+                      image=m.get("id"), pergunta=m.get("text") if m.get("kind") == "text" else None, segundos=m.get("seconds"))
         except ui.ApiError as e:
             job["status"], job["error"] = "error", str(e)
+            log_event("erro", job=jid, erro=str(e))
         except Exception as e:  # noqa: BLE001
             job["status"], job["error"] = "error", f"{type(e).__name__}: {e}"
+            log_event("erro", job=jid, erro=job["error"])
 
     threading.Thread(target=runner, daemon=True).start()
     return jid
@@ -399,7 +422,12 @@ def api_chat(b):
     inputs = collect_inputs(cid, b.get("edit_of"), b.get("asset_ids") or [])
     if not MOCK and not os.getenv("OPENAI_API_KEY") and not shutil.which("claude"):
         raise ui.ApiError(400, "Sem OPENAI_API_KEY e sem o CLI claude: nada a executar.")
-    return {"job": start_job(lambda emit: run_chat(b, emit, cid, text, ctx, inputs))}
+    meta = {"client": cid, "conv": b.get("conv"), "texto": text, "modo": b.get("mode") or "livre", "tamanho": b.get("size"),
+            "qualidade": b.get("quality"), "anexos": [{"tipo": x["kind"], "nome": x["name"]} for x in inputs], "edit_of": b.get("edit_of"),
+            "melhorias": {"designer": (b.get("improve") or {}).get("designer", True), "skills": (b.get("improve") or {}).get("skills", True),
+                          "critic": b.get("review", True), "comparar": (b.get("improve") or {}).get("compare_raw", False)},
+            "modelos": {"imagem": b.get("image_model"), "texto": b.get("text_model")}}
+    return {"job": start_job(lambda emit: run_chat(b, emit, cid, text, ctx, inputs), meta)}
 
 
 # ---------- memória da conversa (em disco; sobrevive a reinício e a atualizar a página) ----------
@@ -493,6 +521,12 @@ def resolve_turn(conv, text, avail, model, provider):
                 "use_last_image": bool(out.get("use_last_image")) and out["intent"] in ("edit", "variation"), "carry": carry or list(conv["carry"])}, None
     except Exception as e:  # noqa: BLE001
         return triv, f"não consegui resolver o contexto ({type(e).__name__}); usei a sua mensagem como está"
+
+
+def api_clientlog(b):
+    """Erros do navegador (JavaScript, rede) vão para o mesmo registro, para serem vistos e corrigidos."""
+    log_event("ui", tipo=str(b.get("kind", ""))[:30], mensagem=str(b.get("message", ""))[:600])
+    return {"ok": True}
 
 
 def api_conv(b):
@@ -654,7 +688,7 @@ def run_chat(b, emit, cid, text, ctx, inputs):
 
 POST = {"/api/client": api_client, "/api/client/save": api_client_save, "/api/asset": api_asset,
         "/api/asset/delete": api_asset_delete, "/api/asset/kind": api_asset_kind, "/api/chat": api_chat, "/api/job": api_job,
-        "/api/conv": api_conv}
+        "/api/conv": api_conv, "/api/clientlog": api_clientlog}
 
 
 class H(BaseHTTPRequestHandler):
