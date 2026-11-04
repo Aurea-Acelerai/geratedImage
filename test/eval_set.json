@@ -1,0 +1,8 @@
+[
+  {"id": 1, "request": "post de feed anunciando a promoção de verão, sem preço na imagem", "size": "1024x1024", "tags": ["ads-marketing", "sem-texto"]},
+  {"id": 2, "request": "banner de site com modelo usando biquíni na praia ao pôr do sol, com espaço livre à esquerda para o título", "size": "1536x1024", "tags": ["hero-banner", "composicao"]},
+  {"id": 3, "request": "story vertical mostrando três biquínis em cores diferentes: um azul, um amarelo e um branco, pendurados lado a lado", "size": "1024x1536", "tags": ["contagem", "vinculacao-atributos"]},
+  {"id": 4, "request": "foto de produto de uma canga estampada sobre areia, estilo catálogo", "size": "1024x1024", "tags": ["product-mockup"]},
+  {"id": 5, "request": "post com o título 'VERÃO 2027' em letras grandes sobre fundo de praia", "size": "1024x1024", "tags": ["texto-exato"]},
+  {"id": 6, "request": "peça de campanha com a mesma modelo e o mesmo estilo de uma série de 3 posts; este é o primeiro", "size": "1024x1536", "tags": ["serie", "consistencia"]}
+]

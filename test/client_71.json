@@ -1,0 +1,12 @@
+{
+  "id": 71,
+  "name": "Cliente Exemplo 71 (dados fictícios para teste)",
+  "sector": "moda praia",
+  "audience": "mulheres 25-40, urbanas",
+  "tone": "leve, solar, confiante",
+  "palette": ["#0B3C5D", "#F2A541", "#FFF8EC"],
+  "typography": "sans-serif geométrica, títulos em caixa alta",
+  "image_style": "fotografia editorial natural, luz de fim de tarde, cores quentes",
+  "approved_references": [],
+  "deliveries_last_30d": 18
+}
