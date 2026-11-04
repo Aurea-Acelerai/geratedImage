@@ -10,7 +10,9 @@ código monta as requisições e trata as respostas. Comportamentos de teste:
 - o 1º review do critic reprova (nota 6) e o 2º aprova, para exercitar a correção;
 - pedido com "wrongsize" devolve uma imagem de 512x512 (o veto formato_incorreto tem que aparecer);
 - pedido com "perguntar" faz o designer devolver uma pergunta;
-- --models-missing lista só modelos antigos (o aviso de modelo ausente tem que aparecer).
+- --models-missing lista só modelos antigos (o aviso de modelo ausente tem que aparecer);
+- injeção de falhas nas imagens (para provider.py): "flaky429" responde 429 com Retry-After: 0 na 1ª chamada daquele
+  prompt e funciona na seguinte; "always500" responde sempre 500; "moderated" responde 400 moderation_blocked.
 """
 import argparse, base64, email, json, re, struct, sys, threading, time, zlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -18,6 +20,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 STATS = {"models": 0, "chat_writer": 0, "chat_critic": 0, "generations": 0, "edits": 0, "edit_images": [], "writer_images": [],
          "critic_images": [], "auth": set(), "edit_fields": [], "last_writer_user": "", "writer_systems": [], "image_prompts": [], "critic_systems": [], "resolver_users": [], "web_queries": [], "locator_calls": 0, "edit_masks": [], "edit_first_sizes": []}
 LOCK = threading.Lock()
+SEEN = {}  # prompt -> chamadas já vistas (injeção de falhas)
 CRITIC_KEYS = ["subject", "style", "composition", "hierarchy", "legibility_size", "message_clarity", "craft", "color_contrast",
                "text", "defects", "format", "binding_count", "invariants", "brand_fit", "style_mechanism", "identity_match"]
 
@@ -124,6 +127,8 @@ class H(BaseHTTPRequestHandler):
             time.sleep(self.delay)  # simula a demora da geração
         if self.path == "/v1/images/generations":
             req = json.loads(body)
+            if self._inject_failure(req["prompt"]):
+                return
             with LOCK:
                 STATS["generations"] += 1; STATS["image_prompts"].append(req["prompt"])
             w, h = (512, 512) if "wrongsize" in req["prompt"].lower() else map(int, req["size"].split("x"))
@@ -139,6 +144,8 @@ class H(BaseHTTPRequestHandler):
                 return struct.unpack(">II", d[16:24]) if d[:8] == b"\x89PNG\r\n\x1a\n" else None
             mk = [p for p in msg.get_payload() if p.get_param("name", header="content-disposition") == "mask"]
             first = next((p for p in msg.get_payload() if p.get_param("name", header="content-disposition") == "image[]"), None)
+            if self._inject_failure(fields.get("prompt", b"").decode()):
+                return
             with LOCK:
                 STATS["edit_masks"].append(_psize(mk[0]) if mk else None)
                 STATS["edit_first_sizes"].append(_psize(first) if first is not None else None)
@@ -153,6 +160,25 @@ class H(BaseHTTPRequestHandler):
             w, h = (512, 512) if "wrongsize" in fields.get("prompt", b"").decode().lower() else map(int, size.split("x"))
             return self._json(200, {"data": [{"b64_json": base64.b64encode(png(w, h)).decode()}]})
         self._json(404, {"error": {"message": "rota desconhecida"}})
+
+    def _inject_failure(self, prompt):
+        """True se respondeu com uma falha injetada (ver docstring)."""
+        low = prompt.lower()
+        with LOCK:
+            SEEN[prompt] = SEEN.get(prompt, 0) + 1
+            n = SEEN[prompt]
+        if "flaky429" in low and n == 1:
+            d = json.dumps({"error": {"message": "Rate limit reached", "code": "rate_limit_exceeded"}}).encode()
+            self.send_response(429); self.send_header("Retry-After", "0"); self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(d))); self.end_headers(); self.wfile.write(d)
+            return True
+        if "always500" in low:
+            self._json(500, {"error": {"message": "server error"}})
+            return True
+        if "moderated" in low:
+            self._json(400, {"error": {"message": "blocked", "code": "moderation_blocked"}})
+            return True
+        return False
 
     def log_message(self, *a):
         pass

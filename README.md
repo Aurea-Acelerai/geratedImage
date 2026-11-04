@@ -76,6 +76,9 @@ python3 ui_server.py --mock            # sem API, só para ver a UI (dados falso
 Sem `OPENAI_API_KEY`, a interface usa o **Claude (Sonnet) via CLI `claude`**, com o seu login, para escrever o briefing; imagem e critic ficam desligados (precisam da chave da OpenAI). Em lote, sem interface: `python3 run_briefings_claude.py` (os 6 casos, saída em `test/out/`).
 Escolha um caso (ou escreva um pedido), edite o JSON do cliente e clique em **Rodar**: briefing do system prompt → imagem → critic. Dá para editar o prompt final e regerar, aplicar a correção sugerida pelo critic e comparar com o prompt cru (braço A). O `prompts/designer-imagegen.system.md` é relido a cada execução: edite e rode de novo, sem reiniciar.
 
+## Adapter da OpenAI Images, testes e CI
+`test/provider.py` é a camada única das chamadas de imagem (validação contra `test/provider_capabilities.json`, retry só para erro seguro, Retry-After, orçamento por sessão `IMAGE_BUDGET_SESSION` e por mensagem `IMAGE_BUDGET_TASK`, trace sem prompt). Testes: `cd test && sh run_tests.sh` (sem chave, sem custo; o mesmo comando roda no CI). **Auditoria, limites e plano: `docs/13-auditoria-harness-geral.md`.** Nada disso foi medido com a API real.
+
 ## Pendências
 - Ligar `get_client` ao banco real (Kelvin).
 - Incorporar a documentação do "Ive" na skill.

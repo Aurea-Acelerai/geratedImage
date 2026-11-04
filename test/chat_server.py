@@ -19,7 +19,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 ROOT = pathlib.Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
-import checks, client_provider, critic, regionedit, research, skills_router  # noqa: E402
+import checks, client_provider, critic, provider as provider_mod, regionedit, research, skills_router  # noqa: E402
 import store as store_mod  # noqa: E402  (Store: FileStore/MemoryStore/BlobStore)
 import run_comparison as rc  # noqa: E402
 import ui_server as ui  # noqa: E402  (openai_post, ApiError, env_models)
@@ -146,32 +146,21 @@ def with_urls(cid, assets):
 
 
 # ---------- OpenAI (JSON, multipart) ----------
-def openai_multipart(path, fields, files, timeout=300):
-    key = os.getenv("OPENAI_API_KEY")
-    if not key:
-        raise ui.ApiError(400, "Defina OPENAI_API_KEY antes de iniciar o servidor (ou use --mock).")
-    boundary = uuid.uuid4().hex
-    parts = []
-    for k, v in fields.items():
-        parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="{k}"\r\n\r\n{v}\r\n'.encode())
-    for name, fname, mime, data in files:
-        parts.append(f'--{boundary}\r\nContent-Disposition: form-data; name="{name}"; filename="{fname}"\r\n'
-                     f'Content-Type: {mime}\r\n\r\n'.encode() + data + b"\r\n")
-    body = b"".join(parts) + f"--{boundary}--\r\n".encode()
-    req = urllib.request.Request(ui.OPENAI + path, data=body, method="POST", headers={
-        "Authorization": f"Bearer {key}", "Content-Type": f"multipart/form-data; boundary={boundary}"})
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            return json.loads(r.read())
-    except urllib.error.HTTPError as e:
-        raw = e.read().decode("utf-8", "replace")
-        try:
-            msg = json.loads(raw)["error"]["message"]
-        except Exception:
-            msg = raw[:500]
-        raise ui.ApiError(502, f"OpenAI {e.code}: {msg}")
-    except urllib.error.URLError as e:
-        raise ui.ApiError(502, f"Falha de rede: {e.reason}")
+SESSION_BUDGET = provider_mod.Budget("sessão", int(os.getenv("IMAGE_BUDGET_SESSION", "200")))  # chamadas pagas de imagem por execução do servidor
+TASK_BUDGET_CALLS = int(os.getenv("IMAGE_BUDGET_TASK", "8"))  # por mensagem do chat (gerações, correções e repetições de rede)
+_IMAGES = None
+
+
+def images_client():
+    """Adapter de imagens (validação, retry, orçamento, trace). Criado na 1ª chamada; a chave é lida a cada requisição."""
+    global _IMAGES
+    if _IMAGES is None:
+        _IMAGES = provider_mod.from_env(budgets=[SESSION_BUDGET], on_event=lambda e: log_event(**e))
+    return _IMAGES
+
+
+def _api_error(e):
+    return ui.ApiError({"validation": 400, "auth": 400, "budget": 429}.get(e.kind, 502), str(e))
 
 
 def sniff_mime(b64):
@@ -249,7 +238,7 @@ def write_briefing(ctx, text, size, history, inputs, feedback=None, prev=None, m
     return json.loads(r["choices"][0]["message"]["content"])
 
 
-def make_image(prompt, size, quality, inputs, model, fidelity=None, notes=None, mask=None):
+def make_image(prompt, size, quality, inputs, model, fidelity=None, notes=None, mask=None, budget=None):
     if MOCK:
         time.sleep(0.8)
         w, h = (1024, 1024) if size == "auto" else (int(x) for x in size.split("x"))  # "auto": sem alvo com proporção própria, 1024x1024
@@ -260,31 +249,35 @@ def make_image(prompt, size, quality, inputs, model, fidelity=None, notes=None, 
                f"imagem FALSA: a OpenAI não foi chamada</text><text x='50%' y='60%' font-size='{w // 34}' fill='white' text-anchor='middle'>"
                f"para imagens reais rode ./run_chat.sh com a chave ({len(inputs)} entrada(s))</text></svg>")
         return base64.b64encode(svg.encode()).decode(), "svg"
-    if inputs:
-        files = [("image[]", f"in{i}.{MIME_EXT.get(x['mime'], 'png')}", x["mime"], x["bytes"]) for i, x in enumerate(inputs)]
-        if mask:  # a máscara vale para a primeira imagem (o alvo); transparente = onde o modelo pode editar
-            files.append(("mask", "mask.png", "image/png", mask))
-        fields = {"model": model, "prompt": prompt, "size": size, "quality": quality, "n": 1}
-        if fidelity and model in FIDELITY_REJECTED:
-            fidelity = None
-            if notes is not None and FIDELITY_MSG not in notes:
-                notes.append(FIDELITY_MSG)
-        if fidelity:
-            fields["input_fidelity"] = fidelity  # alta fidelidade preserva rosto, logo e produto das imagens de entrada
-        try:
-            r = openai_multipart("/images/edits", fields, files)
-        except ui.ApiError as e:
-            if fidelity and "input_fidelity" in str(e):  # o modelo não aceita o parâmetro: repete sem ele e avisa
-                fields.pop("input_fidelity")
-                FIDELITY_REJECTED.add(model)
+    extra = [budget] if budget else []
+    try:
+        if inputs:
+            if mask and inputs[0]["mime"] != "image/png" and regionedit.available():
+                # a API exige imagem e máscara no mesmo formato: o alvo vira PNG (os pixels são os mesmos)
+                inputs = [dict(inputs[0], bytes=regionedit._png(regionedit.open_rgb(inputs[0]["bytes"])), mime="image/png")] + list(inputs[1:])
+            if fidelity and model in FIDELITY_REJECTED:
+                fidelity = None
                 if notes is not None and FIDELITY_MSG not in notes:
                     notes.append(FIDELITY_MSG)
-                r = openai_multipart("/images/edits", fields, files)
-            else:
-                raise
-    else:
-        r = ui.openai_post("/images/generations", {"model": model, "prompt": prompt, "size": size, "quality": quality, "n": 1})
-    return r["data"][0]["b64_json"], "png"
+            # a máscara vale para a primeira imagem (o alvo); transparente = onde o modelo pode editar
+            call = lambda f: images_client().edit(prompt, model, size, quality, inputs=inputs, mask=mask, fidelity=f, extra_budgets=extra)
+            try:
+                r = call(fidelity)
+            except provider_mod.ProviderError as e:
+                if fidelity and e.kind == "unsupported_param" and e.param == "input_fidelity":  # o modelo não aceita: repete sem ele e avisa
+                    FIDELITY_REJECTED.add(model)
+                    if notes is not None and FIDELITY_MSG not in notes:
+                        notes.append(FIDELITY_MSG)
+                    r = call(None)
+                else:
+                    raise
+        else:
+            r = images_client().generate(prompt, model, size, quality, extra_budgets=extra)
+    except provider_mod.ProviderError as e:
+        raise _api_error(e)
+    if notes is not None:
+        notes.extend(w for w in r["warnings"] if w not in notes)
+    return r["b64"], r["ext"]
 
 
 def do_review(ctx, text, briefing, b64, ext, size, inputs, model, notes="", packs=None):
@@ -1616,6 +1609,7 @@ def run_chat(b, emit, cid, text, ctx, inputs, files=None, auto=None, stale=None,
     fidelity = "high" if any(x["kind"] in IDENTITY_KINDS + ("alvo", "variacao") for x in inputs) else None
     mid = re.sub(r"[^a-z0-9]", "", time.strftime("%Y%m%d%H%M%S") + uuid.uuid4().hex[:4])
     cycles, best = [], None
+    task_budget = provider_mod.Budget("tarefa", TASK_BUDGET_CALLS)
     for cycle in range(max_cycle + 1):
         how = "editando com as imagens de entrada" if inputs else "gerando"
         emit(f"Tentativa {cycle + 1}: {how} (OpenAI Images, modelo {image_model}, {size}, {quality}" + (", fidelidade alta" if fidelity and image_model not in FIDELITY_REJECTED else "") + ")…")
@@ -1625,7 +1619,7 @@ def run_chat(b, emit, cid, text, ctx, inputs, files=None, auto=None, stale=None,
             mask_png = region["mask"]
             if region["mode"] == "extend":
                 call_inputs = [dict(alvo_in, bytes=region["canvas"], mime="image/png")] + [x for x in inputs if x is not alvo_in]
-        b64, ext = make_image(brief["prompt"], size, quality, call_inputs, image_model, fidelity, avisos, mask=mask_png)
+        b64, ext = make_image(brief["prompt"], size, quality, call_inputs, image_model, fidelity, avisos, mask=mask_png, budget=task_budget)
         gid = f"{mid}c{cycle}"
         if region:  # guarda o que o modelo gerou e entrega o original recomposto
             raw = base64.b64decode(b64)
@@ -1670,7 +1664,7 @@ def run_chat(b, emit, cid, text, ctx, inputs, files=None, auto=None, stale=None,
     if imp["compare_raw"]:
         emit("Gerando a versão do GPT puro (o seu texto, sem a aplicação) para comparar…")
         tr = time.time()
-        b64, ext = make_image(text_eff, size, quality, inputs, image_model, fidelity, avisos)
+        b64, ext = make_image(text_eff, size, quality, inputs, image_model, fidelity, avisos, budget=task_budget)
         rid = f"{mid}raw"
         get_store().write_bytes(f"chat_out/{slug(scope)}/{rid}.{ext}", base64.b64decode(b64), "image/svg+xml" if ext == "svg" else "image/png")
         raw = {"id": rid, "url": f"/files/{slug(scope)}/out/{rid}.{ext}", "prompt": text_eff}

@@ -1,0 +1,24 @@
+{
+  "_comment": "Capacidades por modelo de imagem. Dados, não regra global: um modelo fora desta tabela só passa pela checagem de formato (WxH ou auto) e recebe o aviso 'não verificado'. Atualize ao trocar de modelo, conferindo a documentação oficial.",
+  "_source": "https://developers.openai.com/api/docs/guides/image-generation",
+  "_verified_on": "2026-11-04",
+  "_not_verified": [
+    "input_fidelity nos modelos 2.5: a página só diz que gpt-image-2 não aceita o parâmetro (omitir); para 2.5 o harness tenta e recua se a API recusar",
+    "limites de taxa (rate limits): a página não os informa; o adapter confia no Retry-After da resposta",
+    "preço por imagem dos modelos 2.5: cobrança por tokens, sem tabela por imagem; o orçamento é por chamadas pagas, não em dinheiro"
+  ],
+  "models": {
+    "gpt-image-2.5-sunburst": {
+      "sizes": {"auto": true, "multiple_of": 16, "max_edge": 3840, "min_pixels": 655360, "max_pixels": 8294400, "max_aspect": 3},
+      "quality": ["auto", "low", "medium", "high", "xhigh", "max"],
+      "max_input_bytes": 52428800,
+      "input_fidelity": "unverified"
+    },
+    "gpt-image-2.5-flare": {
+      "sizes": {"auto": true, "multiple_of": 16, "max_edge": 3840, "min_pixels": 655360, "max_pixels": 8294400, "max_aspect": 3},
+      "quality": ["auto", "low", "medium", "high", "xhigh", "max"],
+      "max_input_bytes": 52428800,
+      "input_fidelity": "unverified"
+    }
+  }
+}
