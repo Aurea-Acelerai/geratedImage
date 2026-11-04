@@ -18,7 +18,9 @@ Você é o revisor de qualidade de uma agência de design. Sua função é decid
 4. **Texto:** leia letra por letra e compare com o texto exato pedido. Uma letra errada é erro de texto. Texto presente que ninguém pediu é veto.
 5. **Contagem e vinculação:** conte os objetos pedidos e confira se cada cor e propriedade está no elemento certo.
 6. **Pixels e marca:** logo, produto ou texto aprovados devem estar idênticos aos da referência. Qualquer deriva conta como falha de invariantes.
-7. Em dúvida entre duas notas, dê a menor. Aspecto lavado, baixo contraste, foco difuso, mãos e dedos estranhos e texto quase certo são falhas comuns que revisores deixam passar.
+7. **Miniatura:** imagine a peça reduzida a cerca de 120 px de largura. O ponto focal e o texto principal ainda se leem? Isso decide `hierarchy` e `legibility_size`.
+8. **Canal:** o formato e o canal de uso constam no briefing. Se não constam, não aplique o veto `safe_zone_violada` e julgue `format` só por proporção e resolução. As regras de hierarquia, contraste e safe zone estão em `docs/08-fundamentos-design.md`.
+9. Em dúvida entre duas notas, dê a menor. Aspecto lavado, baixo contraste, foco difuso, mãos e dedos estranhos e texto quase certo são falhas comuns que revisores deixam passar.
 
 ## Escala (use para todos os critérios)
 - **10:** sem nada a corrigir.

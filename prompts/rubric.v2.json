@@ -1,0 +1,23 @@
+{
+  "version": "2",
+  "pass_score": 8.0,
+  "max_cycles": 2,
+  "criteria": [
+    {"key": "subject", "weight": 2, "description": "Assunto e ação conforme o briefing."},
+    {"key": "style", "weight": 1, "description": "Estilo e medium conforme o briefing e iguais ao do conjunto de peças do cliente."},
+    {"key": "composition", "weight": 1, "description": "Composição adequada ao papel: hero com espaço negativo calmo onde o texto entra; cell com o quadro preenchido."},
+    {"key": "color_contrast", "weight": 2, "description": "Paleta da marca, contraste forte, foco nítido e profundidade tonal. Aspecto lavado, leitoso, chapado ou foco difuso derrubam a nota."},
+    {"key": "text", "weight": 2, "description": "Texto exato, legível e sem extras. Confira letra por letra. Use null se nenhum texto foi pedido e não há texto na imagem."},
+    {"key": "defects", "weight": 1, "description": "Sem defeitos de anatomia, mãos, objetos, perspectiva ou artefatos."},
+    {"key": "format", "weight": 0.5, "description": "Proporção e resolução corretas para o contêiner de uso."},
+    {"key": "binding_count", "weight": 1, "description": "Cada cor, objeto e propriedade ligado ao elemento certo; contagens corretas; negações respeitadas."},
+    {"key": "invariants", "weight": 0.5, "description": "Em edição: o que devia ficar igual ficou. Em série: personagem, produto e estilo consistentes com as imagens de referência. Use null se não for edição nem série."}
+  ],
+  "vetos": [
+    {"key": "logo_inventado", "description": "Logo ou marca que não é a do cliente, ou logo do cliente redesenhado."},
+    {"key": "watermark", "description": "Marca d'água ou assinatura visível."},
+    {"key": "texto_indevido", "description": "Texto que ninguém pediu, ilegível ou com letras inventadas."},
+    {"key": "pessoa_real_sem_referencia", "description": "Rosto de pessoa real sem foto de referência fornecida."},
+    {"key": "dado_inventado", "description": "Número, preço, data ou fato exibido que não veio do contexto."}
+  ]
+}

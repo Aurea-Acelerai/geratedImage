@@ -25,6 +25,7 @@ import argparse, base64, csv, json, os, pathlib, random, sys, time
 ROOT = pathlib.Path(__file__).resolve().parent
 SYSTEM_PROMPT_PATH = ROOT.parent / "prompts" / "designer-imagegen.system.md"
 sys.path.insert(0, str(ROOT))
+import checks  # regras de design (docs/08) e checagens por código
 import critic  # rubrica, limiar e prompt do critic: prompts/rubric.json e prompts/critic.system.md
 from critic import MAX_CYCLES, PASS_SCORE, WEIGHTS, decide, weighted
 
@@ -37,6 +38,7 @@ def load_system_prompt(client_ctx, agency="Aurea Tech"):
     profile = PROFILE_PATH.read_text(encoding="utf-8")
     return (txt.replace("{{client_context_json}}", json.dumps(client_ctx, ensure_ascii=False, indent=2))
                .replace("{{agency_name}}", agency)
+               .replace("{{design_fundamentals}}", checks.design_fundamentals())
                .replace("{{image_tool_profile}}", profile))
 
 
@@ -51,8 +53,10 @@ def save_png(b64, path):
 
 def self_test():
     critic.self_test()
+    checks.self_test()
     sp = load_system_prompt({"name": "x"})
-    assert all(v not in sp for v in ("{{client_context_json}}", "{{agency_name}}", "{{image_tool_profile}}")), "variável sem preencher"
+    assert "E1." in sp and "agent:start" not in sp, "regras de design não chegaram ao system prompt"
+    assert all(v not in sp for v in ("{{client_context_json}}", "{{agency_name}}", "{{image_tool_profile}}", "{{design_fundamentals}}")), "variável sem preencher"
 
 
 def run_case(client, case, client_ctx, out, args):
@@ -74,7 +78,8 @@ def run_case(client, case, client_ctx, out, args):
     vlm = critic.openai_vlm(client, os.getenv("CRITIC_MODEL", text_model))  # trocar de backend = outro adaptador
 
     def review(b64, briefing):
-        return critic.review(vlm, briefing, client_ctx, request, [("Imagem avaliada", b64)])
+        rv = critic.review(vlm, briefing, client_ctx, request, [("Imagem avaliada", b64)])
+        return checks.apply(rv, b64, size)  # vetos por código valem para todos os braços
 
     pa = naive_prompt(client_ctx, request)
 

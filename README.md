@@ -34,6 +34,19 @@ python analyze.py out/<timestamp>             # tabela por braço: nota humana, 
 Braço extra **N**: igual ao B, mas com cores por nome em vez de código hex (testa se o hex atrapalha). `--arms` escolhe quais braços rodar.
 Os modelos padrão (`gpt-image-2.5-sunburst`, `gpt-5.5`) seguem a documentação da OpenAI de nov/2026; confirme na conta e ajuste por variável de ambiente. O critic é um LLM: a decisão final usa a nota humana.
 
+## Regras de design (valem em toda geração)
+`docs/08-fundamentos-design.md` define as regras. Elas entram no system prompt do designer (`{{design_fundamentals}}`), na rubrica v3 do critic (`prompts/rubric.json`; a v2 fica em `rubric.v2.json`) e em checagens por código (`test/checks.py`). Teste offline: `cd test && python3 checks.py --self-test && python3 run_comparison.py --dry-run`.
+
+## Interface rápida para testar o system prompt
+```bash
+cd test
+export OPENAI_API_KEY=...            # chave de teste
+python3 ui_server.py                   # abre http://127.0.0.1:8765  (sem dependências)
+python3 ui_server.py --mock            # sem API, só para ver a UI (dados falsos)
+```
+Sem `OPENAI_API_KEY`, a interface usa o **Claude (Sonnet) via CLI `claude`**, com o seu login, para escrever o briefing; imagem e critic ficam desligados (precisam da chave da OpenAI). Em lote, sem interface: `python3 run_briefings_claude.py` (os 6 casos, saída em `test/out/`).
+Escolha um caso (ou escreva um pedido), edite o JSON do cliente e clique em **Rodar**: briefing do system prompt → imagem → critic. Dá para editar o prompt final e regerar, aplicar a correção sugerida pelo critic e comparar com o prompt cru (braço A). O `prompts/designer-imagegen.system.md` é relido a cada execução: edite e rode de novo, sem reiniciar.
+
 ## Pendências
 - Ligar `get_client` ao banco real (Kelvin).
 - Incorporar a documentação do "Ive" na skill.
