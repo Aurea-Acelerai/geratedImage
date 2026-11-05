@@ -1,0 +1,16 @@
+create role anon nologin; create role authenticated nologin; create role service_role nologin bypassrls;
+create extension unaccent; create extension pg_trgm;
+create type public.checkout_status_pagamento as enum ('aguardando_pagamento','pago','parcialmente_pago','cancelado');
+create function public.crm_compra_nao_cancelada(p_cancelado jsonb, p_vendarecusada boolean) returns boolean language sql immutable parallel safe as $$ select p_cancelado is null and coalesce(p_vendarecusada,false)=false $$;
+create table public.segmentos(id uuid primary key default gen_random_uuid(), nome text);
+create table public.subsegmento(id uuid primary key default gen_random_uuid(), nome text);
+create table public.clientes(id uuid primary key default gen_random_uuid(), nome text not null, cpf text, cnpj text, segmento uuid, subsegmento uuid, nome_fantasia text, email text, telefone text);
+create table public.compras(id uuid primary key default gen_random_uuid(), cliente_id uuid, celebridade uuid, created_at timestamptz not null default now(), clicksign_status text, segmento uuid, subsegmento uuid, vendaaprovada boolean, vendarecusada boolean not null default false, checkout_status public.checkout_status_pagamento not null default 'aguardando_pagamento', is_test boolean default false, cancelado jsonb, valor numeric);
+create table public.leads(id uuid primary key default gen_random_uuid(), email text);
+create table public.onboarding_identity(id uuid primary key default gen_random_uuid(), compra_id uuid not null unique, brand_palette text[] not null default '{}', font_choice text, campaign_images_paths text[] default '{}', updated_at timestamptz not null default now(), site_url text, instagram_handle text, brand_display_name text, campaign_notes text);
+create table public.onboarding_briefings(compra_id uuid not null, briefing_json jsonb, status text, brief_text text);
+create table public.onboarding_enrichment_jobs(compra_id uuid not null, detected_font text, created_at timestamptz not null default now());
+create table public.onboarding_logo_history(id uuid primary key default gen_random_uuid(), compra_id uuid not null, logo_path text not null, mime_type text, size_bytes bigint, uploaded_at timestamptz not null default now(), is_active boolean not null default false);
+create table public.compras_celebridades(compra_id uuid not null, celebridade_id uuid not null, principal boolean not null default false);
+create table public."celebridadesReferencia"(id uuid primary key default gen_random_uuid(), nome text, "fotoPrincipal" text, "fotoMobile" text, ativo boolean);
+grant usage on schema public to anon, authenticated;
