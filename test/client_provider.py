@@ -15,6 +15,9 @@ import re
 import unicodedata
 import urllib.error
 import urllib.parse
+import ssl
+import uuid
+import datetime
 import urllib.request
 
 # Campos que podem ir ao prompt. Nunca CPF, telefone, e-mail, endereço, financeiro ou pagamento: o que não está aqui é descartado.
@@ -131,6 +134,9 @@ class Transport:
     def post_bytes(self, path, payload):  # -> (bytes, content-type)
         raise NotImplementedError
 
+    def logos(self, cid):  # -> até 3 linhas (item_id, storage_path, mime_type, ativo) da view de logos
+        raise NotImplementedError
+
 
 class HttpTransport(Transport):
     SCHEMA = "chat_design"
@@ -164,11 +170,79 @@ class HttpTransport(Transport):
     def rpc(self, fn, params):
         return self._rows(f"{self.url}/rest/v1/rpc/{fn}?" + urllib.parse.urlencode({k: v for k, v in params.items() if v is not None}))
 
+    def logos(self, cid):
+        return self.get("vw_chat_logos_cliente", {"select": "item_id,storage_path,mime_type,ativo", "cliente_id": f"eq.{cid}", "tipo": "eq.logo", "order": "ordem", "limit": "3"})
+
     def post_bytes(self, path, payload):
         if not self._asset_key:
             raise ProviderError("logo indisponível: falta CHAT_DESIGN_ASSET_KEY no servidor")
         return self._open(urllib.request.Request(f"{self.url}/functions/v1/{path}", method="POST", data=json.dumps(payload).encode(),
                                                  headers={"x-chat-design-key": self._asset_key, "Content-Type": "application/json"}))
+
+
+class PgTransport(Transport):
+    """Postgres direto, SOMENTE LEITURA (opção B da proposta: o schema não precisa ser exposto na API pública).
+    Só roda as consultas fixas abaixo, sempre parametrizadas, em transação READ ONLY, com o papel chat_design_ro.
+    Os bytes dos logos continuam vindo da Edge Function (asset), nunca de URL assinada."""
+    FUNCS = {
+        "buscar_cliente_chat": ("select * from chat_design.buscar_cliente_chat(%s, %s)", ("q", "limite")),
+        "carregar_cliente_chat": ("select * from chat_design.carregar_cliente_chat(%s)", ("p_cliente_id",)),
+        "buscar_celebridade_chat": ("select * from chat_design.buscar_celebridade_chat(%s, %s)", ("q", "limite")),
+    }
+    LOGOS_SQL = ("select item_id, storage_path, mime_type, ativo from chat_design.vw_chat_logos_cliente "
+                 "where cliente_id = %s and tipo = 'logo' order by ordem limit 3")
+
+    def __init__(self, connect, asset=None):
+        self._connect, self._asset = connect, asset  # connect() -> conexão DB-API; asset: HttpTransport só para post_bytes
+
+    def _run(self, sql, args):
+        conn = None
+        try:
+            conn = self._connect()
+            cur = conn.cursor()
+            cur.execute("set transaction read only")
+            cur.execute(sql, args)
+            cols = [d[0] for d in (cur.description or [])]
+            rows = [dict(zip(cols, r)) for r in cur.fetchall()]
+            conn.rollback()  # nada a gravar: encerra a transação de leitura
+            return [{k: (str(v) if isinstance(v, (uuid.UUID, datetime.datetime, datetime.date)) else v) for k, v in r.items()} for r in rows]
+        except ProviderError:
+            raise
+        except Exception:  # a mensagem do driver pode trazer host/usuário: nunca repassar
+            raise ProviderError("banco indisponível (falha na consulta ou na conexão)")
+        finally:
+            try:
+                if conn is not None:
+                    conn.close()
+            except Exception:
+                pass
+
+    def get(self, path, params):
+        raise ProviderError("consulta não permitida neste transporte")
+
+    def rpc(self, fn, params):
+        spec = self.FUNCS.get(fn)
+        if not spec:
+            raise ProviderError("consulta não permitida")
+        sql, names = spec
+        return self._run(sql, tuple(params.get(n) for n in names))
+
+    def logos(self, cid):
+        return self._run(self.LOGOS_SQL, (str(cid),))
+
+    def post_bytes(self, path, payload):
+        if self._asset is None:
+            raise ProviderError("logo indisponível: falta SUPABASE_URL e CHAT_DESIGN_ASSET_KEY no servidor")
+        return self._asset.post_bytes(path, payload)
+
+
+def _pg8000_connect(host, port, user, password, database, tls):
+    try:
+        import pg8000.dbapi as pg
+    except ImportError:
+        raise ProviderError("banco indisponível: driver pg8000 não instalado")
+    ctx = ssl.create_default_context() if tls else None  # valida o certificado do servidor
+    return pg.connect(host=host, port=port, user=user, password=password, database=database, ssl_context=ctx, timeout=5)
 
 
 def _magic(raw):
@@ -192,8 +266,40 @@ class SupabaseClientProvider(ClientProvider):
     def __init__(self, transport):
         self.t = transport
 
+    ROLE = "chat_design_ro"
+
+    @classmethod
+    def _from_dsn(cls, dsn):
+        """Opção B: CHAT_DB_DSN=postgresql://chat_design_ro[.<ref>]:senha@host:porta/postgres. Recusa outro usuário (menor privilégio)
+        e host fora de *.supabase.co / *.pooler.supabase.com / CHAT_DB_HOST. TLS obrigatório fora de localhost."""
+        try:
+            p = urllib.parse.urlparse(dsn)
+            host, port, user, pwd = (p.hostname or "").lower(), p.port or 5432, urllib.parse.unquote(p.username or ""), urllib.parse.unquote(p.password or "")
+        except ValueError:
+            return None
+        if p.scheme not in ("postgresql", "postgres") or not host or not pwd or p.query or p.fragment:
+            return None
+        if not (user == cls.ROLE or user.startswith(cls.ROLE + ".")):
+            return None  # nunca conectar com postgres/service_role por engano
+        local = host in ("127.0.0.1", "localhost")
+        expected = os.getenv("CHAT_DB_HOST", "").strip().lower()
+        if not local and not (host == expected or (not expected and (host.endswith(".supabase.co") or host.endswith(".pooler.supabase.com")))):
+            return None
+        db = (p.path or "/postgres").lstrip("/") or "postgres"
+        url, akey = os.getenv("SUPABASE_URL", "").strip(), os.getenv("CHAT_DESIGN_ASSET_KEY", "").strip()
+        asset = None
+        if url and akey:
+            ap = urllib.parse.urlparse(url)
+            ah = (ap.hostname or "").lower()
+            if ap.scheme == "https" and (ah.endswith(".supabase.co") or ah == os.getenv("CHAT_DB_HOST", "").strip().lower()) and not (ap.username or ap.password or ap.query or ap.fragment):
+                asset = HttpTransport(url, "", akey)
+        return cls(PgTransport(lambda: _pg8000_connect(host, port, user, pwd, db, not local), asset))
+
     @classmethod
     def from_env(cls):
+        dsn = os.getenv("CHAT_DB_DSN", "").strip()
+        if dsn:
+            return cls._from_dsn(dsn) if os.getenv("CHAT_DB_ENABLED") == "1" else None
         url, key = os.getenv("SUPABASE_URL", "").strip(), os.getenv("SUPABASE_READ_KEY", "").strip()
         if os.getenv("CHAT_DB_ENABLED") != "1" or not url or not key:
             return None  # desligado: o chat segue com o provedor local ("fonte: local")
@@ -250,7 +356,7 @@ class SupabaseClientProvider(ClientProvider):
         """Logos ativos do cliente (caminhos no bucket) pela view; os bytes vêm de fetch_asset."""
         if not re.fullmatch(r"[0-9a-fA-F-]{8,40}", str(cid)):
             raise NotFound(cid)
-        rows = self.t.get("vw_chat_logos_cliente", {"select": "item_id,storage_path,mime_type,ativo", "cliente_id": f"eq.{cid}", "tipo": "eq.logo", "order": "ordem", "limit": "3"})
+        rows = self.t.logos(cid)
         return [r for r in rows if r.get("ativo") and r.get("storage_path")]
 
     def fetch_asset(self, storage_path):
