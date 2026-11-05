@@ -47,6 +47,10 @@
     ],
     "vetos": [
       {
+        "key": "peca_sem_texto",
+        "description": "Peça de marketing pedida (banner, story, post, anúncio, promoção, lançamento) sem título legível, ou com área de texto vazia, ingresso/cartão/selo em branco ou placeholder. Peça de campanha sempre tem título com as palavras do pedido. Não vale para imagem livre (arte, retrato, cena) em que ninguém pediu texto."
+      },
+      {
         "key": "watermark",
         "description": "Marca d'água ou assinatura visível."
       },
