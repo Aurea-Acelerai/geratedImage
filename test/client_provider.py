@@ -239,12 +239,23 @@ class PgTransport(Transport):
         return self._asset.post_bytes(path, payload)
 
 
+SUPABASE_CA = os.path.join(os.path.dirname(os.path.abspath(__file__)), "supabase_ca_2021.pem")  # raiz pública do Supabase (não é segredo)
+
+
+def _tls_context(host):
+    """Valida certificado E nome do servidor. Hosts do Supabase usam a CA própria deles (não está nos certificados do sistema);
+    qualquer outro host (CHAT_DB_HOST) usa os certificados do sistema. Nunca desliga a verificação."""
+    if host.endswith(".supabase.co") or host.endswith(".supabase.com"):
+        return ssl.create_default_context(cafile=SUPABASE_CA)
+    return ssl.create_default_context()
+
+
 def _pg8000_connect(host, port, user, password, database, tls):
     try:
         import pg8000.dbapi as pg
     except ImportError:
         raise ProviderError("banco indisponível: driver pg8000 não instalado")
-    ctx = ssl.create_default_context() if tls else None  # valida o certificado do servidor
+    ctx = _tls_context(host) if tls else None  # valida o certificado do servidor
     return pg.connect(host=host, port=port, user=user, password=password, database=database, ssl_context=ctx, timeout=5)
 
 

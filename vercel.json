@@ -9,7 +9,7 @@
   "functions": {
     "api/index.py": {
       "maxDuration": 300,
-      "includeFiles": "{prompts/**,skills/**,docs/08-fundamentos-design.md,test/**/*.py,test/client_71.json,test/provider_capabilities.json,test/chat/**}"
+      "includeFiles": "{prompts/**,skills/**,docs/08-fundamentos-design.md,test/**/*.py,test/client_71.json,test/supabase_ca_2021.pem,test/provider_capabilities.json,test/chat/**}"
     }
   },
   "headers": [

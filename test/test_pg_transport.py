@@ -109,5 +109,15 @@ sys.modules["pg8000"] = None
 try: cp._pg8000_connect("h", 5432, "chat_design_ro", "x", "postgres", True); ok(False, "sem driver deveria falhar")
 except cp.ProviderError as e: ok("pg8000" in str(e), "sem pg8000 instalado: erro claro, sem derrubar o servidor")
 
+# 9) TLS: a CA do Supabase está no repositório, é um certificado válido e entra no pacote da Vercel; verificação nunca desligada
+import json, ssl as _ssl
+ok(os.path.isfile(cp.SUPABASE_CA), "certificado raiz do Supabase está no repositório")
+ctx = cp._tls_context("aws-0-sa-east-1.pooler.supabase.com")
+ok(ctx.verify_mode == _ssl.CERT_REQUIRED and ctx.check_hostname, "contexto TLS do Supabase exige certificado e confere o nome do servidor")
+ok(len(ctx.get_ca_certs()) == 1 and "Supabase Root 2021 CA" in str(ctx.get_ca_certs()[0].get("subject")), "confia só na CA do Supabase para hosts do Supabase")
+c2 = cp._tls_context("db.corp.test"); ok(c2.verify_mode == _ssl.CERT_REQUIRED and c2.check_hostname, "host próprio também verifica certificado e nome")
+inc = json.load(open(pathlib.Path(__file__).resolve().parent.parent / "vercel.json"))["functions"]["api/index.py"]["includeFiles"]
+ok("test/supabase_ca_2021.pem" in inc, "vercel.json empacota o certificado na função")
+
 print("TODOS OK" if not fails else f"{len(fails)} FALHA(S)")
 sys.exit(1 if fails else 0)
