@@ -91,10 +91,6 @@
       "description": "Número, preço, data ou fato exibido que não veio do contexto."
     },
     {
-      "key": "safe_zone_violada",
-      "description": "Texto, logo ou CTA dentro de área que a interface do canal declarado cobre (ver docs/08, F2). Só vale quando o canal consta no briefing."
-    },
-    {
       "key": "cta_vago",
       "description": "CTA pedido no briefing que aparece genérico ('clique aqui', 'saiba mais') ou que se mistura ao fundo. Só vale quando o briefing pede CTA."
     },

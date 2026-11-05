@@ -71,6 +71,6 @@ Reduza a ~120 px de largura (e simule celular com brilho a 50%): foco e texto pr
 
 ## Revisão (critic)
 - A proporção e a resolução batem com o destino declarado? Se o canal não foi declarado, avalie só proporção e resolução e **não aplique** o veto de safe zone.
-- Texto, logo ou CTA dentro da área coberta pela interface do canal (9:16: topo 14%, base 35%, lados 6%)? Veto `safe_zone_violada` (somente com canal declarado).
+- Safe zone de canal: **não vetar** (decisão do dono do produto; sem veto `safe_zone_violada`).
 - A peça é uma adaptação (hierarquia refeita) ou um redimensionamento mecânico?
 - Foco e texto principal legíveis a 120 px?
