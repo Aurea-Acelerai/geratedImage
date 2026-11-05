@@ -53,6 +53,10 @@ c, t = mk(fail=True)
 try: t.rpc("carregar_cliente_chat", {"p_cliente_id": str(CID)}); ok(False, "falha deveria virar ProviderError")
 except cp.ProviderError as e:
     m = str(e); ok("secret" not in m and "chat_design_ro" not in m and "password" not in m, f"erro sem vazamento: {m!r}"); ok(c.closed, "conexão fechada após falha")
+class PgErr(Exception): pass
+def authfail(): raise PgErr({"S": "FATAL", "C": "28P01", "M": "password authentication failed for user chat_design_ro", "H": "hunter2@db.secret"})
+try: cp.PgTransport(authfail).rpc("buscar_cliente_chat", {"q": "a", "limite": 1}); ok(False, "auth deveria falhar")
+except cp.ProviderError as e: ok("28P01" in str(e) and "hunter2" not in str(e) and "secret" not in str(e) and "chat_design_ro" not in str(e), f"diagnóstico só com o código SQLSTATE: {e}")
 def boom(): raise OSError("could not connect to server at db.secret.supabase.co:5432 with password hunter2")
 try: cp.PgTransport(boom).rpc("buscar_cliente_chat", {"q": "a", "limite": 1}); ok(False, "falha de conexão deveria virar ProviderError")
 except cp.ProviderError as e: ok("hunter2" not in str(e) and "secret" not in str(e), "falha de conexão também sem vazamento")

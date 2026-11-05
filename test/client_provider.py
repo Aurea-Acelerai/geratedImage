@@ -208,8 +208,11 @@ class PgTransport(Transport):
             return [{k: (str(v) if isinstance(v, (uuid.UUID, datetime.datetime, datetime.date)) else v) for k, v in r.items()} for r in rows]
         except ProviderError:
             raise
-        except Exception:  # a mensagem do driver pode trazer host/usuário: nunca repassar
-            raise ProviderError("banco indisponível (falha na consulta ou na conexão)")
+        except Exception as e:  # a mensagem do driver pode trazer host/usuário: nunca repassar; só o código SQLSTATE (5 caracteres) ou o tipo
+            a = e.args[0] if e.args else None
+            code = a.get("C") if isinstance(a, dict) else None
+            tag = code if isinstance(code, str) and re.fullmatch(r"[0-9A-Z]{5}", code) else type(e).__name__
+            raise ProviderError(f"banco indisponível (falha na consulta ou na conexão; {tag})")
         finally:
             try:
                 if conn is not None:
