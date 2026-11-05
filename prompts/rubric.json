@@ -157,7 +157,7 @@
       "vetos": [
         {
           "key": "identidade_divergente",
-          "description": "A pessoa, o produto ou o logo da imagem não corresponde à referência fornecida (outra pessoa ou sósia genérico, produto trocado, logo redesenhado)."
+          "description": "A pessoa, o produto ou o logo da imagem é CLARAMENTE outro que o da referência (pessoa de sexo, idade, cabelo ou etnia evidentemente diferentes; produto trocado; logo redesenhado ou com texto diferente). Você não consegue comparar rostos com precisão: diferença sutil de expressão, ângulo, iluminação ou retoque NÃO é veto; na dúvida, não vete e registre a dúvida em issues."
         }
       ]
     }
